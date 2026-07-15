@@ -18,8 +18,8 @@
 
 - **FR-001**: 任意のデプロイ処理を実行することなく、Rubyのアプリケーション定義をパースできること。
 - **FR-002**: リソース名、参照関係、ランタイム互換性、ファイルパス、IAM宣言、および依存関係の循環を検証できること。
-- **FR-003**: Rubyの関数コードとBundlerの依存関係を再現可能な形でパッケージングできること。
-- **FR-004**: ネイティブGemをAmazon Linux互換コンテナ内でビルドできること。
+- **FR-003**: 各種言語ランタイム（Ruby、Python、Node.js等）の関数コードと依存関係を再現可能な形でパッケージングできること。
+- **FR-004**: ネイティブモジュールやネイティブGem等をAmazon Linux互換コンテナ内でビルドできること。
 - **FR-005**: 関数およびLayerアーティファクトに対して、決定論的なコンテンツハッシュ値を生成できること。
 - **FR-006**: 各リソースをCloudFormationのYAMLおよび機械読取可能なマニフェストファイルにコンパイルできること。
 - **FR-007**: 変更セット（Change Set）を使用して、CloudFormationの変更内容をプレビューできること。
@@ -34,4 +34,4 @@
 
 ## 初期フェーズの対象外 (Out of Scope)
 
-API Gateway、AppSync、Cognito、Kinesis、ECS、Step Functions、CloudFront、一般的なすべてのCloudFormationリソース編集、既存の他のサーバーレスデプロイツールのプラグイン互換性、およびRuby以外の言語のパッケージング。
+API Gateway、AppSync、Cognito、Kinesis、ECS、Step Functions、CloudFront、一般的なすべてのCloudFormationリソース編集、および既存の他のサーバーレスデプロイツールのプラグイン互換性。
