@@ -1,0 +1,12 @@
+#!/usr/bin/env ruby
+
+require "bundler/setup"
+require "veltrunode"
+require "veltrunode/cli"
+
+begin
+  Veltrunode::CLI.start(ARGV)
+rescue Veltrunode::Error => e
+  warn "Error: #{e.message}"
+  exit 1
+end

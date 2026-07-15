@@ -1,0 +1,16 @@
+# Bundler
+/.bundle/
+/vendor/bundle/
+/Gemfile.lock
+
+# Veltrunode build artifacts
+/build/
+
+# IDEs
+.idea/
+.vscode/
+*.iml
+
+# OS files
+.DS_Store
+Thumbs.db
