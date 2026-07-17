@@ -1,0 +1,138 @@
+# =============================================================================
+# actions/labeler configuration
+# PRの変更ファイルパスやブランチ名に基づいてラベルを自動付与する
+# https://github.com/actions/labeler
+# =============================================================================
+
+# --- セマンティックバージョニング用ラベル（ブランチ名ベース） ---
+
+# breaking change / major version bump 用ブランチ
+"semver:major":
+  - head-branch: ['^breaking/', '^major/']
+
+# feature / minor version bump 用ブランチ
+"semver:minor":
+  - head-branch: ['^feat/', '^feature/', '^minor/']
+
+# bugfix / patch version bump 用ブランチ
+"semver:patch":
+  - head-branch: ['^fix/', '^bugfix/', '^hotfix/', '^patch/']
+
+# --- コンポーネントエリアラベル ---
+
+"area:cli":
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'lib/veltrunode/cli/**'
+          - 'exe/**'
+          - 'spec/veltrunode/cli/**'
+
+"area:dsl":
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'lib/veltrunode/dsl/**'
+          - 'spec/veltrunode/dsl/**'
+
+"area:model":
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'lib/veltrunode/model/**'
+          - 'spec/veltrunode/model/**'
+
+"area:graph":
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'lib/veltrunode/graph/**'
+          - 'spec/veltrunode/graph/**'
+
+"area:validation":
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'lib/veltrunode/validation/**'
+          - 'spec/veltrunode/validation/**'
+
+"area:build":
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'lib/veltrunode/build/**'
+          - 'spec/veltrunode/build/**'
+
+"area:compiler":
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'lib/veltrunode/compiler/**'
+          - 'spec/veltrunode/compiler/**'
+
+"area:deploy":
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'lib/veltrunode/deploy/**'
+          - 'spec/veltrunode/deploy/**'
+
+"area:diagnostics":
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'lib/veltrunode/diagnostics/**'
+          - 'spec/veltrunode/diagnostics/**'
+
+"area:aws-inspector":
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'lib/veltrunode/aws/**'
+          - 'spec/veltrunode/aws/**'
+
+"area:efs":
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'lib/veltrunode/aws/inspectors/efs*'
+          - 'lib/veltrunode/model/efs*'
+
+"area:security":
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'lib/veltrunode/model/capability*'
+          - 'lib/veltrunode/model/stage_policy*'
+          - 'SECURITY.md'
+
+# --- 横断的ラベル ---
+
+"area:docs":
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'docs/**'
+          - '*.md'
+          - 'LICENSE'
+
+"area:testing":
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'spec/**'
+          - '.rspec'
+
+"area:ci":
+  - changed-files:
+      - any-glob-to-any-file:
+          - '.github/**'
+
+"area:infra":
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'Gemfile'
+          - 'Gemfile.lock'
+          - 'veltrunode.gemspec'
+          - '.rubocop.yml'
+          - '.ruby-version'
+
+# --- PR 種別ラベル ---
+
+"type:feature":
+  - head-branch: ['^feat/', '^feature/']
+
+"type:bugfix":
+  - head-branch: ['^fix/', '^bugfix/', '^hotfix/']
+
+"type:chore":
+  - head-branch: ['^chore/', '^refactor/', '^ci/']
+
+"type:docs":
+  - head-branch: ['^docs/']
