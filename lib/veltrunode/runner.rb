@@ -1,5 +1,7 @@
-require "json"
-require "open3"
+# frozen_string_literal: true
+
+require 'json'
+require 'open3'
 
 module Veltrunode
   class Runner
@@ -14,18 +16,18 @@ module Veltrunode
 
     def execute
       handler_str = @function.handler
-      unless handler_str && handler_str.include?(".")
+      unless handler_str&.include?('.')
         raise Veltrunode::Error, "Invalid handler format: '#{handler_str}'. Expected 'file.method'"
       end
 
-      file_part, method_name = handler_str.split(".", 2)
-      runtime = @function.runtime || "ruby"
+      file_part, method_name = handler_str.split('.', 2)
+      runtime = @function.runtime || 'ruby'
 
-      if runtime.start_with?("ruby")
+      if runtime.start_with?('ruby')
         execute_ruby(file_part, method_name)
-      elsif runtime.start_with?("python")
+      elsif runtime.start_with?('python')
         execute_python(file_part, method_name)
-      elsif runtime.start_with?("node")
+      elsif runtime.start_with?('node')
         execute_node(file_part, method_name)
       else
         raise Veltrunode::Error, "Unsupported runtime for local execution: #{runtime}"
@@ -36,45 +38,47 @@ module Veltrunode
 
     def execute_ruby(file_part, method_name)
       rb_file = "#{file_part}.rb"
-      unless File.exist?(rb_file)
-        raise Veltrunode::Error, "Ruby file not found: #{rb_file}"
-      end
+      raise Veltrunode::Error, "Ruby file not found: #{rb_file}" unless File.exist?(rb_file)
 
       # Load the file inside a clean scope or main object
       load File.expand_path(rb_file)
 
       # Invoke the method
-      if respond_to?(method_name.to_sym, true) || Kernel.respond_to?(method_name.to_sym, true)
-        # Ruby handlers can accept keywords or positional args.
-        # Lambda standard is keyword args for event/context or positional.
-        # Let's inspect the method arity or just try calling it.
-        method_obj = method(method_name.to_sym) rescue Kernel.method(method_name.to_sym)
-        
-        # Check if it accepts keyword arguments or positional arguments
+      unless respond_to?(method_name.to_sym, true) || Kernel.respond_to?(method_name.to_sym, true)
+        raise Veltrunode::Error, "Handler method '#{method_name}' not defined in #{rb_file}"
+      end
+
+      # Ruby handlers can accept keywords or positional args.
+      # Lambda standard is keyword args for event/context or positional.
+      # Let's inspect the method arity or just try calling it.
+      method_obj = begin
+        method(method_name.to_sym)
+      rescue StandardError
+        Kernel.method(method_name.to_sym)
+      end
+
+      # Check if it accepts keyword arguments or positional arguments
+      begin
+        res = method_obj.call(event: @event_data, context: {})
+        puts JSON.pretty_generate(res)
+        res
+      rescue ArgumentError
+        # Fallback to positional if keywords fail
         begin
-          res = method_obj.call(event: @event_data, context: {})
+          res = method_obj.call(@event_data, {})
           puts JSON.pretty_generate(res)
           res
-        rescue ArgumentError => e
-          # Fallback to positional if keywords fail
-          begin
-            res = method_obj.call(@event_data, {})
-            puts JSON.pretty_generate(res)
-            res
-          rescue => e2
-            raise Veltrunode::Error, "Failed to execute Ruby handler: #{e2.message}"
-          end
-        rescue => e
-          raise Veltrunode::Error, "Failed to execute Ruby handler: #{e.message}"
+        rescue StandardError => e2
+          raise Veltrunode::Error, "Failed to execute Ruby handler: #{e2.message}"
         end
-      else
-        raise Veltrunode::Error, "Handler method '#{method_name}' not defined in #{rb_file}"
+      rescue StandardError => e
+        raise Veltrunode::Error, "Failed to execute Ruby handler: #{e.message}"
       end
     end
 
     def execute_python(file_part, method_name)
       # Convert file path to module notation: e.g. functions/hello -> functions.hello
-      module_name = file_part.gsub("/", ".")
+      module_name = file_part.gsub('/', '.')
       event_json = JSON.generate(@event_data)
 
       py_code = <<~PYTHON
@@ -91,18 +95,16 @@ module Veltrunode
             sys.exit(1)
       PYTHON
 
-      stdout, stderr, status = Open3.capture3("python3", "-c", py_code, event_json)
-      if status.success?
-        begin
-          parsed = JSON.parse(stdout.strip)
-          puts JSON.pretty_generate(parsed)
-          parsed
-        rescue JSON::ParserError
-          puts stdout
-          stdout
-        end
-      else
-        raise Veltrunode::Error, "Python execution failed: #{stderr.strip}"
+      stdout, stderr, status = Open3.capture3('python3', '-c', py_code, event_json)
+      raise Veltrunode::Error, "Python execution failed: #{stderr.strip}" unless status.success?
+
+      begin
+        parsed = JSON.parse(stdout.strip)
+        puts JSON.pretty_generate(parsed)
+        parsed
+      rescue JSON::ParserError
+        puts stdout
+        stdout
       end
     end
 
@@ -132,18 +134,16 @@ module Veltrunode
         }
       JS
 
-      stdout, stderr, status = Open3.capture3("node", "-e", node_code, event_json)
-      if status.success?
-        begin
-          parsed = JSON.parse(stdout.strip)
-          puts JSON.pretty_generate(parsed)
-          parsed
-        rescue JSON::ParserError
-          puts stdout
-          stdout
-        end
-      else
-        raise Veltrunode::Error, "Node.js execution failed: #{stderr.strip}"
+      stdout, stderr, status = Open3.capture3('node', '-e', node_code, event_json)
+      raise Veltrunode::Error, "Node.js execution failed: #{stderr.strip}" unless status.success?
+
+      begin
+        parsed = JSON.parse(stdout.strip)
+        puts JSON.pretty_generate(parsed)
+        parsed
+      rescue JSON::ParserError
+        puts stdout
+        stdout
       end
     end
   end

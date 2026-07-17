@@ -1,8 +1,10 @@
-require "fileutils"
+# frozen_string_literal: true
+
+require 'fileutils'
 
 module Veltrunode
   class Generator
-    def self.run(target_dir = ".")
+    def self.run(target_dir = '.')
       generator = new(target_dir)
       generator.generate_all
     end
@@ -12,18 +14,18 @@ module Veltrunode
     end
 
     def generate_all
-      create_directory("functions")
-      create_directory("tests")
-      create_directory(".github/workflows")
+      create_directory('functions')
+      create_directory('tests')
+      create_directory('.github/workflows')
 
-      write_file("Veltrunodefile", veltrunodefile_template)
-      write_file("functions/hello.rb", ruby_handler_template)
-      write_file("functions/hello.py", python_handler_template)
-      write_file("functions/hello.js", node_handler_template)
-      write_file("tests/hello_test.rb", test_template)
-      write_file(".github/workflows/deploy.yml", ci_template)
-      
-      puts "Project initialized successfully!"
+      write_file('Veltrunodefile', veltrunodefile_template)
+      write_file('functions/hello.rb', ruby_handler_template)
+      write_file('functions/hello.py', python_handler_template)
+      write_file('functions/hello.js', node_handler_template)
+      write_file('tests/hello_test.rb', test_template)
+      write_file('.github/workflows/deploy.yml', ci_template)
+
+      puts 'Project initialized successfully!'
     end
 
     private
