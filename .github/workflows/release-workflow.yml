@@ -1,0 +1,139 @@
+name: Release Workflow
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    types: [opened, reopened, synchronize]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.4'
+          bundler-cache: false
+
+      - name: Check trigger type and run release actions
+        id: release_check
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          COMMIT_SHA: ${{ github.sha }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          ruby -e '
+            require "json"
+
+            if ENV["EVENT_NAME"] != "push"
+              # It is a PR event, just run release-drafter draft update
+              File.open(ENV["GITHUB_OUTPUT"], "a") do |f|
+                f.puts "action_type=draft"
+                f.puts "publish=false"
+              end
+              exit 0
+            end
+
+            # Query the PR associated with the merge commit
+            commit_sha = ENV["COMMIT_SHA"]
+            pr_json = `gh pr list --commit #{commit_sha} --state merged --json number,title,labels`
+            pr_data = JSON.parse(pr_json).first
+
+            if pr_data.nil?
+              # Not merged from PR (e.g. direct push to main), just draft
+              File.open(ENV["GITHUB_OUTPUT"], "a") do |f|
+                f.puts "action_type=draft"
+                f.puts "publish=false"
+              end
+              exit 0
+            end
+
+            title = pr_data["title"]
+            labels = pr_data["labels"].map { |l| l["name"] }
+
+            if title.start_with?("bump: version to")
+              # Version bump PR has been merged! Publish the release!
+              version_file = "lib/veltrunode/version.rb"
+              content = File.read(version_file)
+              version = content.match(/VERSION = \x27([^\x27]+)\x27/)[1]
+
+              File.open(ENV["GITHUB_OUTPUT"], "a") do |f|
+                f.puts "action_type=publish"
+                f.puts "publish=true"
+                f.puts "version=#{version}"
+              end
+              puts "Version bump PR merged. Publishing release v#{version}."
+            else
+              # Normal code PR has been merged! Create a version-bump PR!
+              bump_type = "patch"
+              if labels.include?("major")
+                bump_type = "major"
+              elsif labels.include?("minor")
+                bump_type = "minor"
+              end
+
+              version_file = "lib/veltrunode/version.rb"
+              content = File.read(version_file)
+              version = content.match(/VERSION = \x27([^\x27]+)\x27/)[1]
+
+              major, minor, patch = version.split(".").map(&:to_i)
+              case bump_type
+              when "major"
+                major += 1
+                minor = 0
+                patch = 0
+              when "minor"
+                minor += 1
+                patch = 0
+              else
+                patch += 1
+              end
+
+              new_version = "#{major}.#{minor}.#{patch}"
+              new_content = content.sub(/VERSION = \x27[^\x27]+\x27/, "VERSION = \x27#{new_version}\x27")
+              File.write(version_file, new_content)
+
+              File.open(ENV["GITHUB_OUTPUT"], "a") do |f|
+                f.puts "action_type=bump"
+                f.puts "publish=false"
+                f.puts "new_version=#{new_version}"
+              end
+              puts "Code PR merged. Creating version bump PR to v#{new_version} (type: #{bump_type})."
+            end
+          '
+
+      - name: Create Pull Request for Version Bump
+        if: steps.release_check.outputs.action_type == 'bump'
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "chore: bump version to v${{ steps.release_check.outputs.new_version }}"
+          branch: "bump-version/v${{ steps.release_check.outputs.new_version }}"
+          title: "bump: version to v${{ steps.release_check.outputs.new_version }}"
+          body: |
+            This PR bumps the project version to `v${{ steps.release_check.outputs.new_version }}` based on the merged Pull Request labels.
+            
+            Please review and approve this PR to merge the version bump into `main`. Once merged, the release workflow will automatically trigger to publish the new release.
+          labels: "chore"
+
+      - name: Run Release Drafter (Draft/Publish)
+        uses: release-drafter/release-drafter@v7
+        with:
+          config-name: release-drafter-config.yml
+          publish: ${{ steps.release_check.outputs.publish }}
+          tag: ${{ steps.release_check.outputs.action_type == 'publish' && format('v{0}', steps.release_check.outputs.version) || '' }}
+          name: ${{ steps.release_check.outputs.action_type == 'publish' && format('v{0}', steps.release_check.outputs.version) || '' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
