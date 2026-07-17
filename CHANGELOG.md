@@ -6,6 +6,10 @@ All notable changes will be documented here. The project follows Semantic Versio
 
 - _No changes yet._
 
+## v0.1.3 - 2026-07-17
+
+- _No changes yet._
+
 ## v0.1.2 - 2026-07-17
 
 - Initial public design package.
