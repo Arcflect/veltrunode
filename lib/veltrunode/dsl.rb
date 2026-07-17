@@ -3,7 +3,7 @@
 module Veltrunode
   module DSLHelper
     def env(name)
-      ENV[name]
+      ENV.fetch(name, nil)
     end
 
     def ref(name)
@@ -92,7 +92,7 @@ module Veltrunode
         @function.mounts << name
       end
 
-      def permit(&block)
+      def permit(&)
         # Store capabilities
       end
     end
@@ -133,9 +133,9 @@ module Veltrunode
       end
     end
 
-    def self.evaluate(name, &block)
+    def self.evaluate(name, &)
       evaluator = new(name)
-      evaluator.instance_eval(&block) if block_given?
+      evaluator.instance_eval(&) if block_given?
       evaluator.application
     end
 
@@ -162,33 +162,33 @@ module Veltrunode
       @application.architecture = architecture
     end
 
-    def defaults(&block)
+    def defaults(&)
       # no-op for now
     end
 
-    def layer(name, &block)
+    def layer(name, &)
       l = Veltrunode::Layer.new(name)
-      LayerBuilder.new(l).instance_eval(&block) if block_given?
+      LayerBuilder.new(l).instance_eval(&) if block_given?
       @application.layers[name] = l
     end
 
-    def efs_mount(name, &block)
+    def efs_mount(name, &)
       m = Veltrunode::EfsMount.new(name)
-      EfsMountBuilder.new(m).instance_eval(&block) if block_given?
+      EfsMountBuilder.new(m).instance_eval(&) if block_given?
       @application.efs_mounts[name] = m
     end
 
-    def function(name, &block)
+    def function(name, &)
       f = Veltrunode::Function.new(name)
       f.runtime = @application.runtime
       f.architecture = @application.architecture
-      FunctionBuilder.new(f).instance_eval(&block) if block_given?
+      FunctionBuilder.new(f).instance_eval(&) if block_given?
       @application.functions[name] = f
     end
 
-    def schedule(name, &block)
+    def schedule(name, &)
       s = Veltrunode::Schedule.new(name)
-      ScheduleBuilder.new(s).instance_eval(&block) if block_given?
+      ScheduleBuilder.new(s).instance_eval(&) if block_given?
       @application.schedules[name] = s
     end
   end

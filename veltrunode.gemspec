@@ -22,4 +22,5 @@ Gem::Specification.new do |spec|
   spec.require_paths = ['lib']
 
   spec.add_dependency 'thor', '~> 1.2'
+  spec.metadata['rubygems_mfa_required'] = 'true'
 end

@@ -119,7 +119,7 @@ module Veltrunode
       end
 
       def match_command?(prefix)
-        prefix_words = prefix.split(' ')
+        prefix_words = prefix.split
         return false if @argv.length < prefix_words.length
 
         prefix_words.each_with_index do |word, idx|

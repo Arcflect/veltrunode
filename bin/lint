@@ -17,5 +17,5 @@ end
 
 # Run rubocop with user gem directory environment
 ENV['GEM_HOME'] = user_gem_dir
-ENV['GEM_PATH'] = "#{user_gem_dir}:#{ENV['GEM_PATH']}"
+ENV['GEM_PATH'] = "#{user_gem_dir}:#{ENV.fetch('GEM_PATH', nil)}"
 exec(rubocop_path, *ARGV)

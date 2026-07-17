@@ -20,8 +20,8 @@ module Veltrunode
   class Error < StandardError; end
 
   class << self
-    def application(name, &block)
-      @app = Veltrunode::DSL.evaluate(name, &block)
+    def application(name, &)
+      @app = Veltrunode::DSL.evaluate(name, &)
     end
 
     def last_application
