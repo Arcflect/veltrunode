@@ -9,7 +9,10 @@ rubocop_path = File.join(user_bin_dir, 'rubocop')
 # Check if rubocop is installed
 unless File.exist?(rubocop_path)
   puts 'Installing rubocop and dependencies to user gem directory...'
-  system("gem install 'rubocop:1.50.0' 'rubocop-ast:1.29.0' 'base64:>= 0' 'benchmark:>= 0' --user-install --conservative")
+  system(
+    "gem install 'rubocop:1.50.0' 'rubocop-ast:1.29.0' " \
+    "'base64:>= 0' 'benchmark:>= 0' --user-install --conservative"
+  )
 end
 
 # Run rubocop with user gem directory environment

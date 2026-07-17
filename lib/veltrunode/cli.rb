@@ -226,7 +226,7 @@ module Veltrunode
             { name: 'layer inspect NAME', description: 'Inspect Lambda Layer version' },
             { name: 'schedule preview NAME', description: 'Preview future run times for schedule' }
           ]
-          $stdout.puts JSON.generate({ commands: commands })
+          $stdout.puts JSON.generate({ commands: })
         else
           $stdout.puts help_text
         end
@@ -242,7 +242,7 @@ module Veltrunode
           output = {
             status: 'error',
             error_code: exit_code,
-            message: message
+            message:
           }
           # rubocop:disable Style/StderrPuts
           $stderr.puts JSON.generate(output)
