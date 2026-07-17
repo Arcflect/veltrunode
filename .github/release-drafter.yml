@@ -1,0 +1,126 @@
+# =============================================================================
+# release-drafter/release-drafter configuration
+# PRマージ時にドラフトリリースノートを自動生成する
+# ラベルベースのセマンティックバージョニング解決付き
+# https://github.com/release-drafter/release-drafter
+# =============================================================================
+
+name-template: "v$RESOLVED_VERSION"
+tag-template: "v$RESOLVED_VERSION"
+tag-prefix: "v"
+
+# --- バージョン解決ルール ---
+# PRに付与されたラベルに基づいてセマンティックバージョンを自動計算する
+#
+# semver:major  → MAJOR (例: 0.1.0 → 1.0.0)
+# semver:minor  → MINOR (例: 0.1.0 → 0.2.0)
+# semver:patch  → PATCH (例: 0.1.0 → 0.1.1)
+#
+# ラベルが未指定の場合はデフォルトで patch increment
+
+# --- カテゴリ分類 ---
+categories:
+  # バージョン解決用（表示しない）
+  - type: "version-resolver"
+    semver-increment: "major"
+    when:
+      labels:
+        - "semver:major"
+  - type: "version-resolver"
+    semver-increment: "minor"
+    when:
+      labels:
+        - "semver:minor"
+  - type: "version-resolver"
+    semver-increment: "patch"
+    when:
+      labels:
+        - "semver:patch"
+
+  # changelog から除外
+  - type: "pre-exclude"
+    when:
+      labels:
+        - "skip-changelog"
+
+  # カテゴリ表示
+  - title: "💥 Breaking Changes"
+    when:
+      labels:
+        - "semver:major"
+
+  - title: "🚀 Features"
+    semver-increment: "minor"
+    when:
+      labels:
+        - "type:feature"
+        - "semver:minor"
+
+  - title: "🐛 Bug Fixes"
+    semver-increment: "patch"
+    when:
+      labels:
+        - "type:bugfix"
+        - "semver:patch"
+
+  - title: "🧰 Maintenance"
+    when:
+      labels:
+        - "type:chore"
+        - "area:infra"
+        - "area:ci"
+
+  - title: "📖 Documentation"
+    when:
+      labels:
+        - "type:docs"
+        - "area:docs"
+
+  - title: "🔒 Security"
+    when:
+      labels:
+        - "area:security"
+
+  - title: "🧪 Testing"
+    when:
+      labels:
+        - "area:testing"
+
+# --- 未分類PRのデフォルト ---
+# ラベルなしのPRはデフォルトでpatch扱い
+version-resolver:
+  major:
+    labels:
+      - "semver:major"
+  minor:
+    labels:
+      - "semver:minor"
+      - "type:feature"
+  patch:
+    labels:
+      - "semver:patch"
+      - "type:bugfix"
+  default: patch
+
+# --- テンプレート ---
+change-template: "- $TITLE (#$NUMBER) @$AUTHOR"
+change-title-escapes: '\<*_&'
+
+template: |
+  ## What's Changed
+
+  $CHANGES
+
+  ## Contributors
+
+  $CONTRIBUTORS
+
+# --- 除外 ---
+exclude-contributors:
+  - "dependabot"
+  - "dependabot[bot]"
+  - "github-actions[bot]"
+
+# --- ソート ---
+sort-by: merged_at
+sort-direction: descending
