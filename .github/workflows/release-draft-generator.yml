@@ -25,5 +25,6 @@ jobs:
         uses: release-drafter/release-drafter@v6
         with:
           config-name: release-drafter-config.yml
+          publish: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
