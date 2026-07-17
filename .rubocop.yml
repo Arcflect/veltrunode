@@ -1,0 +1,8 @@
+AllCops:
+  TargetRubyVersion: 3.3
+  Exclude:
+    - 'vendor/**/*'
+    - 'build/**/*'
+
+Gemspec/RequiredRubyVersion:
+  Enabled: false
