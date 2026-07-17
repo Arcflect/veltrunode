@@ -107,6 +107,43 @@ jobs:
               new_content = content.sub(/VERSION = \x27[^\x27]+\x27/, "VERSION = \x27#{new_version}\x27")
               File.write(version_file, new_content)
 
+              changelog_file = "CHANGELOG.md"
+              if File.exist?(changelog_file)
+                changelog_content = File.read(changelog_file)
+                release_date = Time.now.utc.strftime("%Y-%m-%d")
+                unreleased_pattern = /## Unreleased\s*\n(?<body>.*?)(?=\n## |\z)/m
+                match = changelog_content.match(unreleased_pattern)
+
+                if match
+                  unreleased_body = match[:body].strip
+                  unreleased_body = "- _No changes yet._" if unreleased_body.empty?
+                  replacement = <<~MARKDOWN
+                    ## Unreleased
+
+                    - _No changes yet._
+
+                    ## v#{new_version} - #{release_date}
+
+                    #{unreleased_body}
+                  MARKDOWN
+                  changelog_content = changelog_content.sub(unreleased_pattern, replacement)
+                else
+                  appendix = <<~MARKDOWN
+
+                    ## Unreleased
+
+                    - _No changes yet._
+
+                    ## v#{new_version} - #{release_date}
+
+                    - Bump version to v#{new_version}.
+                  MARKDOWN
+                  changelog_content = "#{changelog_content.rstrip}\n#{appendix}"
+                end
+
+                File.write(changelog_file, changelog_content)
+              end
+
               File.open(ENV["GITHUB_OUTPUT"], "a") do |f|
                 f.puts "action_type=bump"
                 f.puts "publish=false"
@@ -121,11 +158,11 @@ jobs:
         uses: peter-evans/create-pull-request@v6
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          commit-message: "chore: bump version to v${{ steps.release_check.outputs.new_version }}"
+          commit-message: "chore: bump version to v${{ steps.release_check.outputs.new_version }} and update changelog"
           branch: "bump-version/v${{ steps.release_check.outputs.new_version }}"
           title: "bump: version to v${{ steps.release_check.outputs.new_version }}"
           body: |
-            This PR bumps the project version to `v${{ steps.release_check.outputs.new_version }}` based on the merged Pull Request labels.
+            This PR bumps the project version to `v${{ steps.release_check.outputs.new_version }}` and updates `CHANGELOG.md` based on the merged Pull Request labels.
             
             Please review and approve this PR to merge the version bump into `main`. Once merged, the release workflow will automatically trigger to publish the new release.
           labels: "chore"
