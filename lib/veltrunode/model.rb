@@ -1,4 +1,7 @@
 module Veltrunode
+  module Model
+  end
+
   class Application
     attr_accessor :name, :region, :stage, :account, :runtime, :architecture, :functions, :layers, :schedules, :efs_mounts
 
