@@ -38,44 +38,37 @@ exclude-labels:
 # --- カテゴリ分類 ---
 categories:
   - title: "💥 Breaking Changes"
-    when:
-      labels:
-        - "semver:major"
+    labels:
+      - "semver:major"
 
   - title: "🚀 Features"
-    when:
-      labels:
-        - "type:feature"
-        - "semver:minor"
+    labels:
+      - "type:feature"
+      - "semver:minor"
 
   - title: "🐛 Bug Fixes"
-    when:
-      labels:
-        - "type:bugfix"
-        - "semver:patch"
+    labels:
+      - "type:bugfix"
+      - "semver:patch"
 
   - title: "🧰 Maintenance"
-    when:
-      labels:
-        - "type:chore"
-        - "area:infra"
-        - "area:ci"
+    labels:
+      - "type:chore"
+      - "area:infra"
+      - "area:ci"
 
   - title: "📖 Documentation"
-    when:
-      labels:
-        - "type:docs"
-        - "area:docs"
+    labels:
+      - "type:docs"
+      - "area:docs"
 
   - title: "🔒 Security"
-    when:
-      labels:
-        - "area:security"
+    labels:
+      - "area:security"
 
   - title: "🧪 Testing"
-    when:
-      labels:
-        - "area:testing"
+    labels:
+      - "area:testing"
 
 # --- テンプレート ---
 change-template: "- $TITLE (#$NUMBER) @$AUTHOR"
