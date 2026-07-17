@@ -1,0 +1,18 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# Get user gem directory
+user_gem_dir = Gem.user_dir
+user_bin_dir = File.join(user_gem_dir, 'bin')
+rubocop_path = File.join(user_bin_dir, 'rubocop')
+
+# Check if rubocop is installed
+unless File.exist?(rubocop_path)
+  puts 'Installing rubocop and dependencies to user gem directory...'
+  system('gem install rubocop -v 1.50.0 rubocop-ast -v 1.29.0 base64 benchmark --user-install --conservative')
+end
+
+# Run rubocop with user gem directory environment
+ENV['GEM_HOME'] = user_gem_dir
+ENV['GEM_PATH'] = "#{user_gem_dir}:#{ENV['GEM_PATH']}"
+exec(rubocop_path, *ARGV)
