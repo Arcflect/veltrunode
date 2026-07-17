@@ -17,47 +17,38 @@ tag-prefix: "v"
 # semver:patch  → PATCH (例: 0.1.0 → 0.1.1)
 #
 # ラベルが未指定の場合はデフォルトで patch increment
+version-resolver:
+  major:
+    labels:
+      - "semver:major"
+  minor:
+    labels:
+      - "semver:minor"
+      - "type:feature"
+  patch:
+    labels:
+      - "semver:patch"
+      - "type:bugfix"
+  default: patch
+
+# --- 除外ラベル（Changelogから除外するPRに付与するラベル） ---
+exclude-labels:
+  - "skip-changelog"
 
 # --- カテゴリ分類 ---
 categories:
-  # バージョン解決用（表示しない）
-  - type: "version-resolver"
-    semver-increment: "major"
-    when:
-      labels:
-        - "semver:major"
-  - type: "version-resolver"
-    semver-increment: "minor"
-    when:
-      labels:
-        - "semver:minor"
-  - type: "version-resolver"
-    semver-increment: "patch"
-    when:
-      labels:
-        - "semver:patch"
-
-  # changelog から除外
-  - type: "pre-exclude"
-    when:
-      labels:
-        - "skip-changelog"
-
-  # カテゴリ表示
   - title: "💥 Breaking Changes"
     when:
       labels:
         - "semver:major"
 
   - title: "🚀 Features"
-    semver-increment: "minor"
     when:
       labels:
         - "type:feature"
         - "semver:minor"
 
   - title: "🐛 Bug Fixes"
-    semver-increment: "patch"
     when:
       labels:
         - "type:bugfix"
@@ -86,22 +77,6 @@ categories:
       labels:
         - "area:testing"
 
-# --- 未分類PRのデフォルト ---
-# ラベルなしのPRはデフォルトでpatch扱い
-version-resolver:
-  major:
-    labels:
-      - "semver:major"
-  minor:
-    labels:
-      - "semver:minor"
-      - "type:feature"
-  patch:
-    labels:
-      - "semver:patch"
-      - "type:bugfix"
-  default: patch
-
 # --- テンプレート ---
 change-template: "- $TITLE (#$NUMBER) @$AUTHOR"
 change-title-escapes: '\<*_&'
@@ -115,7 +90,7 @@ template: |
 
   $CONTRIBUTORS
 
-# --- 除外 ---
+# --- コントリビューター除外 ---
 exclude-contributors:
   - "dependabot"
   - "dependabot[bot]"
