@@ -1,8 +1,9 @@
 #!/usr/bin/env ruby
+# frozen_string_literal: true
 
-require "bundler/setup"
-require "veltrunode"
-require "veltrunode/cli"
+require 'bundler/setup'
+require 'veltrunode'
+require 'veltrunode/cli'
 
 begin
   Veltrunode::CLI.start(ARGV)

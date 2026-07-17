@@ -1,0 +1,18 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# Get user gem directory
+user_gem_dir = Gem.user_dir
+user_bin_dir = File.join(user_gem_dir, 'bin')
+rspec_path = File.join(user_bin_dir, 'rspec')
+
+# Check if rspec is installed
+unless File.exist?(rspec_path)
+  puts 'Installing rspec to user gem directory...'
+  system("gem install rspec -v '~> 3.12' --user-install --conservative")
+end
+
+# Run rspec with user gem directory environment
+ENV['GEM_HOME'] = user_gem_dir
+ENV['GEM_PATH'] = "#{user_gem_dir}:#{ENV.fetch('GEM_PATH', nil)}"
+exec(rspec_path, *ARGV)

@@ -1,5 +1,7 @@
-require "bundler/setup"
-require "veltrunode"
+# frozen_string_literal: true
+
+require 'bundler/setup'
+require 'veltrunode'
 
 RSpec.configure do |config|
   config.expect_with :rspec do |c|

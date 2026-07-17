@@ -1,9 +1,12 @@
+# frozen_string_literal: true
+
 module Veltrunode
   module Model
   end
 
   class Application
-    attr_accessor :name, :region, :stage, :account, :runtime, :architecture, :functions, :layers, :schedules, :efs_mounts
+    attr_accessor :name, :region, :stage, :account, :runtime, :architecture, :functions, :layers, :schedules,
+                  :efs_mounts
 
     def initialize(name)
       @name = name
@@ -15,7 +18,8 @@ module Veltrunode
   end
 
   class Function
-    attr_accessor :name, :handler, :memory, :timeout, :ephemeral_storage, :runtime, :architecture, :attached_layers, :mounts, :permissions
+    attr_accessor :name, :handler, :memory, :timeout, :ephemeral_storage, :runtime, :architecture, :attached_layers,
+                  :mounts, :permissions
 
     def initialize(name)
       @name = name
