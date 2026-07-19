@@ -22,8 +22,8 @@ module Veltrunode
         @summary = normalize_text(summary, field_name: 'summary')
         @suggested_action = normalize_text(suggested_action, field_name: 'suggested_action')
         @evidence = normalize_evidence(evidence)
-        @source_path = optional_text(source_path)
-        @aws_resource_id = optional_text(aws_resource_id)
+        @source_path = optional_text(source_path, field_name: 'source_path')
+        @aws_resource_id = optional_text(aws_resource_id, field_name: 'aws_resource_id')
 
         freeze
       end
@@ -88,10 +88,10 @@ module Veltrunode
         text
       end
 
-      def optional_text(value)
+      def optional_text(value, field_name:)
         return nil if value.nil?
 
-        normalize_text(value, field_name: 'optional field')
+        normalize_text(value, field_name:)
       end
 
       def normalize_evidence(evidence)
