@@ -40,8 +40,8 @@ module Veltrunode
         }
       end
 
-      def to_json(*_args)
-        JSON.generate(to_h)
+      def to_json(*args)
+        to_h.to_json(*args)
       end
 
       def to_text
