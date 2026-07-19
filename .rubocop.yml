@@ -1,9 +1,12 @@
 AllCops:
-  TargetRubyVersion: 3.3
+  TargetRubyVersion: 3.4
   NewCops: enable
+  SuggestExtensions: false
   Exclude:
     - 'vendor/**/*'
     - 'build/**/*'
+    - 'coverage/**/*'
+    - 'spec/fixtures/**/*'
 
 Gemspec/RequiredRubyVersion:
   Enabled: false
