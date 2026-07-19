@@ -108,6 +108,8 @@ end
           end
         when Array
           value.map { |item| normalize_value(item) }
+        when String
+          value.dup
         else
           value
         end
