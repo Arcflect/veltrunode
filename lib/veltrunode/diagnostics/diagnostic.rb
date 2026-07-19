@@ -109,7 +109,10 @@ module Veltrunode
       def deep_freeze(value)
         case value
         when Hash
-          value.each_value { |item| deep_freeze(item) }
+           value.each do |key, item|
+             deep_freeze(key)
+             deep_freeze(item)
+           end
         when Array
           value.each { |item| deep_freeze(item) }
         end
