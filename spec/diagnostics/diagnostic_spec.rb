@@ -32,7 +32,7 @@ RSpec.describe Veltrunode::Diagnostics::Diagnostic do
         severity: :warning,
         summary: 'Reference could not be resolved.',
         suggested_action: 'Confirm that the target symbol is declared.',
-        evidence: { refs: refs }
+        evidence: { refs: }
       )
 
       expect(refs).not_to be_frozen
