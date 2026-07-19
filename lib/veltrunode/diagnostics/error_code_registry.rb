@@ -5,7 +5,7 @@ module Veltrunode
     module ErrorCodeRegistry
       CATEGORY_CODES = %w[DSL REF GRAPH BUILD LAYER SCHED EFS AWS IAM CFN].freeze
 
-      CATEGORY_PREFIXES = CATEGORY_CODES.map { |code| "VLT-#{code}-*" }.freeze
+      CATEGORY_PREFIXES = CATEGORY_CODES.map { |code| "VLT-#{code}-*".freeze }.freeze
 
       VALID_CODE_PATTERN = /\AVLT-(?:#{CATEGORY_CODES.join('|')})-[A-Z0-9]+(?:-[A-Z0-9]+)*\z/.freeze
 
