@@ -11,9 +11,8 @@ module Veltrunode
       attr_reader :code, :severity, :summary, :evidence,
                   :source_path, :suggested_action, :aws_resource_id
 
-      def initialize(code:, severity:, summary:, suggested_action:, **options)
-        evidence = options.delete(:evidence) || {}
-        source_path = options.delete(:source_path)
+def initialize(code:, severity:, summary:, suggested_action:, **options)
+  evidence = options.key?(:evidence) ? options.delete(:evidence) : {}
         aws_resource_id = options.delete(:aws_resource_id)
         raise ArgumentError, "unknown keyword(s): #{options.keys.join(', ')}" unless options.empty?
 
