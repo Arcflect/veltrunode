@@ -5,6 +5,7 @@ source 'https://rubygems.org'
 gemspec
 
 gem 'rspec', '~> 3.12'
+gem 'simplecov', '~> 0.22', require: false
 
 group :development do
   gem 'base64'
