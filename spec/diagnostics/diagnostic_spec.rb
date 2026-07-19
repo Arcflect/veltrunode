@@ -26,14 +26,17 @@ RSpec.describe Veltrunode::Diagnostics::Diagnostic do
     end
 
     it 'is immutable and deeply freezes evidence' do
+      refs = [String.new('db_primary')]
       diagnostic = described_class.new(
         code: 'VLT-REF-001',
         severity: :warning,
         summary: 'Reference could not be resolved.',
         suggested_action: 'Confirm that the target symbol is declared.',
-        evidence: { refs: ['db_primary'] }
+        evidence: { refs: refs }
       )
 
+      expect(refs).not_to be_frozen
+      expect(refs.first).not_to be_frozen
       expect(diagnostic).to be_frozen
       expect(diagnostic.evidence).to be_frozen
       expect(diagnostic.evidence['refs']).to be_frozen
