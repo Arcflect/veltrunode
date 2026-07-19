@@ -16,6 +16,7 @@ module Veltrunode
 
     class LayerBuilder
       include DSLHelper
+
       def initialize(layer)
         @layer = layer
       end
@@ -40,6 +41,7 @@ module Veltrunode
 
     class EfsMountBuilder
       include DSLHelper
+
       def initialize(mount)
         @mount = mount
       end
@@ -64,6 +66,7 @@ module Veltrunode
 
     class FunctionBuilder
       include DSLHelper
+
       def initialize(function)
         @function = function
       end
@@ -99,6 +102,7 @@ module Veltrunode
 
     class ScheduleBuilder
       include DSLHelper
+
       def initialize(schedule)
         @schedule = schedule
       end
