@@ -10,7 +10,6 @@ group :development, :test do
   gem 'json', '2.6.3'
   gem 'racc', '1.6.2'
   gem 'rspec', '~> 3.12'
-  gem 'rubocop', '1.50.0'
-  gem 'rubocop-ast', '1.29.0'
+  gem 'rubocop', '1.88.2'
   gem 'simplecov', '~> 0.22', require: false
 end
