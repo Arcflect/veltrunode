@@ -83,6 +83,30 @@ bundle exec rspec
 
 RSpecは `spec/` ディレクトリ配下のすべての `*_spec.rb` ファイルを検出して実行します。
 
+### カバレッジ付きテストの実行
+
+```bash
+bundle exec rspec
+```
+
+`spec/spec_helper.rb` で SimpleCov を有効化しているため、実行後は `coverage/` ディレクトリに計測結果が出力されます。
+
+## Lint の実行方法 (Linting)
+
+静的解析には **RuboCop** を使用します。CI でも `bundle exec rubocop` を実行します。
+
+### RuboCop の実行
+
+```bash
+bundle exec rubocop
+```
+
+Bundler を使わずにローカルのユーザー Gem 領域から RuboCop を実行したい場合は、補助スクリプトも利用できます。
+
+```bash
+bin/lint
+```
+
 ## コード設計原則 (Code Design Principles)
 
 開発およびリファクタリングの際は、クリーンアーキテクチャの思想に基づき、以下の「疎結合」および「関心の分離」を意識してください。
