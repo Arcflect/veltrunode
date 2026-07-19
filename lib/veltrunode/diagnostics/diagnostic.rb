@@ -67,10 +67,11 @@ module Veltrunode
       end
 
       def normalize_severity(severity)
+         unless severity.respond_to?(:to_sym)
+           raise ArgumentError, "severity must be one of: #{SEVERITIES.join(', ')}"
+         end
         value = severity.to_sym
         return value if SEVERITIES.include?(value)
-
-        raise ArgumentError, "severity must be one of: #{SEVERITIES.join(', ')}"
       end
 
       def normalize_text(value, field_name:)
