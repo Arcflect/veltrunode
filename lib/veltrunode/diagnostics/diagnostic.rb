@@ -11,7 +11,12 @@ module Veltrunode
       attr_reader :code, :severity, :summary, :evidence,
                   :source_path, :suggested_action, :aws_resource_id
 
-      def initialize(code:, severity:, summary:, suggested_action:, evidence: {}, source_path: nil, aws_resource_id: nil)
+      def initialize(code:, severity:, summary:, suggested_action:, **options)
+        evidence = options.delete(:evidence) || {}
+        source_path = options.delete(:source_path)
+        aws_resource_id = options.delete(:aws_resource_id)
+        raise ArgumentError, "unknown keyword(s): #{options.keys.join(', ')}" unless options.empty?
+
         @code = normalize_code(code)
         @severity = normalize_severity(severity)
         @summary = normalize_text(summary, field_name: 'summary')
@@ -25,13 +30,13 @@ module Veltrunode
 
       def to_h
         {
-          code: code,
-          severity: severity,
-          summary: summary,
-          evidence: evidence,
-          source_path: source_path,
-          suggested_action: suggested_action,
-          aws_resource_id: aws_resource_id
+          code:,
+          severity:,
+          summary:,
+          evidence:,
+          source_path:,
+          suggested_action:,
+          aws_resource_id:
         }
       end
 
@@ -67,11 +72,12 @@ module Veltrunode
       end
 
       def normalize_severity(severity)
-         unless severity.respond_to?(:to_sym)
-           raise ArgumentError, "severity must be one of: #{SEVERITIES.join(', ')}"
-         end
+        raise ArgumentError, "severity must be one of: #{SEVERITIES.join(', ')}" unless severity.respond_to?(:to_sym)
+
         value = severity.to_sym
         return value if SEVERITIES.include?(value)
+
+        raise ArgumentError, "severity must be one of: #{SEVERITIES.join(', ')}"
       end
 
       def normalize_text(value, field_name:)
@@ -110,10 +116,10 @@ module Veltrunode
       def deep_freeze(value)
         case value
         when Hash
-           value.each do |key, item|
-             deep_freeze(key)
-             deep_freeze(item)
-           end
+          value.each do |key, item|
+            deep_freeze(key)
+            deep_freeze(item)
+          end
         when Array
           value.each { |item| deep_freeze(item) }
         end
