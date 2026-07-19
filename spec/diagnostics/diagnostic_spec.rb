@@ -64,10 +64,11 @@ RSpec.describe Veltrunode::Diagnostics::Diagnostic do
       )
 
       text = diagnostic.to_text
-      expected_summary = '[WARNING] VLT-EFS-2049-INGRESS: '
+      expected_summary = 'VLT-EFS-2049-INGRESS: '
       expected_summary += 'NFS ingress is not permitted for the selected security group.'
 
       expect(text).to include(expected_summary)
+      expect(text).to include('Severity: warning')
       expect(text).to include('Suggested action: Allow TCP 2049 ingress from the Lambda security group.')
       expect(text).to include('Source path: infra/app.rb')
       expect(text).to include('Evidence:')

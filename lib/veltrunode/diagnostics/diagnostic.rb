@@ -46,7 +46,8 @@ module Veltrunode
 
       def to_text
         lines = []
-        lines << "[#{severity.to_s.upcase}] #{code}: #{summary}"
+        lines << "#{code}: #{summary}"
+        lines << "Severity: #{severity}"
         lines << "Suggested action: #{suggested_action}"
         lines << "Source path: #{source_path}" if source_path
         lines << "AWS resource: #{aws_resource_id}" if aws_resource_id
