@@ -7,7 +7,7 @@ module Veltrunode
 
       CATEGORY_PREFIXES = CATEGORY_CODES.map { |code| "VLT-#{code}-*".freeze }.freeze
 
-      VALID_CODE_PATTERN = /\AVLT-(?:#{CATEGORY_CODES.join('|')})-[A-Z0-9]+(?:-[A-Z0-9]+)*\z/.freeze
+      VALID_CODE_PATTERN = /\AVLT-(?:#{CATEGORY_CODES.join('|')})-[A-Z0-9]+(?:-[A-Z0-9]+)*\z/
 
       module_function
 
