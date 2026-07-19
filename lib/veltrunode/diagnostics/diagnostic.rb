@@ -11,8 +11,9 @@ module Veltrunode
       attr_reader :code, :severity, :summary, :evidence,
                   :source_path, :suggested_action, :aws_resource_id
 
-def initialize(code:, severity:, summary:, suggested_action:, **options)
-  evidence = options.key?(:evidence) ? options.delete(:evidence) : {}
+      def initialize(code:, severity:, summary:, suggested_action:, **options)
+        evidence = options.key?(:evidence) ? options.delete(:evidence) : {}
+        source_path = options.delete(:source_path)
         aws_resource_id = options.delete(:aws_resource_id)
         raise ArgumentError, "unknown keyword(s): #{options.keys.join(', ')}" unless options.empty?
 
@@ -93,12 +94,12 @@ def initialize(code:, severity:, summary:, suggested_action:, **options)
         normalize_text(value, field_name:)
       end
 
-def normalize_evidence(evidence)
-  value = evidence.nil? ? {} : evidence
-  raise ArgumentError, 'evidence must be a Hash if provided' unless value.is_a?(Hash)
+      def normalize_evidence(evidence)
+        value = evidence.nil? ? {} : evidence
+        raise ArgumentError, 'evidence must be a Hash if provided' unless value.is_a?(Hash)
 
-  deep_freeze(normalize_value(value))
-end
+        deep_freeze(normalize_value(value))
+      end
 
       def normalize_value(value)
         case value
