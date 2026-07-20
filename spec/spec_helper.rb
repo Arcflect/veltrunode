@@ -2,6 +2,7 @@
 
 require 'bundler/setup'
 
+require 'ostruct'
 require 'simplecov'
 
 SimpleCov.start do

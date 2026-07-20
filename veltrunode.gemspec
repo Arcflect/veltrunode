@@ -21,6 +21,7 @@ Gem::Specification.new do |spec|
   spec.executables   = ['veltrunode']
   spec.require_paths = ['lib']
 
+  spec.add_dependency 'ostruct', '~> 0.6'
   spec.add_dependency 'thor', '~> 1.2'
   spec.metadata['rubygems_mfa_required'] = 'true'
 end
