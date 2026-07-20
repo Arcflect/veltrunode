@@ -75,3 +75,21 @@ veltrunode efs verify NAME
 ## ドキュメント
 
 詳細な設計書については、[docs/Veltrunode_Public_Design.md](file:///home/hirontan/work/veltrunode/docs/Veltrunode_Public_Design.md) をご参照ください。
+
+## CI とブランチ保護
+
+Pull Request と `main` ブランチへの push では、GitHub Actions の CI が自動実行されます。CI では以下を検証します。
+
+- `rspec`: Ruby 3.2, 3.3, 3.4, 4.0 を `ubuntu-latest` と `macos-latest` のマトリクスで実行
+- `rubocop`: 静的解析の実行
+- `gem-build`: `veltrunode.gemspec` からの Gem ビルド検証
+
+`main` ブランチでテスト失敗時のマージをブロックするには、GitHub リポジトリで以下を設定してください。
+
+1. GitHub の `Settings` を開く
+2. `Branches` から `main` 向けの branch protection rule を作成または編集する
+3. `Require a pull request before merging` を有効化する
+4. `Require status checks to pass before merging` を有効化する
+5. 必須チェックとして `RuboCop` と `Gem Build`、および各 `RSpec (...)` マトリクスチェックを選択する
+
+ブランチ保護を有効にすると、いずれかの CI ジョブが失敗した Pull Request は `main` にマージできません。
