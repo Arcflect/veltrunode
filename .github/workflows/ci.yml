@@ -12,7 +12,36 @@ permissions:
   contents: read
 
 jobs:
-  ci:
+  rspec:
+    name: RSpec (${{ matrix.os }}, Ruby ${{ matrix.ruby }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
+        ruby:
+          - '3.2'
+          - '3.3'
+          - '3.4'
+          - '4.0'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: ${{ matrix.ruby }}
+          bundler-cache: true
+
+      - name: Run RSpec
+        run: bundle exec rspec
+
+  rubocop:
+    name: RuboCop
     runs-on: ubuntu-latest
 
     steps:
@@ -28,5 +57,19 @@ jobs:
       - name: Run RuboCop
         run: bundle exec rubocop --parallel
 
-      - name: Run RSpec
-        run: bundle exec rspec
+  gem-build:
+    name: Gem Build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.4'
+          bundler-cache: true
+
+      - name: Build gem
+        run: bundle exec gem build veltrunode.gemspec
