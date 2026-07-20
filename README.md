@@ -74,7 +74,7 @@ veltrunode efs verify NAME
 
 ## ドキュメント
 
-詳細な設計書については、[docs/Veltrunode_Public_Design.md](file:///home/hirontan/work/veltrunode/docs/Veltrunode_Public_Design.md) をご参照ください。
+詳細な設計書については、[docs/Veltrunode_Public_Design.md](docs/Veltrunode_Public_Design.md) をご参照ください。
 
 ## CI とブランチ保護
 
