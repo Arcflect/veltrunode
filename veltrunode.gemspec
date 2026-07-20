@@ -11,7 +11,7 @@ Gem::Specification.new do |spec|
   spec.summary       = 'Ruby-first toolkit for scheduled and file-oriented AWS Lambda applications.'
   spec.homepage      = 'https://github.com/hirontan/veltrunode'
   spec.license       = 'Apache-2.0'
-  spec.required_ruby_version = '>= 3.4'
+  spec.required_ruby_version = '>= 3.2'
 
   spec.metadata['homepage_uri'] = spec.homepage
   spec.metadata['source_code_uri'] = spec.homepage
