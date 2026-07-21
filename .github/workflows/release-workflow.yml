@@ -67,17 +67,18 @@ jobs:
             labels = pr_data["labels"].map { |l| l["name"] }
 
             if title.start_with?("bump: version to")
-              # Version bump PR has been merged! Publish the release!
+              # Version bump PR has been merged. Keep the release draft updated;
+              # the actual publish now happens from the tag-triggered release workflow.
               version_file = "lib/veltrunode/version.rb"
               content = File.read(version_file)
               version = content.match(/VERSION = \x27([^\x27]+)\x27/)[1]
 
               File.open(ENV["GITHUB_OUTPUT"], "a") do |f|
-                f.puts "action_type=publish"
-                f.puts "publish=true"
+                f.puts "action_type=draft"
+                f.puts "publish=false"
                 f.puts "version=#{version}"
               end
-              puts "Version bump PR merged. Publishing release v#{version}."
+              puts "Version bump PR merged. Update the draft release and push tag v#{version} to publish packages."
             else
               # Normal code PR has been merged! Create a version-bump PR!
               bump_type = "patch"
@@ -167,7 +168,7 @@ jobs:
           body: |
             This PR bumps the project version to `v${{ steps.release_check.outputs.new_version }}` and updates `CHANGELOG.md` based on the merged Pull Request labels.
             
-            Please review and approve this PR to merge the version bump into `main`. Once merged, the release workflow will automatically trigger to publish the new release.
+            Please review and approve this PR to merge the version bump into `main`. After merge, push the matching `v${{ steps.release_check.outputs.new_version }}` tag to trigger the publish workflow.
           labels: "chore"
 
       - name: Run Release Drafter (Draft/Publish)

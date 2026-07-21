@@ -7,6 +7,7 @@ on:
   pull_request:
     branches:
       - main
+  workflow_call:
 
 permissions:
   contents: read
@@ -73,3 +74,9 @@ jobs:
 
       - name: Build gem
         run: bundle exec gem build veltrunode.gemspec
+
+      - name: Upload gem artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-gem
+          path: veltrunode-*.gem

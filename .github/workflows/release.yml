@@ -10,81 +10,17 @@ permissions:
   packages: write
 
 jobs:
-  rspec:
-    name: RSpec (${{ matrix.os }}, Ruby ${{ matrix.ruby }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os:
-          - ubuntu-latest
-          - macos-latest
-        ruby:
-          - '3.2'
-          - '3.3'
-          - '3.4'
-          - '4.0'
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v7
-
-      - name: Set up Ruby
-        uses: ruby/setup-ruby@v1
-        with:
-          ruby-version: ${{ matrix.ruby }}
-          bundler-cache: true
-
-      - name: Run RSpec
-        run: bundle exec rspec
-
-  rubocop:
-    name: RuboCop
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v7
-
-      - name: Set up Ruby
-        uses: ruby/setup-ruby@v1
-        with:
-          ruby-version: '3.4'
-          bundler-cache: true
-
-      - name: Run RuboCop
-        run: bundle exec rubocop --parallel
-
-  gem-build:
-    name: Gem Build
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v7
-
-      - name: Set up Ruby
-        uses: ruby/setup-ruby@v1
-        with:
-          ruby-version: '3.4'
-          bundler-cache: true
-
-      - name: Build gem
-        run: bundle exec gem build veltrunode.gemspec
-
-      - name: Upload gem artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: release-gem
-          path: veltrunode-*.gem
+  verify:
+    name: Verify CI
+    uses: ./.github/workflows/ci.yml
 
   publish:
     name: Publish Release
     runs-on: ubuntu-latest
     needs:
-      - rspec
-      - rubocop
-      - gem-build
+      - verify
+    env:
+      DRY_RUN: ${{ contains(github.ref_name, '-dry-run') }}
 
     steps:
       - name: Checkout code
@@ -94,6 +30,14 @@ jobs:
 
       - name: Confirm CI verification jobs passed
         run: echo 'All release verification jobs passed.'
+
+      - name: Confirm release mode
+        run: |
+          if [ "${DRY_RUN}" = "true" ]; then
+            echo "Dry-run mode enabled for tag ${GITHUB_REF_NAME}."
+          else
+            echo "Publishing release for tag ${GITHUB_REF_NAME}."
+          fi
 
       - name: Set up Ruby
         uses: ruby/setup-ruby@v1
@@ -115,7 +59,7 @@ jobs:
           ruby <<'RUBY'
           tag = ENV.fetch('RELEASE_TAG')
           changelog = File.read('CHANGELOG.md')
-            pattern = /^## #{Regexp.escape(tag)}[^\n]*\n(?<body>.*?)(?=^## |\z)/m
+          pattern = /^## #{Regexp.escape(tag)}[^\n]*\n(?<body>.*?)(?=^## |\z)/m
           match = changelog.match(pattern)
 
           notes = if match
@@ -128,6 +72,7 @@ jobs:
           RUBY
 
       - name: Configure GitHub Packages credentials
+        if: env.DRY_RUN != 'true'
         env:
           GITHUB_PACKAGES_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -143,12 +88,22 @@ jobs:
           chmod 0600 "$HOME/.gem/credentials"
 
       - name: Push gem to GitHub Packages
+        if: env.DRY_RUN != 'true'
         run: gem push --key github --host https://rubygems.pkg.github.com/${{ github.repository_owner }} pkg/*.gem
 
+      - name: Skip package publish in dry-run mode
+        if: env.DRY_RUN == 'true'
+        run: echo 'Skipping GitHub Packages publish for dry-run tag.'
+
       - name: Create GitHub Release
+        if: env.DRY_RUN != 'true'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
           name: ${{ github.ref_name }}
           body_path: release_notes.md
           files: pkg/*.gem
+
+      - name: Skip GitHub Release in dry-run mode
+        if: env.DRY_RUN == 'true'
+        run: echo 'Skipping GitHub Release creation for dry-run tag.'
