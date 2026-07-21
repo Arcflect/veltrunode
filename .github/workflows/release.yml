@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: write
+  packages: write
 
 jobs:
   rspec:
@@ -126,23 +127,23 @@ jobs:
           File.write('release_notes.md', notes + "\n")
           RUBY
 
-      - name: Configure RubyGems credentials
+      - name: Configure GitHub Packages credentials
         env:
-          RUBYGEMS_API_KEY: ${{ secrets.RUBYGEMS_API_KEY }}
+          GITHUB_PACKAGES_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          if [ -z "${RUBYGEMS_API_KEY}" ]; then
-            echo 'RUBYGEMS_API_KEY secret is not configured.' >&2
+          if [ -z "${GITHUB_PACKAGES_TOKEN}" ]; then
+            echo 'GITHUB_TOKEN is not available for GitHub Packages publishing.' >&2
             exit 1
           fi
           mkdir -p "$HOME/.gem"
           cat > "$HOME/.gem/credentials" <<EOF
           ---
-          :rubygems_api_key: ${RUBYGEMS_API_KEY}
+          :github: Bearer ${GITHUB_PACKAGES_TOKEN}
           EOF
           chmod 0600 "$HOME/.gem/credentials"
 
-      - name: Push gem to RubyGems.org
-        run: gem push pkg/*.gem
+      - name: Push gem to GitHub Packages
+        run: gem push --key github --host https://rubygems.pkg.github.com/${{ github.repository_owner }} pkg/*.gem
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
