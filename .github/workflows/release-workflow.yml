@@ -8,13 +8,30 @@ on:
     types: [opened, reopened, synchronize]
 
 permissions:
-  actions: write
-  contents: write
-  pull-requests: write
+  contents: read
 
 jobs:
-  release:
+  release-pr:
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Update Release Drafter draft
+        uses: release-drafter/release-drafter@v7
+        with:
+          config-name: release-drafter-config.yml
+          publish: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  release-push:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      contents: write
+      pull-requests: write
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
@@ -35,19 +52,9 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           COMMIT_SHA: ${{ github.sha }}
           REPOSITORY: ${{ github.repository }}
-          EVENT_NAME: ${{ github.event_name }}
         run: |
           ruby -e '
             require "json"
-
-            if ENV["EVENT_NAME"] != "push"
-              # It is a PR event, just run release-drafter draft update
-              File.open(ENV["GITHUB_OUTPUT"], "a") do |f|
-                f.puts "action_type=draft"
-                f.puts "publish=false"
-              end
-              exit 0
-            end
 
             # Query the PR associated with the merge commit
             commit_sha = ENV["COMMIT_SHA"]
