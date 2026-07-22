@@ -4,6 +4,15 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g. v0.1.8)'
+        required: true
+      dry_run:
+        description: 'Dry-run mode (skips publish)'
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -20,7 +29,7 @@ jobs:
     needs:
       - verify
     env:
-      DRY_RUN: ${{ contains(github.ref_name, '-dry-run') }}
+      DRY_RUN: ${{ inputs.dry_run == true || contains(github.ref_name, '-dry-run') }}
 
     steps:
       - name: Checkout code
@@ -53,7 +62,7 @@ jobs:
 
       - name: Prepare release notes from CHANGELOG
         env:
-          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_TAG: ${{ inputs.version || github.ref_name }}
         run: |
           ruby <<'RUBY'
           tag = ENV.fetch('RELEASE_TAG')
@@ -98,8 +107,8 @@ jobs:
         if: env.DRY_RUN != 'true'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref_name }}
-          name: ${{ github.ref_name }}
+          tag_name: ${{ inputs.version || github.ref_name }}
+          name: ${{ inputs.version || github.ref_name }}
           body_path: release_notes.md
           files: pkg/*.gem
 
