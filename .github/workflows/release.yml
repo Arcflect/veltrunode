@@ -29,7 +29,7 @@ jobs:
     needs:
       - verify
     env:
-      DRY_RUN: ${{ inputs.dry_run == true || contains(github.ref_name, '-dry-run') }}
+      DRY_RUN: ${{ github.event.inputs.dry_run == 'true' || github.event.inputs.dry_run == true || contains(github.ref_name, '-dry-run') }}
 
     steps:
       - name: Checkout code
