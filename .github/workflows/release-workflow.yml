@@ -168,7 +168,7 @@ jobs:
           body: |
             This PR bumps the project version to `v${{ steps.release_check.outputs.new_version }}` and updates `CHANGELOG.md` based on the merged Pull Request labels.
             
-            Please review and approve this PR to merge the version bump into `main`. After merge, push the matching `v${{ steps.release_check.outputs.new_version }}` tag to trigger the publish workflow.
+            Please review and approve this PR to merge the version bump into `main`. After merge, this workflow will automatically push the matching `v${{ steps.release_check.outputs.new_version }}` tag to trigger the publish workflow.
           labels: "chore"
 
       - name: Push release tag
