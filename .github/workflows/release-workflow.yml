@@ -181,7 +181,8 @@ jobs:
           gh workflow run release.yml \
             --repo "${GITHUB_REPOSITORY}" \
             --ref main \
-            --field version="v${VERSION}"
+            --field version="v${VERSION}" \
+            --field source_sha="${GITHUB_SHA}"
 
       - name: Update Release Drafter draft
         uses: release-drafter/release-drafter@v7

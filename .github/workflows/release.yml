@@ -9,6 +9,9 @@ on:
       version:
         description: 'Release version (e.g. v0.1.8)'
         required: true
+      source_sha:
+        description: 'Commit SHA to release (optional; defaults to workflow SHA)'
+        required: false
       dry_run:
         description: 'Dry-run mode (skips publish)'
         type: boolean
@@ -22,6 +25,8 @@ jobs:
   verify:
     name: Verify CI
     uses: ./.github/workflows/ci.yml
+    with:
+      source_sha: ${{ github.event.inputs.source_sha || github.sha }}
 
   publish:
     name: Publish Release
@@ -31,11 +36,13 @@ jobs:
     env:
       DRY_RUN: ${{ github.event.inputs.dry_run == 'true' || github.event.inputs.dry_run == true || contains(github.ref_name, '-dry-run') }}
       RELEASE_TAG: ${{ github.event.inputs.version || github.ref_name }}
+      RELEASE_SHA: ${{ github.event.inputs.source_sha || github.sha }}
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
         with:
+          ref: ${{ env.RELEASE_SHA }}
           fetch-depth: 0
 
       - name: Confirm CI verification jobs passed
@@ -48,6 +55,7 @@ jobs:
           else
             echo "Publishing release for tag ${RELEASE_TAG}."
           fi
+          echo "Release source SHA: ${RELEASE_SHA}"
 
       - name: Set up Ruby
         uses: ruby/setup-ruby@v1
