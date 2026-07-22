@@ -62,7 +62,7 @@ jobs:
 
       - name: Prepare release notes from CHANGELOG
         env:
-          RELEASE_TAG: ${{ inputs.version || github.ref_name }}
+          RELEASE_TAG: ${{ github.event.inputs.version || github.ref_name }}
         run: |
           ruby <<'RUBY'
           tag = ENV.fetch('RELEASE_TAG')
