@@ -52,7 +52,6 @@ jobs:
           path: pkg
 
       - name: Prepare release notes from CHANGELOG
-        id: release_notes
         env:
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
