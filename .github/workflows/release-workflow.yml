@@ -168,15 +168,29 @@ jobs:
           body: |
             This PR bumps the project version to `v${{ steps.release_check.outputs.new_version }}` and updates `CHANGELOG.md` based on the merged Pull Request labels.
             
-            Please review and approve this PR to merge the version bump into `main`. After merge, push the matching `v${{ steps.release_check.outputs.new_version }}` tag to trigger the publish workflow.
+            Please review and approve this PR to merge the version bump into `main`. After merge, this workflow will automatically push the matching `v${{ steps.release_check.outputs.new_version }}` tag to trigger the publish workflow.
           labels: "chore"
 
-      - name: Run Release Drafter (Draft/Publish)
+      - name: Push release tag
+        if: steps.release_check.outputs.action_type == 'draft' && steps.release_check.outputs.version != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.release_check.outputs.version }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          if git ls-remote --tags origin "v${VERSION}" | grep -q "refs/tags/v${VERSION}$"; then
+            echo "Tag v${VERSION} already exists on origin; skipping."
+            exit 0
+          fi
+          git tag -a "v${VERSION}" -m "Release v${VERSION}"
+          git push origin "v${VERSION}"
+
+      - name: Update Release Drafter draft
         uses: release-drafter/release-drafter@v7
         with:
           config-name: release-drafter-config.yml
-          publish: ${{ steps.release_check.outputs.publish }}
-          tag: ${{ steps.release_check.outputs.action_type == 'publish' && format('v{0}', steps.release_check.outputs.version) || '' }}
-          name: ${{ steps.release_check.outputs.action_type == 'publish' && format('v{0}', steps.release_check.outputs.version) || '' }}
+          publish: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
