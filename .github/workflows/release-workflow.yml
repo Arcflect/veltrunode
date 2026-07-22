@@ -8,12 +8,31 @@ on:
     types: [opened, reopened, synchronize]
 
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
 
 jobs:
-  release:
+  release-pr:
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: read
+    steps:
+      - name: Update Release Drafter draft
+        uses: release-drafter/release-drafter@v7
+        with:
+          config-name: release-drafter-config.yml
+          publish: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  release-push:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      contents: write
+      pull-requests: write
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
@@ -34,19 +53,9 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           COMMIT_SHA: ${{ github.sha }}
           REPOSITORY: ${{ github.repository }}
-          EVENT_NAME: ${{ github.event_name }}
         run: |
           ruby -e '
             require "json"
-
-            if ENV["EVENT_NAME"] != "push"
-              # It is a PR event, just run release-drafter draft update
-              File.open(ENV["GITHUB_OUTPUT"], "a") do |f|
-                f.puts "action_type=draft"
-                f.puts "publish=false"
-              end
-              exit 0
-            end
 
             # Query the PR associated with the merge commit
             commit_sha = ENV["COMMIT_SHA"]
@@ -168,24 +177,20 @@ jobs:
           body: |
             This PR bumps the project version to `v${{ steps.release_check.outputs.new_version }}` and updates `CHANGELOG.md` based on the merged Pull Request labels.
             
-            Please review and approve this PR to merge the version bump into `main`. After merge, this workflow will automatically push the matching `v${{ steps.release_check.outputs.new_version }}` tag to trigger the publish workflow.
+            Please review and approve this PR to merge the version bump into `main`. After merge, this workflow will automatically dispatch `release.yml` for `v${{ steps.release_check.outputs.new_version }}` to publish the release.
           labels: "chore"
 
-      - name: Push release tag
+      - name: Trigger release workflow
         if: steps.release_check.outputs.action_type == 'draft' && steps.release_check.outputs.version != ''
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ steps.release_check.outputs.version }}
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-          if git ls-remote --tags origin "v${VERSION}" | grep -q "refs/tags/v${VERSION}$"; then
-            echo "Tag v${VERSION} already exists on origin; skipping."
-            exit 0
-          fi
-          git tag -a "v${VERSION}" -m "Release v${VERSION}"
-          git push origin "v${VERSION}"
+          gh workflow run release.yml \
+            --repo "${GITHUB_REPOSITORY}" \
+            --ref main \
+            --field version="v${VERSION}" \
+            --field source_sha="${GITHUB_SHA}"
 
       - name: Update Release Drafter draft
         uses: release-drafter/release-drafter@v7
