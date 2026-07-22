@@ -57,6 +57,14 @@ jobs:
           fi
           echo "Release source SHA: ${RELEASE_SHA}"
 
+      - name: Validate release tag format
+        run: |
+          if [[ ! "${RELEASE_TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z]+)*$ ]]; then
+            echo "Invalid release tag format: ${RELEASE_TAG}" >&2
+            echo "Use format like v1.2.3 (optionally with prerelease/build suffix)." >&2
+            exit 1
+          fi
+
       - name: Set up Ruby
         uses: ruby/setup-ruby@v1
         with:
