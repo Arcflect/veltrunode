@@ -30,6 +30,7 @@ jobs:
       - verify
     env:
       DRY_RUN: ${{ github.event.inputs.dry_run == 'true' || github.event.inputs.dry_run == true || contains(github.ref_name, '-dry-run') }}
+      RELEASE_TAG: ${{ github.event.inputs.version || github.ref_name }}
 
     steps:
       - name: Checkout code
@@ -43,9 +44,9 @@ jobs:
       - name: Confirm release mode
         run: |
           if [ "${DRY_RUN}" = "true" ]; then
-            echo "Dry-run mode enabled for tag ${GITHUB_REF_NAME}."
+            echo "Dry-run mode enabled for tag ${RELEASE_TAG}."
           else
-            echo "Publishing release for tag ${GITHUB_REF_NAME}."
+            echo "Publishing release for tag ${RELEASE_TAG}."
           fi
 
       - name: Set up Ruby
@@ -61,8 +62,6 @@ jobs:
           path: pkg
 
       - name: Prepare release notes from CHANGELOG
-        env:
-          RELEASE_TAG: ${{ github.event.inputs.version || github.ref_name }}
         run: |
           ruby <<'RUBY'
           tag = ENV.fetch('RELEASE_TAG')
