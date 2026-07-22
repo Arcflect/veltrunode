@@ -1,0 +1,108 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  verify:
+    name: Verify CI
+    uses: ./.github/workflows/ci.yml
+
+  publish:
+    name: Publish Release
+    runs-on: ubuntu-latest
+    needs:
+      - verify
+    env:
+      DRY_RUN: ${{ contains(github.ref_name, '-dry-run') }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Confirm CI verification jobs passed
+        run: echo 'All release verification jobs passed.'
+
+      - name: Confirm release mode
+        run: |
+          if [ "${DRY_RUN}" = "true" ]; then
+            echo "Dry-run mode enabled for tag ${GITHUB_REF_NAME}."
+          else
+            echo "Publishing release for tag ${GITHUB_REF_NAME}."
+          fi
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.4'
+          bundler-cache: true
+
+      - name: Download gem artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: release-gem
+          path: pkg
+
+      - name: Prepare release notes from CHANGELOG
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          ruby <<'RUBY'
+          tag = ENV.fetch('RELEASE_TAG')
+          changelog = File.read('CHANGELOG.md')
+          pattern = /^## #{Regexp.escape(tag)}[^\n]*\n(?<body>.*?)(?=^## |\z)/m
+          match = changelog.match(pattern)
+
+          notes = if match
+                    match[:body].strip
+                  else
+                    "- No CHANGELOG entry found for #{tag}."
+                  end
+
+          File.write('release_notes.md', notes + "\n")
+          RUBY
+
+      - name: Configure GitHub Packages credentials
+        if: env.DRY_RUN != 'true'
+        env:
+          GITHUB_PACKAGES_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ -z "${GITHUB_PACKAGES_TOKEN}" ]; then
+            echo 'GITHUB_TOKEN is not available for GitHub Packages publishing.' >&2
+            exit 1
+          fi
+          mkdir -p "$HOME/.gem"
+          cat > "$HOME/.gem/credentials" <<EOF
+          ---
+          :github: Bearer ${GITHUB_PACKAGES_TOKEN}
+          EOF
+          chmod 0600 "$HOME/.gem/credentials"
+
+      - name: Push gem to GitHub Packages
+        if: env.DRY_RUN != 'true'
+        run: gem push --key github --host https://rubygems.pkg.github.com/${{ github.repository_owner }} pkg/*.gem
+
+      - name: Skip package publish in dry-run mode
+        if: env.DRY_RUN == 'true'
+        run: echo 'Skipping GitHub Packages publish for dry-run tag.'
+
+      - name: Create GitHub Release
+        if: env.DRY_RUN != 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          body_path: release_notes.md
+          files: pkg/*.gem
+
+      - name: Skip GitHub Release in dry-run mode
+        if: env.DRY_RUN == 'true'
+        run: echo 'Skipping GitHub Release creation for dry-run tag.'
