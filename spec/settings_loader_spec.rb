@@ -56,15 +56,10 @@ RSpec.describe Veltrunode::SettingsLoader do
           runtime ruby: "3.4"
       RUBY
 
-      expect do
-        described_class.load
-      end.to raise_error(Veltrunode::SettingsLoader::ConfigurationLoadError, /VLT-DSL-002/)
-
-      begin
-        described_class.load
-      rescue Veltrunode::SettingsLoader::ConfigurationLoadError => e
-        expect(e.message).to match(/line \d+/)
-      end
+      expect { described_class.load }
+        .to raise_error(Veltrunode::SettingsLoader::ConfigurationLoadError, /VLT-DSL-002/) { |e|
+          expect(e.message).to match(/line \d+/)
+        }
     end
   end
 
