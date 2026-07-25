@@ -189,7 +189,9 @@ module Veltrunode
       def load_application!
         file_path = @options[:file]
         file_path = nil if file_path.respond_to?(:empty?) && file_path.empty?
-        @load_application ||= file_path ? Veltrunode::SettingsLoader.load(file_path: file_path) : Veltrunode::SettingsLoader.load
+        # rubocop:disable Naming/MemoizedInstanceVariableName
+        @loaded_application ||= file_path ? Veltrunode::SettingsLoader.load(file_path: file_path) : Veltrunode::SettingsLoader.load
+        # rubocop:enable Naming/MemoizedInstanceVariableName
       end
 
       # ヘルプ・バージョン・エラー表示
