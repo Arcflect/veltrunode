@@ -5,7 +5,7 @@ module Veltrunode
     DEFAULT_FILE = 'Veltrunodefile'
     DEFAULT_EXIT_CODE = 2
 
-    class LoadError < StandardError
+    class ConfigurationLoadError < StandardError
       attr_reader :exit_code, :diagnostic
 
       def initialize(diagnostic, exit_code: DEFAULT_EXIT_CODE)
@@ -76,7 +76,7 @@ module Veltrunode
         evidence: { error: first_line(e.message) },
         source_path:
       )
-    rescue LoadError
+    rescue ConfigurationLoadError
       raise
     rescue StandardError => e
       line_number = extract_line_number(Array(e.backtrace).join("\n"), source_path)
@@ -120,7 +120,7 @@ module Veltrunode
         evidence:,
         source_path:
       )
-      raise LoadError, diagnostic
+      raise ConfigurationLoadError, diagnostic
     end
   end
 end
