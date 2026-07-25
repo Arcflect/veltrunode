@@ -60,7 +60,7 @@ module Veltrunode
 
       raise_load_error(
         code: 'VLT-DSL-003',
-        summary: "Configuration evaluation failed in #{source_path}: Veltrunode.application is not defined.",
+summary: "Configuration evaluation failed in #{source_path}: no application was defined (Veltrunode.application was not called).",
         suggested_action: 'Define the application via Veltrunode.application in the configuration file.',
         source_path:
       )
