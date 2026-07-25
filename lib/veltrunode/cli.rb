@@ -187,7 +187,9 @@ module Veltrunode
       end
 
       def load_application!
-        @load_application ||= Veltrunode::SettingsLoader.load(file_path: @options[:file])
+        file_path = @options[:file]
+        file_path = nil if file_path.respond_to?(:empty?) && file_path.empty?
+        @load_application ||= file_path ? Veltrunode::SettingsLoader.load(file_path: file_path) : Veltrunode::SettingsLoader.load
       end
 
       # ヘルプ・バージョン・エラー表示
