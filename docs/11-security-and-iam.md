@@ -22,4 +22,5 @@ Veltrunode は、標準の AWS SDK 資格情報チェーン（Credential Chain�
 - 依存する Gem 等のパッケージはロックされ、レビュー済みの自動化プロセスを通じてアップデートされます。
 - リリースビルドは CI環境 で実行されます。
 - SBOM（ソフトウェア部品構成表）の生成を計画しています。
-- セキュリティ報告に関しては、[SECURITY.md](file:///home/hirontan/work/veltrunode/SECURITY.md) に規定されている手順に従います。
+- セキュリティ報告に関しては、[SECURITY.md](../SECURITY.md) に規定されている手順に従います。
+- 依存関係と GitHub Actions の更新は、[.github/dependabot.yml](../.github/dependabot.yml) を用いて自動化します。
