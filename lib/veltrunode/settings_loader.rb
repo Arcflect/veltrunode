@@ -37,11 +37,12 @@ module Veltrunode
 
       source = File.read(absolute_path)
       evaluate_source(source, absolute_path)
-    rescue Errno::EACCES
+    rescue SystemCallError => e
       raise_load_error(
         code: 'VLT-DSL-001',
         summary: "Configuration file could not be read: #{@file_path}",
-        suggested_action: 'Check file permissions and retry.',
+        suggested_action: 'Check the file path and permissions and retry.',
+        evidence: { error_class: e.class.name },
         source_path: @file_path
       )
     end
