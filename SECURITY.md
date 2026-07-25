@@ -9,7 +9,7 @@ Veltrunode の脆弱性報告、対応SLA、サポート対象バージョン、
 - GitHub Security Advisory (推奨):
    - リポジトリの Security タブから Private vulnerability reporting を利用してください。
 - メール:
-   - [EMAIL_ADDRESS]
+   - governance@arcflect.com
 
 報告時には次の情報を含めてください。
 
