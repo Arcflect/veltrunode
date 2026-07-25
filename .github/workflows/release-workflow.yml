@@ -166,7 +166,7 @@ jobs:
 
       - name: Create Pull Request for Version Bump
         if: steps.release_check.outputs.action_type == 'bump'
-        uses: peter-evans/create-pull-request@v6
+        uses: peter-evans/create-pull-request@v8
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           author: github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>
