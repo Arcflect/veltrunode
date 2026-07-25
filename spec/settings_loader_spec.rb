@@ -45,7 +45,7 @@ RSpec.describe Veltrunode::SettingsLoader do
     with_tmpdir do
       expect do
         described_class.load(file_path: 'missing/Veltrunodefile')
-      end.to raise_error(Veltrunode::SettingsLoader::LoadError, /VLT-DSL-004/)
+      end.to raise_error(Veltrunode::SettingsLoader::ConfigurationLoadError, /VLT-DSL-004/)
     end
   end
 
@@ -58,11 +58,11 @@ RSpec.describe Veltrunode::SettingsLoader do
 
       expect do
         described_class.load
-      end.to raise_error(Veltrunode::SettingsLoader::LoadError, /VLT-DSL-002/)
+      end.to raise_error(Veltrunode::SettingsLoader::ConfigurationLoadError, /VLT-DSL-002/)
 
       begin
         described_class.load
-      rescue Veltrunode::SettingsLoader::LoadError => e
+      rescue Veltrunode::SettingsLoader::ConfigurationLoadError => e
         expect(e.message).to match(/line \d+/)
       end
     end
@@ -73,7 +73,7 @@ RSpec.describe Veltrunode::SettingsLoader do
       File.write('Veltrunodefile', 'puts "no app"')
       expect do
         described_class.load
-      end.to raise_error(Veltrunode::SettingsLoader::LoadError, /VLT-DSL-003/)
+      end.to raise_error(Veltrunode::SettingsLoader::ConfigurationLoadError, /VLT-DSL-003/)
     end
   end
 
@@ -82,7 +82,7 @@ RSpec.describe Veltrunode::SettingsLoader do
       File.write('Veltrunodefile', 'raise "boom"')
       expect do
         described_class.load
-      end.to raise_error(Veltrunode::SettingsLoader::LoadError, /VLT-DSL-003/)
+      end.to raise_error(Veltrunode::SettingsLoader::ConfigurationLoadError, /VLT-DSL-003/)
     end
   end
 end
