@@ -28,7 +28,7 @@ module Veltrunode
       absolute_path = File.expand_path(@file_path)
       unless File.file?(absolute_path)
         raise_load_error(
-          code: 'VLT-DSL-001',
+          code: 'VLT-DSL-004',
           summary: "Configuration file was not found: #{@file_path}",
           suggested_action: "Create #{@file_path} or pass --file with a valid path.",
           source_path: @file_path
@@ -39,7 +39,7 @@ module Veltrunode
       evaluate_source(source, absolute_path)
     rescue SystemCallError, ArgumentError => e
       raise_load_error(
-        code: 'VLT-DSL-001',
+        code: 'VLT-DSL-005',
         summary: "Configuration file could not be read: #{@file_path}",
         suggested_action: 'Check the file path and permissions and retry.',
         evidence: { error_class: e.class.name, error: e.message },
@@ -60,7 +60,10 @@ module Veltrunode
 
       raise_load_error(
         code: 'VLT-DSL-003',
-summary: "Configuration evaluation failed in #{source_path}: no application was defined (Veltrunode.application was not called).",
+        summary: [
+          "Configuration evaluation failed in #{source_path}:",
+          'no application was defined (Veltrunode.application was not called).'
+        ].join(' '),
         suggested_action: 'Define the application via Veltrunode.application in the configuration file.',
         source_path:
       )
