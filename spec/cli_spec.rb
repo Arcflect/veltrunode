@@ -13,6 +13,7 @@ RSpec.describe Veltrunode::CLI::Router do
       # Avoid modifying the actual stdout/stderr streams
       allow($stdout).to receive(:puts) { |val| stdout.puts(val) }
       allow($stderr).to receive(:puts) { |val| stderr.puts(val) }
+      allow_any_instance_of(described_class).to receive(:load_application!).and_return(Veltrunode::Application.new('test-app'))
     end
 
     def run_cli(args)
