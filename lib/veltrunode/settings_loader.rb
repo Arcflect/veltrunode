@@ -51,9 +51,8 @@ module Veltrunode
 
     def evaluate_source(source, source_path)
       Veltrunode.reset!
-      # rubocop:disable Security/Eval
-      Kernel.eval(source, TOPLEVEL_BINDING, source_path, 1)
-      # rubocop:enable Security/Eval
+      context = Module.new
+      context.module_eval(source, source_path, 1)
 
       application = Veltrunode.last_application
       return application if application

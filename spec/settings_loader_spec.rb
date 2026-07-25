@@ -80,4 +80,20 @@ RSpec.describe Veltrunode::SettingsLoader do
       end.to raise_error(Veltrunode::SettingsLoader::ConfigurationLoadError, /VLT-DSL-003/)
     end
   end
+
+  it 'does not leak constants defined in configuration to top-level namespace' do
+    with_tmpdir do
+      File.write('Veltrunodefile', <<~RUBY)
+        TemporaryConfigConstant = :from_config
+
+        Veltrunode.application "demo-app" do
+          runtime ruby: "3.4"
+        end
+      RUBY
+
+      described_class.load
+
+      expect(defined?(TemporaryConfigConstant)).to be_nil
+    end
+  end
 end
