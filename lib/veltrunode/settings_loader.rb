@@ -73,6 +73,8 @@ module Veltrunode
         evidence: { error: first_line(e.message) },
         source_path:
       )
+    rescue LoadError
+      raise
     rescue StandardError => e
       line_number = extract_line_number(Array(e.backtrace).join("\n"), source_path)
       raise_load_error(
