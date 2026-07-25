@@ -137,44 +137,61 @@ module Veltrunode
       end
 
       def execute_validate
+        load_application!
         output_success('Validation successful.', { message: 'Validation successful' })
       end
 
       def execute_build
+        load_application!
         output_success('Build successful.', { message: 'Build successful' })
       end
 
       def execute_plan
+        load_application!
         output_success('Plan generated.', { message: 'Plan generated' })
       end
 
       def execute_deploy
+        load_application!
         output_success('Deployment successful.', { message: 'Deployment successful' })
       end
 
       def execute_invoke_local
+        load_application!
         name = @argv.first || 'default'
         output_success("Invoked local function: #{name}.", { message: "Invoked local function: #{name}" })
       end
 
       def execute_destroy
+        load_application!
         output_success('Stack destroyed.', { message: 'Stack destroyed' })
       end
 
       def execute_efs_verify
+        load_application!
         name = @argv.first || 'default'
         output_success("EFS verification successful for: #{name}.",
                        { message: "EFS verification successful for: #{name}" })
       end
 
       def execute_layer_inspect
+        load_application!
         name = @argv.first || 'default'
         output_success("Inspected layer: #{name}.", { message: "Inspected layer: #{name}" })
       end
 
       def execute_schedule_preview
+        load_application!
         name = @argv.first || 'default'
         output_success("Previewed schedule: #{name}.", { message: "Previewed schedule: #{name}" })
+      end
+
+      def load_application!
+        file_path = @options[:file]
+        file_path = nil if file_path.respond_to?(:empty?) && file_path.empty?
+        # rubocop:disable Naming/MemoizedInstanceVariableName
+        @loaded_application ||= file_path ? Veltrunode::SettingsLoader.load(file_path: file_path) : Veltrunode::SettingsLoader.load
+        # rubocop:enable Naming/MemoizedInstanceVariableName
       end
 
       # ヘルプ・バージョン・エラー表示

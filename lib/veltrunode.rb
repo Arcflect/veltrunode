@@ -13,6 +13,7 @@ require_relative 'veltrunode/aws'
 require_relative 'veltrunode/aws/inspectors'
 require_relative 'veltrunode/deploy'
 require_relative 'veltrunode/diagnostics'
+require_relative 'veltrunode/settings_loader'
 require_relative 'veltrunode/runner'
 require_relative 'veltrunode/generator'
 
