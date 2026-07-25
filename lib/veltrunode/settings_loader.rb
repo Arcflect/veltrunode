@@ -20,7 +20,8 @@ module Veltrunode
     end
 
     def initialize(file_path:)
-      @file_path = file_path.to_s
+      path = file_path.to_s
+      @file_path = path.empty? ? DEFAULT_FILE : path
     end
 
     def load
