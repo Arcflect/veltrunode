@@ -67,4 +67,22 @@ RSpec.describe Veltrunode::SettingsLoader do
       end
     end
   end
+
+  it 'raises VLT-DSL-003 when Veltrunode.application is not defined' do
+    with_tmpdir do
+      File.write('Veltrunodefile', 'puts "no app"')
+      expect do
+        described_class.load
+      end.to raise_error(Veltrunode::SettingsLoader::LoadError, /VLT-DSL-003/)
+    end
+  end
+
+  it 'raises VLT-DSL-003 when evaluation raises a runtime error' do
+    with_tmpdir do
+      File.write('Veltrunodefile', 'raise "boom"')
+      expect do
+        described_class.load
+      end.to raise_error(Veltrunode::SettingsLoader::LoadError, /VLT-DSL-003/)
+    end
+  end
 end
