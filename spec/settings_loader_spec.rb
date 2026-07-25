@@ -41,11 +41,11 @@ RSpec.describe Veltrunode::SettingsLoader do
     end
   end
 
-  it 'raises VLT-DSL-001 when file does not exist' do
+  it 'raises VLT-DSL-004 when file does not exist' do
     with_tmpdir do
       expect do
         described_class.load(file_path: 'missing/Veltrunodefile')
-      end.to raise_error(Veltrunode::SettingsLoader::LoadError, /VLT-DSL-001/)
+      end.to raise_error(Veltrunode::SettingsLoader::LoadError, /VLT-DSL-004/)
     end
   end
 
