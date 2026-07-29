@@ -22,7 +22,7 @@
 
 ## 根拠 (Rationale)
 
-なぜこの決定事項が最適であると判断されたかの根拠を明記します。クリーンルーム開発ポリシー（`docs/15-clean-room-and-ip-policy.md`）やAWS公式仕様との適合性、メンテナンス性などの理由を含めます。
+なぜこの決定事項が最適であると判断されたかの根拠を明記します。クリーンルーム開発ポリシー（[docs/15-clean-room-and-ip-policy.md](../15-clean-room-and-ip-policy.md)）やAWS公式仕様との適合性、メンテナンス性などの理由を含めます。
 
 ## 影響 (Consequences)
 
