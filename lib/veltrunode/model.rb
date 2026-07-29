@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require_relative 'model/application'
+
 module Veltrunode
   module Model
   end
