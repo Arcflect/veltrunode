@@ -6,7 +6,11 @@ require 'ostruct'
 require 'simplecov'
 
 SimpleCov.start do
-  add_filter '/spec/'
+  if respond_to?(:skip)
+    skip '/spec/'
+  else
+    add_filter '/spec/'
+  end
 end
 
 require 'veltrunode'

@@ -127,6 +127,8 @@ jobs:
           target_commitish: ${{ env.RELEASE_SHA }}
           body_path: release_notes.md
           files: pkg/*.gem
+          draft: false
+          make_latest: true
 
       - name: Skip GitHub Release in dry-run mode
         if: env.DRY_RUN == 'true'

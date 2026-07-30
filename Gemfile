@@ -7,7 +7,6 @@ gemspec
 group :development, :test do
   gem 'base64'
   gem 'benchmark'
-  gem 'json', '2.6.3'
   gem 'racc', '1.8.1'
   gem 'rspec', '~> 3.12'
   gem 'rubocop', '1.88.2'
