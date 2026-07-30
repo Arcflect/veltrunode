@@ -11,5 +11,5 @@ group :development, :test do
   gem 'racc', '1.8.1'
   gem 'rspec', '~> 3.12'
   gem 'rubocop', '1.88.2'
-  gem 'simplecov', '~> 0.22', require: false
+  gem 'simplecov', '~> 1.0', require: false
 end
