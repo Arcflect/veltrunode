@@ -258,19 +258,22 @@ module Veltrunode
       end
 
       def extract_name(item)
-        if item.is_a?(Hash)
-          raw = item[:name] || item['name'] || item[:logical_name] || item['logical_name'] ||
-                item[:symbolic_name] || item['symbolic_name']
-          raw&.to_s
-        elsif item.respond_to?(:logical_name)
-          item.logical_name&.to_s
-        elsif item.respond_to?(:name)
-          item.name&.to_s
-        elsif item.respond_to?(:symbolic_name)
-          item.symbolic_name&.to_s
-        elsif item.is_a?(String) || item.is_a?(Symbol)
-          item.to_s
-        end
+        value =
+          if item.is_a?(Hash)
+            item[:name] || item['name'] || item[:logical_name] || item['logical_name'] ||
+              item[:symbolic_name] || item['symbolic_name']
+          elsif item.respond_to?(:logical_name)
+            item.logical_name
+          elsif item.respond_to?(:name)
+            item.name
+          elsif item.respond_to?(:symbolic_name)
+            item.symbolic_name
+          elsif item.is_a?(String) && item.include?(':')
+            item.split(':', 2).first
+          else
+            item
+          end
+        value&.to_s
       end
 
       def find_by_name(collection, name)

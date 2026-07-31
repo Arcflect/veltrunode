@@ -233,6 +233,15 @@ RSpec.describe Veltrunode::Model::Function do
         expect(diag.severity).to eq(:error)
         expect(diag.evidence['missing_mount']).to eq('missing_mount')
       end
+
+      it 'extracts name from name:/path mount reference format' do
+        fn = described_class.new(
+          logical_name: 'fn',
+          mounts: ['existing_mount:/mnt/data']
+        )
+        ctx = { available_mount_names: ['existing_mount'] }
+        expect(fn.validate_invariants(ctx)).to be_empty
+      end
     end
 
     context 'Invariant 5: No duplicate environment keys after stage merge' do
