@@ -160,6 +160,15 @@ RSpec.describe Veltrunode::Model::Function do
         expect(diag.severity).to eq(:error)
         expect(diag.evidence['local_path']).to eq('/tmp/data')
       end
+
+      it 'does not treat plain mount reference names as invalid paths' do
+        fn = described_class.new(
+          logical_name: 'fn',
+          mounts: ['shared']
+        )
+        ctx = { available_mount_names: ['shared'] }
+        expect(fn.validate_invariants(ctx)).to be_empty
+      end
     end
 
     context 'Invariant 3: Architecture compatibility with attached layers' do

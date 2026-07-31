@@ -149,7 +149,7 @@ module Veltrunode
           mount.local_path
         elsif mount.is_a?(String) && mount.include?(':')
           mount.split(':', 2).last
-        elsif mount.is_a?(String)
+        elsif mount.is_a?(String) && mount.start_with?('/')
           mount
         end
       end
