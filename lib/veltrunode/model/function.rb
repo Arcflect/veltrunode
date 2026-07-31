@@ -259,16 +259,17 @@ module Veltrunode
 
       def extract_name(item)
         if item.is_a?(Hash)
-          item[:name] || item['name'] || item[:logical_name] || item['logical_name'] ||
-            item[:symbolic_name] || item['symbolic_name']
+          raw = item[:name] || item['name'] || item[:logical_name] || item['logical_name'] ||
+                item[:symbolic_name] || item['symbolic_name']
+          raw&.to_s
         elsif item.respond_to?(:logical_name)
-          item.logical_name
+          item.logical_name&.to_s
         elsif item.respond_to?(:name)
-          item.name
+          item.name&.to_s
         elsif item.respond_to?(:symbolic_name)
-          item.symbolic_name
-        elsif item.is_a?(String)
-          item
+          item.symbolic_name&.to_s
+        elsif item.is_a?(String) || item.is_a?(Symbol)
+          item.to_s
         end
       end
 

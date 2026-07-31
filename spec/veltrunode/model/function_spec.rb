@@ -210,6 +210,15 @@ RSpec.describe Veltrunode::Model::Function do
         expect(diag.evidence['missing_layer']).to eq('missing_layer')
       end
 
+      it 'normalizes symbol references when checking existence' do
+        fn = described_class.new(logical_name: 'fn', layers: [:missing_layer])
+        ctx = { available_layer_names: ['existing_layer'] }
+        diagnostics = fn.validate_invariants(ctx)
+
+        expect(diagnostics.size).to eq(1)
+        expect(diagnostics.first.evidence['missing_layer']).to eq('missing_layer')
+      end
+
       it 'creates a Diagnostic when referenced mount does not exist' do
         fn = described_class.new(
           logical_name: 'fn',
