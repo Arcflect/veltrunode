@@ -53,6 +53,15 @@ RSpec.describe Veltrunode::Model::Layer do
         )
         expect(layer.retention_policy).to eq({ latest: 10 })
       end
+
+      it "does not allow duplicate :latest and 'latest' keys to override the validated value" do
+        layer = described_class.new(
+          name: 'layer',
+          compatible_runtimes: ['ruby3.3'],
+          retention_policy: { latest: 7, 'latest' => 99 }
+        )
+        expect(layer.retention_policy).to eq({ latest: 7 })
+      end
     end
 
     context 'immutability' do
