@@ -7,7 +7,7 @@ module Veltrunode
     class Schedule
       EXPRESSION_TYPES = %i[cron rate at].freeze
       STATES = %i[enabled disabled].freeze
-      RATE_UNIT_PATTERN = /\Arate\(\s*\d+\s+(?:minute|minutes|hour|hours|day|days)\s*\)\z/i
+      RATE_UNIT_PATTERN = /\Arate\(\s*(?:1\s+(?:minute|hour|day)|[2-9]\d*\s+(?:minutes|hours|days))\s*\)\z/i
       IANA_TIMEZONE_PATTERN = %r{\A(?:UTC|GMT|[A-Za-z0-9_\-+]+(?:/[A-Za-z0-9_\-+]+)+)\z}
 
       attr_reader :name,
