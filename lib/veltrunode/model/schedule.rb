@@ -140,7 +140,7 @@ module Veltrunode
         tz_str = tz.to_s.strip
         return if IANA_TIMEZONE_PATTERN.match?(tz_str)
 
-        raise ValidationError, "Invalid timezone '#{tz_str}'. Must be a valid IANA timezone name."
+        raise ValidationError, "Invalid timezone '#{tz_str}'. Must be a valid IANA timezone identifier (e.g. 'Asia/Tokyo')."
       end
 
       def validate_retry_policy!(policy)
