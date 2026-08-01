@@ -3,6 +3,7 @@
 require_relative 'model/application'
 require_relative 'model/function'
 require_relative 'model/layer'
+require_relative 'model/schedule'
 
 module Veltrunode
   module Model
