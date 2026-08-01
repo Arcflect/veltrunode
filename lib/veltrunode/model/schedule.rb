@@ -51,8 +51,8 @@ module Veltrunode
         @name = name.to_s.freeze
         @target_function = target_function.to_s.freeze
         @expression_type = exp_type
-        @expression = expression.to_s.freeze
-        @timezone = timezone.to_s.freeze
+        @expression = expression.to_s.strip.freeze
+        @timezone = timezone.to_s.strip.freeze
         @state = st
         @flexible_window = freeze_value(flexible_window)
         @input = freeze_value(input)
