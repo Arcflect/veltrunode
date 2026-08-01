@@ -2,6 +2,7 @@
 
 require_relative 'model/application'
 require_relative 'model/function'
+require_relative 'model/layer'
 
 module Veltrunode
   module Model
