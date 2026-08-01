@@ -84,6 +84,11 @@ module Veltrunode
 
         hash = policy.dup
         latest = hash.delete(:latest) || hash.delete('latest')
+
+        # Ensure the other form of the key can't overwrite :latest in the loop
+        hash.delete(:latest)
+        hash.delete('latest')
+
         res = {}
         res[:latest] = latest.to_i if latest
         hash.each { |k, v| res[k.to_sym] = v }
