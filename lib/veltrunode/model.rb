@@ -4,6 +4,7 @@ require_relative 'model/application'
 require_relative 'model/function'
 require_relative 'model/layer'
 require_relative 'model/schedule'
+require_relative 'model/efs_mount'
 
 module Veltrunode
   module Model
