@@ -24,7 +24,9 @@ module Veltrunode
             end
           end.compact.map(&:to_s)
 
-          duplicates = paths.select { |p| paths.count(p) > 1 }.uniq
+          counts = Hash.new(0)
+          paths.each { |p| counts[p] += 1 }
+          duplicates = counts.select { |_p, c| c > 1 }.keys
           return if duplicates.empty?
 
           raise ValidationError, "Duplicate local_path found: #{duplicates.join(', ')}"
