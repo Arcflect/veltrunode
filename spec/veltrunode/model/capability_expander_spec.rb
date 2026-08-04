@@ -136,6 +136,20 @@ RSpec.describe Veltrunode::Model::CapabilityExpander do
             expect(err.diagnostics.first.code).to eq('VLT-IAM-WILDCARD-RESOURCE')
           }
       end
+
+      it 'raises ValidationError in prod stage for service wildcard actions like s3:*' do
+        prod_expander = described_class.new(context.merge(stage: 'prod'))
+        cap = Veltrunode::Model::Capability.new(
+          type: :custom,
+          params: { actions: ['s3:*'], resources: ['arn:aws:s3:::my-bucket/*'] }
+        )
+
+        expect { prod_expander.expand(cap) }
+          .to raise_error(Veltrunode::ValidationError) { |err|
+            expect(err.diagnostics).not_to be_empty
+            expect(err.diagnostics.first.code).to eq('VLT-IAM-WILDCARD-ACTION')
+          }
+      end
     end
 
     context 'unknown capability type' do

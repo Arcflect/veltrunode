@@ -55,7 +55,7 @@ module Veltrunode
           actions = Array(stmt['Action'])
           resources = Array(stmt['Resource'])
 
-          if actions.include?('*')
+          if actions.any? { |a| a.to_s == '*' || a.to_s.end_with?(':*') }
             code = is_prod ? 'VLT-IAM-WILDCARD-ACTION' : 'VLT-IAM-WARN-WILDCARD'
             severity = is_prod ? :error : :warning
             diagnostics << Diagnostics::Diagnostic.new(
