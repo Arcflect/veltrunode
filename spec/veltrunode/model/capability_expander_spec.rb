@@ -123,5 +123,13 @@ RSpec.describe Veltrunode::Model::CapabilityExpander do
           }
       end
     end
+
+    context 'unknown capability type' do
+      it 'raises ValidationError for unsupported capability types' do
+        cap = Veltrunode::Model::Capability.new(type: :unknown_capability, params: {})
+        expect { expander.expand(cap) }
+          .to raise_error(Veltrunode::ValidationError, /Unknown capability type/)
+      end
+    end
   end
 end

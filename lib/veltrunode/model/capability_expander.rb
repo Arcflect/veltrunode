@@ -36,8 +36,10 @@ module Veltrunode
                        expand_write_to_s3(cap.params)
                      when :read_parameter
                        expand_read_parameter(cap.params)
-                     else
+                     when :custom
                        expand_custom(cap.params)
+                     else
+                       raise ValidationError, "Unknown capability type: #{cap.type.inspect}"
                      end
 
         validate_statements!(statements)
