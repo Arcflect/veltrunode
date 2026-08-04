@@ -33,7 +33,7 @@ module Veltrunode
         return {}.freeze if hash.nil?
 
         hash.each_with_object({}) do |(k, v), memo|
-          memo[k.to_s.to_sym] = freeze_value(v)
+          memo[k.to_s.freeze] = freeze_value(v)
         end.freeze
       end
     end
