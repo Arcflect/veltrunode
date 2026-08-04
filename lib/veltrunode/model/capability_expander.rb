@@ -67,7 +67,15 @@ module Veltrunode
             )
           end
 
-          next unless resources.include?('*')
+          wildcard_arn = resources.any? do |r|
+            s = r.to_s
+            next false unless s.start_with?('arn:')
+
+            parts = s.split(':', 6)
+            parts[3] == '*' || parts[4] == '*'
+          end
+
+          next unless resources.include?('*') || wildcard_arn
 
           code = is_prod ? 'VLT-IAM-WILDCARD-RESOURCE' : 'VLT-IAM-WARN-WILDCARD'
           severity = is_prod ? :error : :warning

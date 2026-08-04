@@ -122,6 +122,20 @@ RSpec.describe Veltrunode::Model::CapabilityExpander do
             expect(err.diagnostics.first.code).to eq('VLT-IAM-WILDCARD-RESOURCE')
           }
       end
+
+      it 'raises ValidationError in prod stage when expanded ARN contains wildcard region or account' do
+        prod_expander_without_context = described_class.new(stage: 'prod')
+        cap = Veltrunode::Model::Capability.new(
+          type: :read_parameter,
+          params: { name: '/config/db' }
+        )
+
+        expect { prod_expander_without_context.expand(cap) }
+          .to raise_error(Veltrunode::ValidationError) { |err|
+            expect(err.diagnostics).not_to be_empty
+            expect(err.diagnostics.first.code).to eq('VLT-IAM-WILDCARD-RESOURCE')
+          }
+      end
     end
 
     context 'unknown capability type' do
