@@ -5,7 +5,15 @@ module Veltrunode
 
   class << self
     def application(name, &)
-      @app = Veltrunode::DSL.evaluate(name, &)
+      @app = Veltrunode::DSL.application(name, &)
+    end
+
+    def parse(content, filename = 'Veltrunodefile')
+      @app = Veltrunode::DSL.parse(content, filename)
+    end
+
+    def load_file(path)
+      @app = Veltrunode::DSL.load_file(path)
     end
 
     def last_application

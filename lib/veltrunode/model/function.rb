@@ -5,23 +5,12 @@ require_relative '../diagnostics/diagnostic'
 module Veltrunode
   module Model
     class Function
-      attr_reader :logical_name,
-                  :handler,
-                  :runtime,
-                  :architecture,
-                  :memory,
-                  :timeout,
-                  :ephemeral_storage,
-                  :environment,
-                  :vpc_reference,
-                  :layers,
-                  :mounts,
-                  :iam_capabilities,
-                  :concurrency,
-                  :logging
+      attr_reader :handler, :runtime, :logical_name, :architecture, :memory, :timeout, :ephemeral_storage,
+                  :environment, :vpc_reference, :layers, :mounts, :iam_capabilities, :concurrency, :logging
 
       def initialize(
-        logical_name:,
+        positional_logical_name = nil,
+        logical_name: nil,
         handler: nil,
         runtime: nil,
         architecture: :x86_64,
@@ -36,9 +25,10 @@ module Veltrunode
         concurrency: nil,
         logging: nil
       )
-        validate_logical_name!(logical_name)
+        name_val = positional_logical_name || logical_name
+        validate_logical_name!(name_val)
 
-        @logical_name = logical_name.to_s.freeze
+        @logical_name = name_val.to_s.freeze
         @handler = handler&.to_s&.freeze
         @runtime = runtime&.to_s&.freeze
         @architecture = normalize_architecture(architecture)
@@ -53,7 +43,15 @@ module Veltrunode
         @concurrency = freeze_value(concurrency)
         @logging = freeze_value(logging)
 
-        freeze
+        freeze if @handler || @runtime
+      end
+
+      def handler=(h)
+        @handler = h&.to_s&.freeze
+      end
+
+      def runtime=(r)
+        @runtime = r&.to_s&.freeze
       end
 
       def validate_invariants(context = {})
