@@ -101,6 +101,27 @@ RSpec.describe Veltrunode::Graph::ResourceGraph do
       fn_deps = graph.depends_on(hash_fn)
       expect(fn_deps).to contain_exactly(layer, mount)
     end
+
+    it 'handles cross-type name collisions without overwriting nodes' do
+      same_name_layer = Veltrunode::Model::Layer.new(name: 'common_name', compatible_runtimes: ['ruby3.3'])
+      same_name_fn = Veltrunode::Model::Function.new(
+        logical_name: 'common_name',
+        handler: 'app.handler',
+        runtime: 'ruby3.3',
+        layers: ['common_name']
+      )
+      collision_app = Veltrunode::Model::Application.new(
+        name: 'collision_app',
+        region: 'ap-northeast-1',
+        stage: 'dev',
+        layers: [same_name_layer],
+        functions: [same_name_fn]
+      )
+
+      graph = described_class.build(collision_app)
+      expect(graph.build_order).to eq([same_name_layer, same_name_fn])
+      expect(graph.depends_on(same_name_fn)).to contain_exactly(same_name_layer)
+    end
   end
 
   describe 'unresolved reference validation (VLT-REF-001)' do

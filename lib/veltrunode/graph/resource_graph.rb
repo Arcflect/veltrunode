@@ -5,7 +5,7 @@ require_relative '../diagnostics/diagnostic'
 module Veltrunode
   module Graph
     class ResourceGraph
-      attr_reader :application, :nodes, :dependencies, :dependents
+      attr_reader :application, :nodes, :typed_nodes, :dependencies, :dependents
 
       def self.build(application, validate: true)
         new(application, validate: validate)
@@ -13,10 +13,10 @@ module Veltrunode
 
       def initialize(application, validate: true)
         @application = application
-        @nodes = {}
-        @node_types = {}
-        @dependencies = Hash.new { |h, k| h[k] = [] }
-        @dependents = Hash.new { |h, k| h[k] = [] }
+        @nodes = {} # typed_key ("type:name") => model object
+        @typed_nodes = { layer: {}, mount: {}, function: {}, schedule: {} }
+        @dependencies = Hash.new { |h, k| h[k] = [] } # typed_key => [typed_keys]
+        @dependents = Hash.new { |h, k| h[k] = [] }   # typed_key => [typed_keys]
 
         build_graph
         validate! if validate
@@ -34,13 +34,17 @@ module Veltrunode
       end
 
       def depends_on(node_or_name)
-        name = extract_name_string(node_or_name)
-        @dependencies[name].map { |dep_name| @nodes[dep_name] }.compact
+        key = resolve_typed_key(node_or_name)
+        return [] unless key
+
+        @dependencies[key].map { |dep_key| @nodes[dep_key] }.compact
       end
 
       def depends_on_names(node_or_name)
-        name = extract_name_string(node_or_name)
-        @dependencies[name].dup
+        key = resolve_typed_key(node_or_name)
+        return [] unless key
+
+        @dependencies[key].map { |dep_key| extract_raw_name(dep_key) }
       end
 
       def topological_sort
@@ -49,26 +53,26 @@ module Veltrunode
 
       def build_order
         in_degree = {}
-        @nodes.each_key { |name| in_degree[name] = 0 }
-        @dependencies.each do |node_name, deps|
-          in_degree[node_name] = deps.size
+        @nodes.each_key { |key| in_degree[key] = 0 }
+        @dependencies.each do |key, deps|
+          in_degree[key] = deps.size
         end
 
-        queue = @nodes.keys.select { |name| in_degree[name].zero? }
+        queue = @nodes.keys.select { |key| in_degree[key].zero? }
         order = []
 
         until queue.empty?
           curr = queue.shift
           order << @nodes[curr]
 
-          @dependents[curr].each do |dep_node|
-            in_degree[dep_node] -= 1
-            queue << dep_node if in_degree[dep_node].zero?
+          @dependents[curr].each do |dep_key|
+            in_degree[dep_key] -= 1
+            queue << dep_key if in_degree[dep_key].zero?
           end
         end
 
         if order.size < @nodes.size
-          unresolved = @nodes.keys - order.map { |n| extract_name_string(n) }
+          unresolved = @nodes.keys - order.map { |k| @nodes[k] ? extract_name_string(@nodes[k]) : k }
           diag = Diagnostics::Diagnostic.new(
             code: 'VLT-GRAPH-001',
             severity: :error,
@@ -85,41 +89,38 @@ module Veltrunode
       private
 
       def build_graph
-        Array(application.layers).each do |layer|
-          name = extract_name_string(layer)
-          @nodes[name] = layer
-          @node_types[name] = :layer
-        end
+        register_nodes(:layer, application.layers)
+        register_nodes(:mount, application.mounts)
+        register_nodes(:function, application.functions)
+        register_nodes(:schedule, application.schedules)
 
-        Array(application.mounts).each do |mount|
-          name = extract_name_string(mount)
-          @nodes[name] = mount
-          @node_types[name] = :mount
-        end
+        register_edges
+      end
 
-        Array(application.functions).each do |fn|
-          name = extract_name_string(fn)
-          @nodes[name] = fn
-          @node_types[name] = :function
-        end
+      def register_nodes(type, collection)
+        Array(collection).each do |item|
+          name = extract_name_string(item)
+          next if name.nil?
 
-        Array(application.schedules).each do |sched|
-          name = extract_name_string(sched)
-          @nodes[name] = sched
-          @node_types[name] = :schedule
+          key = typed_key(type, name)
+          @nodes[key] = item
+          @typed_nodes[type][name] = item
         end
+      end
 
+      def register_edges
         Array(application.functions).each do |fn|
           fn_name = extract_name_string(fn)
+          fn_key = typed_key(:function, fn_name)
 
           Array(fn.layers).each do |layer_ref|
             layer_name = extract_name_string(layer_ref)
-            add_edge(from: fn_name, to: layer_name)
+            add_edge(from: fn_key, to: typed_key(:layer, layer_name))
           end
 
           Array(fn.mounts).each do |mount_ref|
             mount_name = extract_name_string(mount_ref)
-            add_edge(from: fn_name, to: mount_name)
+            add_edge(from: fn_key, to: typed_key(:mount, mount_name))
           end
         end
 
@@ -128,7 +129,7 @@ module Veltrunode
           next unless sched.target_function
 
           fn_name = extract_name_string(sched.target_function)
-          add_edge(from: sched_name, to: fn_name)
+          add_edge(from: typed_key(:schedule, sched_name), to: typed_key(:function, fn_name))
         end
       end
 
@@ -147,7 +148,7 @@ module Veltrunode
 
           Array(fn.layers).each do |layer_ref|
             layer_name = extract_name_string(layer_ref)
-            next if @nodes.key?(layer_name) && @node_types[layer_name] == :layer
+            next if @typed_nodes[:layer].key?(layer_name)
 
             diagnostics << Diagnostics::Diagnostic.new(
               code: 'VLT-REF-001',
@@ -160,7 +161,7 @@ module Veltrunode
 
           Array(fn.mounts).each do |mount_ref|
             mount_name = extract_name_string(mount_ref)
-            next if @nodes.key?(mount_name) && @node_types[mount_name] == :mount
+            next if @typed_nodes[:mount].key?(mount_name)
 
             diagnostics << Diagnostics::Diagnostic.new(
               code: 'VLT-REF-001',
@@ -176,7 +177,7 @@ module Veltrunode
           sched_name = extract_name_string(sched)
           target_fn = extract_name_string(sched.target_function)
 
-          next if target_fn.nil? || (@nodes.key?(target_fn) && @node_types[target_fn] == :function)
+          next if target_fn.nil? || @typed_nodes[:function].key?(target_fn)
 
           diagnostics << Diagnostics::Diagnostic.new(
             code: 'VLT-REF-001',
@@ -195,13 +196,13 @@ module Veltrunode
         visited = {}
         rec_stack = {}
 
-        @nodes.each_key do |node|
-          next if visited[node]
+        @nodes.each_key do |node_key|
+          next if visited[node_key]
 
-          cycle_path = find_cycle_dfs(node, visited, rec_stack, [])
+          cycle_path = find_cycle_dfs(node_key, visited, rec_stack, [])
           next unless cycle_path
 
-          cycle_str = cycle_path.join(' -> ')
+          cycle_str = cycle_path.map { |k| extract_raw_name(k) }.join(' -> ')
           diagnostics << Diagnostics::Diagnostic.new(
             code: 'VLT-GRAPH-001',
             severity: :error,
@@ -215,12 +216,12 @@ module Veltrunode
         diagnostics
       end
 
-      def find_cycle_dfs(node, visited, rec_stack, path)
-        visited[node] = true
-        rec_stack[node] = true
-        path.push(node)
+      def find_cycle_dfs(node_key, visited, rec_stack, path)
+        visited[node_key] = true
+        rec_stack[node_key] = true
+        path.push(node_key)
 
-        deps = @dependencies[node] || []
+        deps = @dependencies[node_key] || []
         deps.each do |dep|
           if !visited[dep]
             cycle = find_cycle_dfs(dep, visited, rec_stack, path)
@@ -231,9 +232,33 @@ module Veltrunode
           end
         end
 
-        rec_stack[node] = false
+        rec_stack[node_key] = false
         path.pop
         nil
+      end
+
+      def typed_key(type, name)
+        "#{type}:#{name}"
+      end
+
+      def extract_raw_name(key)
+        key.to_s.split(':', 2).last
+      end
+
+      def resolve_typed_key(node_or_name)
+        case node_or_name
+        when Model::Layer
+          typed_key(:layer, extract_name_string(node_or_name))
+        when Model::EfsMount
+          typed_key(:mount, extract_name_string(node_or_name))
+        when Model::Function
+          typed_key(:function, extract_name_string(node_or_name))
+        when Model::Schedule
+          typed_key(:schedule, extract_name_string(node_or_name))
+        else
+          name = extract_name_string(node_or_name)
+          @nodes.keys.find { |k| extract_raw_name(k) == name }
+        end
       end
 
       def extract_name_string(item)
