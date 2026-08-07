@@ -79,6 +79,28 @@ RSpec.describe Veltrunode::Graph::ResourceGraph do
       layer_deps = graph.depends_on(layer)
       expect(layer_deps).to be_empty
     end
+
+    it 'correctly normalizes symbol-based Hash layer and mount references' do
+      hash_fn = Veltrunode::Model::Function.new(
+        logical_name: 'hash_fn',
+        handler: 'app.handler',
+        runtime: 'ruby3.3',
+        layers: [{ name: :gems_layer }],
+        mounts: [{ name: :shared_storage, local_path: '/mnt/shared' }]
+      )
+      hash_app = Veltrunode::Model::Application.new(
+        name: 'hash_app',
+        region: 'ap-northeast-1',
+        stage: 'dev',
+        layers: [layer],
+        mounts: [mount],
+        functions: [hash_fn]
+      )
+
+      graph = described_class.build(hash_app)
+      fn_deps = graph.depends_on(hash_fn)
+      expect(fn_deps).to contain_exactly(layer, mount)
+    end
   end
 
   describe 'unresolved reference validation (VLT-REF-001)' do

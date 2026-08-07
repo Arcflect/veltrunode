@@ -237,19 +237,22 @@ module Veltrunode
       end
 
       def extract_name_string(item)
-        if item.is_a?(Hash)
-          item[:name] || item['name'] || item[:logical_name] ||
-            item['logical_name'] || item[:symbolic_name] || item['symbolic_name']
-        elsif item.respond_to?(:logical_name)
-          item.logical_name
-        elsif item.respond_to?(:symbolic_name)
-          item.symbolic_name
-        elsif item.respond_to?(:name)
-          item.name
-        elsif item.is_a?(String) || item.is_a?(Symbol)
-          s = item.to_s
-          s.include?(':') ? s.split(':', 2).first : s
-        end
+        val = if item.is_a?(Hash)
+                item[:name] || item['name'] || item[:logical_name] ||
+                  item['logical_name'] || item[:symbolic_name] || item['symbolic_name']
+              elsif item.respond_to?(:logical_name)
+                item.logical_name
+              elsif item.respond_to?(:symbolic_name)
+                item.symbolic_name
+              elsif item.respond_to?(:name)
+                item.name
+              elsif item.is_a?(String) || item.is_a?(Symbol)
+                item
+              end
+        return nil if val.nil?
+
+        s = val.to_s
+        s.include?(':') ? s.split(':', 2).first : s
       end
     end
   end
