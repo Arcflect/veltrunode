@@ -83,8 +83,8 @@ module Veltrunode
       end
 
       def validate_graph_and_references
-        graph = Graph::ResourceGraph.new(application, validate: false)
-        graph.send(:validate_references) + graph.send(:validate_cycles)
+        Graph::ResourceGraph.new(application, validate: true)
+        []
       rescue ValidationError => e
         e.diagnostics
       end
