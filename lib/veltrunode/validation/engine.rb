@@ -137,7 +137,8 @@ module Veltrunode
         diagnostics = []
         context = {
           available_layer_names: Array(application.layers).map(&:name),
-          available_mount_names: Array(application.mounts).map(&:symbolic_name)
+          available_mount_names: Array(application.mounts).map(&:symbolic_name),
+          available_layers: Array(application.layers)
         }
 
         Array(application.functions).each do |fn|

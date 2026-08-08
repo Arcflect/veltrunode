@@ -118,6 +118,34 @@ RSpec.describe Veltrunode::Validation::Engine do
       expect(compat_error.severity).to eq(:error)
     end
 
+    it 'detects architecture incompatibility between Function and Layer (VLT-LAYER-001)' do
+      arm_layer = Veltrunode::Model::Layer.new(
+        name: 'arm-layer',
+        compatible_runtimes: ['ruby3.3'],
+        architectures: [:arm64]
+      )
+      x86_fn = Veltrunode::Model::Function.new(
+        logical_name: 'x86_fn',
+        handler: 'app.handler',
+        runtime: 'ruby3.3',
+        architecture: :x86_64,
+        layers: ['arm-layer']
+      )
+      arch_app = Veltrunode::Model::Application.new(
+        name: 'arch-app',
+        region: 'ap-northeast-1',
+        stage: 'dev',
+        layers: [arm_layer],
+        functions: [x86_fn]
+      )
+
+      diagnostics = described_class.run(arch_app)
+      arch_error = diagnostics.find { |d| d.code == 'VLT-LAYER-001' }
+
+      expect(arch_error).not_to be_nil
+      expect(arch_error.severity).to eq(:error)
+    end
+
     it 'detects invalid EFS mount path format (VLT-EFS-PATH)' do
       valid_mount = Veltrunode::Model::EfsMount.new(
         symbolic_name: 'mount_one',
