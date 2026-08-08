@@ -194,6 +194,26 @@ RSpec.describe Veltrunode::Validation::Engine do
       expect(wildcard_error).not_to be_nil
       expect(wildcard_error.severity).to eq(:error)
     end
+
+    it 'deduplicates identical diagnostics produced across validation phases' do
+      invalid_ref_fn = Veltrunode::Model::Function.new(
+        logical_name: 'ref_fn',
+        handler: 'app.handler',
+        runtime: 'ruby3.3',
+        layers: ['missing_layer']
+      )
+      invalid_ref_app = Veltrunode::Model::Application.new(
+        name: 'ref-app',
+        region: 'ap-northeast-1',
+        stage: 'dev',
+        functions: [invalid_ref_fn]
+      )
+
+      diagnostics = described_class.run(invalid_ref_app)
+      ref_errors = diagnostics.select { |d| d.code == 'VLT-REF-001' && d.evidence['missing_layer'] == 'missing_layer' }
+
+      expect(ref_errors.size).to eq(1)
+    end
   end
 
   describe '.run!' do

@@ -30,7 +30,7 @@ module Veltrunode
         diagnostics.concat(validate_model_invariants)
         diagnostics.concat(validate_iam_capabilities)
 
-        diagnostics
+        deduplicate_diagnostics(diagnostics)
       end
 
       def run!
@@ -193,6 +193,10 @@ module Veltrunode
 
         s = val.to_s
         s.include?(':') ? s.split(':', 2).first : s
+      end
+
+      def deduplicate_diagnostics(diagnostics)
+        diagnostics.uniq { |d| [d.code, d.severity, d.summary, d.evidence] }
       end
     end
   end
