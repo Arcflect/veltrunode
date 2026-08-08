@@ -137,8 +137,32 @@ module Veltrunode
       end
 
       def execute_validate
-        load_application!
-        output_success('Validation successful.', { message: 'Validation successful' })
+        application = load_application!
+        diagnostics = Veltrunode::Validation::Engine.run(application)
+        errors = diagnostics.select { |d| d.severity == :error }
+
+        if @options[:format] == :json
+          output = {
+            status: errors.empty? ? 'success' : 'error',
+            diagnostics: diagnostics.map(&:to_h)
+          }
+          $stdout.puts JSON.generate(output)
+        else
+          diagnostics.each do |diag|
+            prefix = diag.severity == :error ? '[ERROR]' : '[WARN]'
+            $stdout.puts "#{prefix} [#{diag.code}] #{diag.summary}"
+          end
+
+          if errors.empty?
+            $stdout.puts 'Validation successful.'
+          else
+            # rubocop:disable Style/StderrPuts
+            $stderr.puts "Validation failed with #{errors.size} error(s)."
+            # rubocop:enable Style/StderrPuts
+          end
+        end
+
+        errors.empty? ? EXIT_SUCCESS : EXIT_VALIDATION_FAILED
       end
 
       def execute_build

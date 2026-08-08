@@ -59,10 +59,10 @@ RSpec.describe Veltrunode::CLI::Router do
       expect(stdout.string.strip).to eq('Project initialized.')
     end
 
-    it 'runs validate command stub' do
+    it 'runs validate command and invokes Validation Engine' do
       code = run_cli(['validate'])
       expect(code).to eq(0)
-      expect(stdout.string.strip).to eq('Validation successful.')
+      expect(stdout.string.strip).to include('Validation successful.')
     end
 
     it 'runs build command stub' do
