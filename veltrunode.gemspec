@@ -23,6 +23,7 @@ Gem::Specification.new do |spec|
 
   spec.add_dependency 'json', '>= 2.6'
   spec.add_dependency 'ostruct', '~> 0.6'
+  spec.add_dependency 'rubyzip', '~> 2.3'
   spec.add_dependency 'thor', '~> 1.2'
   spec.metadata['rubygems_mfa_required'] = 'true'
 end
