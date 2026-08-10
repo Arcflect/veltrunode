@@ -103,7 +103,7 @@ module Veltrunode
         return false unless File.file?(abs_path)
 
         mode = File.stat(abs_path).mode
-        mode.anybits?(0o111) || File.executable?(abs_path)
+        mode.anybits?(0o111)
       end
 
       def write_zip_archive(file_path, sorted_entries)
