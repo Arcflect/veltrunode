@@ -86,6 +86,7 @@ RSpec.describe Veltrunode::Build::FunctionPackager do
           expect(err.diagnostics).not_to be_empty
           expect(err.diagnostics.first.code).to eq('VLT-BUILD-001')
           expect(err.diagnostics.first.evidence['function']).to eq('convert')
+          expect(err.diagnostics.first.evidence['expected_files']).to include('functions/convert.rb')
         }
       end
     end
