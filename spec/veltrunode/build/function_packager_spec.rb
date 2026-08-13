@@ -157,5 +157,30 @@ RSpec.describe Veltrunode::Build::FunctionPackager do
         expect(File.binread(res1.zip_path)).to eq(File.binread(res2.zip_path))
       end
     end
+
+    it 'raises ValidationError with VLT-BUILD-SYMLINK-TRAVERSAL when a symlink points outside source_dir' do
+      with_tmpdir do |tmpdir|
+        source_dir = File.join(tmpdir, 'src')
+        FileUtils.mkdir_p(File.join(source_dir, 'functions'))
+        File.write(File.join(source_dir, 'functions', 'convert.rb'), 'puts "code"')
+
+        outside_secret = File.join(tmpdir, 'secret_system_file')
+        File.write(outside_secret, 'secret')
+
+        # Symlink pointing outside source_dir
+        File.symlink(outside_secret, File.join(source_dir, 'link_to_secret'))
+
+        expect do
+          described_class.package(
+            function: function,
+            source_dir: source_dir,
+            output_dir: File.join(tmpdir, 'out')
+          )
+        end.to raise_error(Veltrunode::ValidationError) { |err|
+          expect(err.diagnostics.first.code).to eq('VLT-BUILD-SYMLINK-TRAVERSAL')
+          expect(err.diagnostics.first.evidence['symlink']).to eq('link_to_secret')
+        }
+      end
+    end
   end
 end

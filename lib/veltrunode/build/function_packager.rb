@@ -39,6 +39,7 @@ module Veltrunode
         handler_str = extract_handler
 
         validate_handler_file!(fn_name, handler_str)
+        validate_symlinks!
 
         zip_path = File.join(@output_dir, "#{fn_name}.zip")
         combined_excludes = (DEFAULT_EXCLUDES + @user_excludes).uniq
@@ -114,6 +115,44 @@ module Veltrunode
           evidence: { 'function' => fn_name, 'handler' => handler_str, 'expected_files' => expected_files }
         )
         raise ValidationError.new(diag.summary, diagnostics: [diag])
+      end
+
+      def validate_symlinks!
+        return unless File.directory?(@source_dir)
+
+        real_source_dir = File.realpath(@source_dir)
+        base_prefix = real_source_dir.end_with?(File::SEPARATOR) ? real_source_dir : "#{real_source_dir}#{File::SEPARATOR}"
+
+        Dir.glob('**/*', File::FNM_DOTMATCH, base: @source_dir).each do |rel_path|
+          next if %w[. ..].include?(rel_path)
+
+          abs_path = File.join(@source_dir, rel_path)
+          next unless File.symlink?(abs_path)
+
+          unless File.exist?(abs_path)
+            diag = Diagnostics::Diagnostic.new(
+              code: 'VLT-BUILD-SYMLINK-TRAVERSAL',
+              severity: :error,
+              summary: "Broken symlink found in source directory: '#{rel_path}'",
+              suggested_action: "Remove broken symlink '#{rel_path}' from source directory '#{@source_dir}'.",
+              evidence: { 'symlink' => rel_path }
+            )
+            raise ValidationError.new(diag.summary, diagnostics: [diag])
+          end
+
+          real_target = File.realpath(abs_path)
+          next if real_target.start_with?(base_prefix)
+
+          diag = Diagnostics::Diagnostic.new(
+            code: 'VLT-BUILD-SYMLINK-TRAVERSAL',
+            severity: :error,
+            summary: "Symlink points outside source directory: '#{rel_path}' -> '#{real_target}'",
+            suggested_action: 'Remove symlink pointing outside source directory ' \
+                              "'#{@source_dir}' (symlink: '#{rel_path}').",
+            evidence: { 'symlink' => rel_path, 'target' => real_target }
+          )
+          raise ValidationError.new(diag.summary, diagnostics: [diag])
+        end
       end
     end
   end
