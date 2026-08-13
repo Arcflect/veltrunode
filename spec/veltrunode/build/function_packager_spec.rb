@@ -90,6 +90,32 @@ RSpec.describe Veltrunode::Build::FunctionPackager do
       end
     end
 
+    it 'prevents path traversal outside source_dir during handler validation' do
+      with_tmpdir do |tmpdir|
+        source_dir = File.join(tmpdir, 'src')
+        FileUtils.mkdir_p(source_dir)
+
+        # Create outside_handler.rb outside source_dir
+        File.write(File.join(tmpdir, 'outside_handler.rb'), 'puts "outside"')
+
+        traversal_fn = Veltrunode::Model::Function.new(
+          logical_name: 'traversal_fn',
+          handler: '../outside_handler.handler',
+          runtime: 'ruby3.3'
+        )
+
+        expect do
+          described_class.package(
+            function: traversal_fn,
+            source_dir: source_dir,
+            output_dir: File.join(tmpdir, 'out')
+          )
+        end.to raise_error(Veltrunode::ValidationError) { |err|
+          expect(err.diagnostics.first.code).to eq('VLT-BUILD-001')
+        }
+      end
+    end
+
     it 'scans for secret files and generates warning diagnostics when detected' do
       with_tmpdir do |tmpdir|
         source_dir = File.join(tmpdir, 'src')

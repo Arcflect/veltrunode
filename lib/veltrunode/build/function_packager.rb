@@ -86,14 +86,20 @@ module Veltrunode
       def validate_handler_file!(fn_name, handler_str)
         return if handler_str.nil? || handler_str.to_s.strip.empty?
 
-        mod_path = handler_str.to_s.split('.').first
+        raw_str = handler_str.to_s.strip
+        mod_path = raw_str.include?('.') ? raw_str.rpartition('.').first : raw_str
         return if mod_path.nil? || mod_path.empty?
 
+        real_source_dir = File.exist?(@source_dir) ? File.realpath(@source_dir) : @source_dir
+        base_prefix = real_source_dir.end_with?(File::SEPARATOR) ? real_source_dir : "#{real_source_dir}#{File::SEPARATOR}"
         candidate_extensions = ['', '.rb', '.py', '.js', '.mjs', '.cjs']
         found = candidate_extensions.any? do |ext|
           rel = "#{mod_path}#{ext}"
-          abs = File.join(@source_dir, rel)
-          File.exist?(abs) && !File.directory?(abs)
+          abs = File.expand_path(rel, real_source_dir)
+          abs = File.realpath(abs) if File.exist?(abs)
+          next false unless abs.start_with?(base_prefix)
+
+          File.file?(abs)
         end
 
         return if found
