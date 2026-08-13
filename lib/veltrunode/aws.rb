@@ -3,7 +3,7 @@
 # TCA: AWS Adapter レイヤー（Side Effect 境界）
 #
 # Transparent Compiler Architecture における "AWS / Infrastructure Adapters" レイヤーです。
-# AWS SDK を直接扱うことが許可されている唯一のレイヤーです。
+# AWS SDK を直接扱うことが許可されている副作用境界レイヤーの一つです。
 #
 # 設計上の制約:
 # - このレイヤーは副作用境界（Side Effect Boundary）として明示的に扱います。
