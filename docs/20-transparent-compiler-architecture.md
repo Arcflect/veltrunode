@@ -162,8 +162,8 @@ Issue #133 の Definition of Done は以下の通り達成されています。
 | 項目 | 状態 | 参照先 |
 |---|---|---|
 | Transparent Compiler Architecture の位置付けを文書化 | ✅ | 本文書 + ADR-0002 |
-| Veltrunode が Lambda デプロイツールであることを明記 | ✅ | 本文書冒頭 + docs/00 |
-| Definition / Model / Validation / Compilation / Deployment の責務定義 | ✅ | 本文書 + docs/02 |
+| Veltrunode が Lambda デプロイツールであることを明記 | ✅ | 本文書冒頭 + [docs/00-product-vision.md](00-product-vision.md) |
+| Definition / Model / Validation / Compilation / Deployment の責務定義 | ✅ | 本文書 + [docs/02-architecture.md](02-architecture.md) |
 | Core と Side Effect の境界定義 | ✅ | 本文書「境界定義」節 |
 | モジュール間の依存方向の定義 | ✅ | 本文書「依存方向」節 |
 | AWS SDK へ直接依存してよいレイヤーの定義 | ✅ | 本文書「AWS SDK を直接扱ってよいレイヤー」節 |
