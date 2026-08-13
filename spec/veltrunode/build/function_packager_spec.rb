@@ -70,7 +70,7 @@ RSpec.describe Veltrunode::Build::FunctionPackager do
       end
     end
 
-    it 'validates handler file existence and raises ValidationError with VLT-BUILD-001 when missing' do
+    it 'validates handler file existence and raises ValidationError with VLT-BUILD-HANDLER-NOT-FOUND when missing' do
       with_tmpdir do |tmpdir|
         source_dir = File.join(tmpdir, 'src')
         FileUtils.mkdir_p(source_dir)
@@ -84,7 +84,7 @@ RSpec.describe Veltrunode::Build::FunctionPackager do
           )
         end.to raise_error(Veltrunode::ValidationError) { |err|
           expect(err.diagnostics).not_to be_empty
-          expect(err.diagnostics.first.code).to eq('VLT-BUILD-001')
+          expect(err.diagnostics.first.code).to eq('VLT-BUILD-HANDLER-NOT-FOUND')
           expect(err.diagnostics.first.evidence['function']).to eq('convert')
           expect(err.diagnostics.first.evidence['expected_files']).to include('functions/convert.rb')
         }
@@ -112,7 +112,7 @@ RSpec.describe Veltrunode::Build::FunctionPackager do
             output_dir: File.join(tmpdir, 'out')
           )
         end.to raise_error(Veltrunode::ValidationError) { |err|
-          expect(err.diagnostics.first.code).to eq('VLT-BUILD-001')
+          expect(err.diagnostics.first.code).to eq('VLT-BUILD-HANDLER-NOT-FOUND')
         }
       end
     end

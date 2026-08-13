@@ -106,7 +106,7 @@ module Veltrunode
 
         expected_files = candidate_extensions.map { |ext| "#{mod_path}#{ext}" }
         diag = Diagnostics::Diagnostic.new(
-          code: 'VLT-BUILD-001',
+          code: 'VLT-BUILD-HANDLER-NOT-FOUND',
           severity: :error,
           summary: "Handler file not found for function '#{fn_name}': expected one of #{expected_files.join(', ')}.",
           suggested_action: 'Ensure the handler file exists in source directory ' \
