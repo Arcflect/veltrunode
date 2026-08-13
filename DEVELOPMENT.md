@@ -109,17 +109,52 @@ bin/lint
 
 ## コード設計原則 (Code Design Principles)
 
-開発およびリファクタリングの際は、クリーンアーキテクチャの思想に基づき、以下の「疎結合」および「関心の分離」を意識してください。
+Veltrunode の内部実装では **Transparent Compiler Architecture（TCA）** を開発モデルとして採用しています（[ADR-0002](docs/adr/0002-transparent-compiler-architecture.md)）。詳細は [docs/20-transparent-compiler-architecture.md](docs/20-transparent-compiler-architecture.md) を参照してください。
 
-### 1. 副作用（AWS SDK / IO）の隔離
-AWS APIの呼び出しやローカルファイルシステムへの書き込みなど、状態の変更や外部通信を伴う処理（副作用）は、コアのドメインロジックから完全に隔離してください。
-- **純粋なロジック (コア)**: DSLの評価（`DSL`）、モデル定義（`Model`）、テンプレートへの変換（`Compiler`）は、外部と通信しないピュアなRubyロジックです。テストはモックを必要とせず高速に行えるように設計します。
-- **隔離すべき処理 (境界)**: AWSとの通信を伴うリソースの接続診断（`aws/inspectors`）やスタックのデプロイ（`deploy`）は、インターフェースを明確にし、テスト時に簡単にモックできるように構成します。
+開発およびリファクタリングの際は、以下の 7 つの原則を意識してください。
 
-### 2. ドメインモデルの純粋性
-`Application` や `Function` などのモデルは、AWS SDKの内部仕様やCloudFormationの特定のYAMLハッシュ構造に依存しない、ピュアなRubyオブジェクト（PORO: Plain Old Ruby Object）として設計します。
-- DSLパース時に一時的なハッシュ構造を構築するのではなく、バリデーションや参照解決を行いやすいクリーンな型付きモデルへ変換します。
+### 1. Internal Model First
+DSL や CLI の入力をそのまま AWS 処理へ渡さないでください。必ず Veltrunode 内部モデル（`Function`, `Layer`, `Schedule`, `EfsMount` など）へ変換してから後続処理を行います。
+- **Good**: DSL が `Function` モデルを生成 → Compiler が `Function` を `AWS::Lambda::Function` へ変換
+- **Bad**: DSL が直接 CloudFormation ハッシュを構築する
 
-### 3. 一方向のデータフロー（決定論的コンパイル）
-DSLのロードからCloudFormationテンプレートの書き出しに至るデータフローは、常に一方向（Veltrunodefile ➔ モデル ➔ グラフ解決 ➔ コンパイル ➔ テンプレート）でなければなりません。
-- 各フェーズ間において、前のフェーズのデータ構造を破壊的に変更（ミューテート）することは避けてください。
+### 2. Separate Definition from Execution
+「何を作るか」（`model/`, `compiler/`）と「実際に作る処理」（`aws/`, `deploy/`, `build/`）を分離してください。
+- `Function` の定義（Definition）は AWS Lambda がそこに存在しなくても完全に記述できる状態にします。
+- 実際の作成処理（Execution）は副作用境界のレイヤーが担います。
+
+### 3. Deterministic Transformation
+同じ入力からは常に同じ内部モデルおよびデプロイ成果物を生成してください。
+- 変換処理に外部状態（時刻・乱数・外部 API のレスポンス）を混入させないでください。
+- `DeterministicArchiver` のように、ZIP 生成においても byte-for-byte の再現性を保証します。
+
+### 4. Explicit Side Effects（副作用の隔離）
+AWS API・File System・Docker・Network などの副作用を明確な境界へ隔離してください。
+- **純粋なコア** (`model/`, `validation/`, `compiler/`, `diagnostics/`): 外部と通信しない Pure Ruby ロジック。モックなしで高速にテストできます。
+- **副作用境界** (`aws/`, `deploy/`, `build/` の IO 処理): インターフェースを明確にし、テスト時にモックできるように構成します。
+
+### 5. Validation Before Deployment
+可能な問題は AWS へデプロイする前に検出してください。
+- AWS API を呼ばずに判定できるものはすべて `validation/` に配置します。
+- AWS API を呼ばなければ判定できないもの（EFS 接続確認、アカウントガードなど）は `aws/inspectors/` に配置し、Preflight Check として明示的に分離します。
+
+### 6. Inspectable Intermediate State
+内部処理をブラックボックス化しないでください。
+- 各フェーズの出力（正規化済みモデル・解決済みグラフ・生成テンプレート・ビルド成果物）を参照できる構造を保ちます。
+- 将来的な `veltrunode inspect`, `veltrunode plan` コマンドの基盤となります。
+
+### 7. Dependency Direction（依存方向の固定）
+依存方向を以下に固定してください。上位レイヤーは下位レイヤーに依存しますが、下位レイヤーは上位レイヤーに依存しません。
+
+```text
+CLI / DSL
+    ↓
+Application
+    ↓
+Domain / Model  ← 純粋な Ruby オブジェクト。AWS SDK 依存なし
+    ↓
+Compiler / Ports
+    ↓
+AWS / Infrastructure Adapters ← AWS SDK を直接扱う唯一のレイヤー
+```
+
