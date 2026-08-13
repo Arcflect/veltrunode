@@ -11,7 +11,7 @@ module Veltrunode
       ].freeze
 
       SECRET_CONTENT_PATTERNS = [
-        /-----BEGIN (?:RSA|DSA|EC|OPENSSH|PRIVATE) KEY-----/,
+        /-----BEGIN (?:RSA|DSA|EC|OPENSSH)?\s*(?:PRIVATE )?KEY-----/,
         %r{AWS_SECRET_ACCESS_KEY\s*=\s*['"]?[A-Za-z0-9/+=]{40}['"]?},
         /AKIA[0-9A-Z]{16}/
       ].freeze
