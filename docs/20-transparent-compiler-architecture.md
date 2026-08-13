@@ -152,7 +152,7 @@ Compiler（`lib/veltrunode/compiler/`）は Internal Model を AWS デプロイ�
 ### Preflight Check（プリフライトチェック）
 - `aws/inspectors/` に配置
 - AWS API を呼ばなければ判定できない問題（EFS アクセスポイントの存在確認、AWS アカウント一致チェックなど）を検証する
-- **デプロイ前**に実行するが、**明示的に副作用境界外**として扱い、Validation とは分離する
+- **デプロイ前**に実行するが、**明示的に副作用境界（Side Effect Boundary）として扱い**、Validation とは分離する
 - 例: `efs verify`, アカウントガード, 変更セット検証
 
 ## 既存コードとの照合（Definition of Done チェックリスト）
