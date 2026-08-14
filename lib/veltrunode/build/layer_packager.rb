@@ -89,6 +89,8 @@ module Veltrunode
           layer_gems_dir = File.join(tmp_dir, 'ruby', 'gems', ruby_abi_version)
           stage_gems_into_structure(lock_content, layer_gems_dir)
 
+          validate_symlinks!(tmp_dir)
+
           zip_path = File.join(@output_dir, "#{layer_name}.zip")
           archive_result = DeterministicArchiver.archive(
             source_dir: tmp_dir,
@@ -343,6 +345,43 @@ module Veltrunode
           entry_count: entry_count,
           largest_entries: largest_entries
         }
+      end
+
+      def validate_symlinks!(target_dir)
+        return unless File.directory?(target_dir)
+
+        real_target_dir = File.realpath(target_dir)
+        base_prefix = real_target_dir.end_with?(File::SEPARATOR) ? real_target_dir : "#{real_target_dir}#{File::SEPARATOR}"
+
+        Dir.glob('**/*', File::FNM_DOTMATCH, base: target_dir).each do |rel_path|
+          next if %w[. ..].include?(rel_path)
+
+          abs_path = File.join(target_dir, rel_path)
+          next unless File.symlink?(abs_path)
+
+          unless File.exist?(abs_path)
+            diag = Diagnostics::Diagnostic.new(
+              code: 'VLT-BUILD-SYMLINK-TRAVERSAL',
+              severity: :error,
+              summary: "Broken symlink found in layer contents: '#{rel_path}'",
+              suggested_action: "Remove broken symlink '#{rel_path}' from layer contents.",
+              evidence: { 'symlink' => rel_path }
+            )
+            raise ValidationError.new(diag.summary, diagnostics: [diag])
+          end
+
+          real_target = File.realpath(abs_path)
+          next if real_target.start_with?(base_prefix)
+
+          diag = Diagnostics::Diagnostic.new(
+            code: 'VLT-BUILD-SYMLINK-TRAVERSAL',
+            severity: :error,
+            summary: "Symlink points outside layer contents: '#{rel_path}' -> '#{real_target}'",
+            suggested_action: "Remove symlink pointing outside layer contents (symlink: '#{rel_path}').",
+            evidence: { 'symlink' => rel_path, 'target' => real_target }
+          )
+          raise ValidationError.new(diag.summary, diagnostics: [diag])
+        end
       end
     end
   end

@@ -315,5 +315,50 @@ RSpec.describe Veltrunode::Build::LayerPackager do
         end.to raise_error(Veltrunode::ValidationError, /Failed to copy gem/)
       end
     end
+
+    it 'raises ValidationError when layer contents contain a symlink pointing outside layer directory' do
+      with_tmpdir do |tmpdir|
+        lockfile_path = File.join(tmpdir, 'Gemfile.lock')
+        File.write(lockfile_path, sample_lockfile_content)
+
+        secret_file = File.join(tmpdir, 'secret.txt')
+        File.write(secret_file, 'sensitive data')
+
+        gem_dir = File.join(tmpdir, 'gems', 'json-2.7.1')
+        FileUtils.mkdir_p(gem_dir)
+        File.symlink(secret_file, File.join(gem_dir, 'leak.txt'))
+
+        expect do
+          described_class.package(
+            layer: layer,
+            gemfile_lock_path: lockfile_path,
+            source_dir: tmpdir,
+            output_dir: File.join(tmpdir, 'out'),
+            include_gems: ['json']
+          )
+        end.to raise_error(Veltrunode::ValidationError, /Symlink points outside layer contents/)
+      end
+    end
+
+    it 'raises ValidationError when layer contents contain a broken symlink' do
+      with_tmpdir do |tmpdir|
+        lockfile_path = File.join(tmpdir, 'Gemfile.lock')
+        File.write(lockfile_path, sample_lockfile_content)
+
+        gem_dir = File.join(tmpdir, 'gems', 'json-2.7.1')
+        FileUtils.mkdir_p(gem_dir)
+        File.symlink(File.join(tmpdir, 'non_existent_file.txt'), File.join(gem_dir, 'broken.txt'))
+
+        expect do
+          described_class.package(
+            layer: layer,
+            gemfile_lock_path: lockfile_path,
+            source_dir: tmpdir,
+            output_dir: File.join(tmpdir, 'out'),
+            include_gems: ['json']
+          )
+        end.to raise_error(Veltrunode::ValidationError, /Broken symlink found in layer contents/)
+      end
+    end
   end
 end
