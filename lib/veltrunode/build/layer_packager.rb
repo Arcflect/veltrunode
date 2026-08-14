@@ -262,7 +262,7 @@ module Veltrunode
         begin
           spec = Gem::Specification.find_by_name(name, version.to_s)
           spec&.full_gem_path
-        rescue Exception # rubocop:disable Lint/RescueException
+        rescue StandardError, ScriptError
           nil
         end
       end
