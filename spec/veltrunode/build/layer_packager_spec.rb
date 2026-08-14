@@ -220,6 +220,36 @@ RSpec.describe Veltrunode::Build::LayerPackager do
       end
     end
 
+    it 'excludes gems belonging to without_groups when Gemfile defines groups' do
+      with_tmpdir do |tmpdir|
+        gemfile_path = File.join(tmpdir, 'Gemfile')
+        lockfile_path = File.join(tmpdir, 'Gemfile.lock')
+
+        File.write(gemfile_path, <<~GEMFILE)
+          source 'https://rubygems.org'
+          gem 'json', '2.7.1'
+
+          group :development, :test do
+            gem 'rake', '13.1.0'
+          end
+        GEMFILE
+
+        File.write(lockfile_path, sample_lockfile_content)
+
+        result = described_class.package(
+          layer: layer,
+          gemfile_lock_path: lockfile_path,
+          source_dir: tmpdir,
+          output_dir: File.join(tmpdir, 'out'),
+          without_groups: %w[development test],
+          allow_missing_gems: true
+        )
+
+        expect(result.entries).to include('ruby/gems/3.3.0/specifications/json-2.7.1.gemspec')
+        expect(result.entries).not_to include('ruby/gems/3.3.0/specifications/rake-13.1.0.gemspec')
+      end
+    end
+
     it 'raises ValidationError when Gemfile.lock does not exist' do
       with_tmpdir do |tmpdir|
         expect do

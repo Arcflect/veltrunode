@@ -192,11 +192,64 @@ module Veltrunode
           raise ValidationError, 'Failed to parse Gemfile.lock: lockfile content is invalid'
         end
 
+        specs = filter_specs_by_groups(specs)
         specs = specs.select { |spec| @include_gems.include?(spec.name) } if @include_gems.any?
 
         specs
+      rescue ValidationError
+        raise
       rescue StandardError => e
         raise ValidationError, "Failed to parse Gemfile.lock: #{e.message}"
+      end
+
+      def filter_specs_by_groups(specs)
+        return specs if @groups.empty? && @without_groups.empty?
+
+        groups_map = parse_gemfile_groups(resolve_gemfile_path)
+
+        specs.reject do |spec|
+          gem_groups = groups_map[spec.name] || ['default']
+          if @groups.any?
+            !gem_groups.intersect?(@groups)
+          else
+            gem_groups.intersect?(@without_groups)
+          end
+        end
+      end
+
+      def parse_gemfile_groups(gemfile_path)
+        return {} unless gemfile_path && File.exist?(gemfile_path)
+
+        groups_map = {}
+        current_groups = ['default']
+
+        File.foreach(gemfile_path) do |line|
+          stripped = line.strip
+          next if stripped.start_with?('#')
+
+          case stripped
+          when /\Agroup\s+(.+)\s+do\b/
+            current_groups = Regexp.last_match(1).split(',').map { |g| g.strip.delete_prefix(':') }
+          when 'end'
+            current_groups = ['default']
+          when /\Agem\s+['"]([^'"]+)['"]/
+            gem_name = Regexp.last_match(1)
+            groups_map[gem_name] = current_groups
+          end
+        end
+
+        groups_map
+      end
+
+      def resolve_gemfile_path
+        if @gemfile_lock_path
+          dir = File.dirname(@gemfile_lock_path)
+          candidate = File.join(dir, 'Gemfile')
+          return candidate if File.exist?(candidate)
+        end
+
+        candidate = File.join(@source_dir, 'Gemfile')
+        File.exist?(candidate) ? candidate : nil
       end
 
       def stage_gems_into_structure(lock_content, layer_gems_dir)
