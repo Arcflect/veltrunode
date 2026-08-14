@@ -54,7 +54,8 @@ RSpec.describe Veltrunode::Build::LayerPackager do
           layer: layer,
           gemfile_lock_path: lockfile_path,
           source_dir: tmpdir,
-          output_dir: output_dir
+          output_dir: output_dir,
+          allow_missing_gems: true
         )
 
         expect(result).to be_a(Veltrunode::Build::LayerPackageResult)
@@ -98,7 +99,8 @@ RSpec.describe Veltrunode::Build::LayerPackager do
           layer: layer,
           gemfile_lock_path: lockfile_path,
           output_dir: output_dir,
-          include_gems: ['json']
+          include_gems: ['json'],
+          allow_missing_gems: true
         )
 
         expect(result.entries).to include('ruby/gems/3.3.0/specifications/json-2.7.1.gemspec')
@@ -115,7 +117,8 @@ RSpec.describe Veltrunode::Build::LayerPackager do
         result = described_class.package(
           layer: layer,
           gemfile_lock_path: lockfile_path,
-          output_dir: File.join(tmpdir, 'out')
+          output_dir: File.join(tmpdir, 'out'),
+          allow_missing_gems: true
         )
 
         expect(result.compressed_size).to be > 0
@@ -137,8 +140,18 @@ RSpec.describe Veltrunode::Build::LayerPackager do
         out1 = File.join(tmpdir, 'out1')
         out2 = File.join(tmpdir, 'out2')
 
-        res1 = described_class.package(layer: layer, gemfile_lock_path: lockfile_path, output_dir: out1)
-        res2 = described_class.package(layer: layer, gemfile_lock_path: lockfile_path, output_dir: out2)
+        res1 = described_class.package(
+          layer: layer,
+          gemfile_lock_path: lockfile_path,
+          output_dir: out1,
+          allow_missing_gems: true
+        )
+        res2 = described_class.package(
+          layer: layer,
+          gemfile_lock_path: lockfile_path,
+          output_dir: out2,
+          allow_missing_gems: true
+        )
 
         expect(res1.content_hash).to eq(res2.content_hash)
         expect(res1.sha256).to eq(res2.sha256)
@@ -155,14 +168,16 @@ RSpec.describe Veltrunode::Build::LayerPackager do
           layer: layer,
           gemfile_lock_path: lockfile_path,
           output_dir: File.join(tmpdir, 'out1'),
-          without_groups: %w[development]
+          without_groups: %w[development],
+          allow_missing_gems: true
         )
 
         res2 = described_class.package(
           layer: layer,
           gemfile_lock_path: lockfile_path,
           output_dir: File.join(tmpdir, 'out2'),
-          without_groups: %w[development test]
+          without_groups: %w[development test],
+          allow_missing_gems: true
         )
 
         expect(res1.content_hash).not_to eq(res2.content_hash)
@@ -193,6 +208,23 @@ RSpec.describe Veltrunode::Build::LayerPackager do
             output_dir: File.join(tmpdir, 'out')
           )
         end.to raise_error(Veltrunode::ValidationError, /Failed to parse Gemfile.lock/)
+      end
+    end
+
+    it 'raises ValidationError when gem directory cannot be found locally and allow_missing_gems is false' do
+      with_tmpdir do |tmpdir|
+        lockfile_path = File.join(tmpdir, 'Gemfile.lock')
+        File.write(lockfile_path, sample_lockfile_content)
+
+        expect do
+          described_class.package(
+            layer: layer,
+            gemfile_lock_path: lockfile_path,
+            source_dir: tmpdir,
+            output_dir: File.join(tmpdir, 'out'),
+            allow_missing_gems: false
+          )
+        end.to raise_error(Veltrunode::ValidationError, /Gem content not found/)
       end
     end
   end

@@ -32,6 +32,7 @@ module Veltrunode
           groups: nil,
           include_gems: nil,
           build_image_id: nil,
+          allow_missing_gems: false,
           includes: nil,
           excludes: nil
         )
@@ -44,6 +45,7 @@ module Veltrunode
             groups: groups,
             include_gems: include_gems,
             build_image_id: build_image_id,
+            allow_missing_gems: allow_missing_gems,
             includes: includes,
             excludes: excludes
           ).package
@@ -59,6 +61,7 @@ module Veltrunode
         groups: nil,
         include_gems: nil,
         build_image_id: nil,
+        allow_missing_gems: false,
         includes: nil,
         excludes: nil
       )
@@ -70,6 +73,7 @@ module Veltrunode
         @groups = groups ? Array(groups).map(&:to_s) : []
         @include_gems = include_gems ? Array(include_gems).map(&:to_s) : []
         @build_image_id = build_image_id ? build_image_id.to_s : 'amazonlinux:default'
+        @allow_missing_gems = allow_missing_gems
         @user_includes = includes ? Array(includes).map(&:to_s) : []
         @user_excludes = excludes ? Array(excludes).map(&:to_s) : []
       end
@@ -226,11 +230,16 @@ module Veltrunode
 
       def copy_gem_contents_if_available(name, version, target_dir)
         source_gem_dir = find_local_gem_dir(name, version)
-        return unless source_gem_dir && File.directory?(source_gem_dir)
+        if source_gem_dir.nil? || !File.directory?(source_gem_dir)
+          unless @allow_missing_gems
+            raise ValidationError, "Gem content not found for '#{name}' (#{version}). " \
+                                   "Ensure gems are installed in '#{@source_dir}' or system."
+          end
+
+          return
+        end
 
         FileUtils.cp_r(File.join(source_gem_dir, '.'), target_dir)
-      rescue StandardError
-        # Fallback if copy fails
       end
 
       def find_local_gem_dir(name, version)
