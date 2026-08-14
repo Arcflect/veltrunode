@@ -98,6 +98,7 @@ RSpec.describe Veltrunode::Build::LayerPackager do
         result = described_class.package(
           layer: layer,
           gemfile_lock_path: lockfile_path,
+          source_dir: tmpdir,
           output_dir: output_dir,
           include_gems: ['json'],
           allow_missing_gems: true
@@ -117,6 +118,7 @@ RSpec.describe Veltrunode::Build::LayerPackager do
         result = described_class.package(
           layer: layer,
           gemfile_lock_path: lockfile_path,
+          source_dir: tmpdir,
           output_dir: File.join(tmpdir, 'out'),
           allow_missing_gems: true
         )
@@ -143,12 +145,14 @@ RSpec.describe Veltrunode::Build::LayerPackager do
         res1 = described_class.package(
           layer: layer,
           gemfile_lock_path: lockfile_path,
+          source_dir: tmpdir,
           output_dir: out1,
           allow_missing_gems: true
         )
         res2 = described_class.package(
           layer: layer,
           gemfile_lock_path: lockfile_path,
+          source_dir: tmpdir,
           output_dir: out2,
           allow_missing_gems: true
         )
@@ -167,6 +171,7 @@ RSpec.describe Veltrunode::Build::LayerPackager do
         res1 = described_class.package(
           layer: layer,
           gemfile_lock_path: lockfile_path,
+          source_dir: tmpdir,
           output_dir: File.join(tmpdir, 'out1'),
           without_groups: %w[development],
           allow_missing_gems: true
@@ -175,6 +180,7 @@ RSpec.describe Veltrunode::Build::LayerPackager do
         res2 = described_class.package(
           layer: layer,
           gemfile_lock_path: lockfile_path,
+          source_dir: tmpdir,
           output_dir: File.join(tmpdir, 'out2'),
           without_groups: %w[development test],
           allow_missing_gems: true
