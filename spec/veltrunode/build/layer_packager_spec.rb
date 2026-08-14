@@ -227,5 +227,27 @@ RSpec.describe Veltrunode::Build::LayerPackager do
         end.to raise_error(Veltrunode::ValidationError, /Gem content not found/)
       end
     end
+
+    it 'raises ValidationError when copying gem directory fails' do
+      with_tmpdir do |tmpdir|
+        lockfile_path = File.join(tmpdir, 'Gemfile.lock')
+        File.write(lockfile_path, sample_lockfile_content)
+
+        gem_dir = File.join(tmpdir, 'gems', 'json-2.7.1')
+        FileUtils.mkdir_p(gem_dir)
+
+        allow(FileUtils).to receive(:cp_r).and_raise(Errno::EACCES, 'Permission denied')
+
+        expect do
+          described_class.package(
+            layer: layer,
+            gemfile_lock_path: lockfile_path,
+            source_dir: tmpdir,
+            output_dir: File.join(tmpdir, 'out'),
+            include_gems: ['json']
+          )
+        end.to raise_error(Veltrunode::ValidationError, /Failed to copy gem/)
+      end
+    end
   end
 end

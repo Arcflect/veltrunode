@@ -239,7 +239,11 @@ module Veltrunode
           return
         end
 
-        FileUtils.cp_r(File.join(source_gem_dir, '.'), target_dir)
+        begin
+          FileUtils.cp_r(File.join(source_gem_dir, '.'), target_dir)
+        rescue StandardError => e
+          raise ValidationError, "Failed to copy gem '#{name}' (#{version}): #{e.message}"
+        end
       end
 
       def find_local_gem_dir(name, version)
