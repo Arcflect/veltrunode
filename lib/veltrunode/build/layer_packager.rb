@@ -179,16 +179,20 @@ module Veltrunode
       end
 
       def parse_lockfile_specs(lock_content)
-        return [] if lock_content.empty?
+        return [] if lock_content.strip.empty?
 
         parser = Bundler::LockfileParser.new(lock_content)
         specs = parser.specs
 
+        if specs.empty? && lock_content.match?(/(?:GEM|DEPENDENCIES|PLATFORMS|INVALID)/i)
+          raise ValidationError, 'Failed to parse Gemfile.lock: lockfile content is invalid'
+        end
+
         specs = specs.select { |spec| @include_gems.include?(spec.name) } if @include_gems.any?
 
         specs
-      rescue StandardError
-        []
+      rescue StandardError => e
+        raise ValidationError, "Failed to parse Gemfile.lock: #{e.message}"
       end
 
       def stage_gems_into_structure(lock_content, layer_gems_dir)

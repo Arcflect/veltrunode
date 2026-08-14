@@ -180,5 +180,20 @@ RSpec.describe Veltrunode::Build::LayerPackager do
         end.to raise_error(Veltrunode::ValidationError, /Gemfile.lock not found/)
       end
     end
+
+    it 'raises ValidationError when Gemfile.lock content is invalid' do
+      with_tmpdir do |tmpdir|
+        invalid_lock = File.join(tmpdir, 'Gemfile.lock')
+        File.write(invalid_lock, "INVALID LOCK FILE CONTENT\n  :::bad_syntax:::")
+
+        expect do
+          described_class.package(
+            layer: layer,
+            gemfile_lock_path: invalid_lock,
+            output_dir: File.join(tmpdir, 'out')
+          )
+        end.to raise_error(Veltrunode::ValidationError, /Failed to parse Gemfile.lock/)
+      end
+    end
   end
 end
