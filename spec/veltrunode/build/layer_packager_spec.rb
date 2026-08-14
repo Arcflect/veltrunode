@@ -88,6 +88,36 @@ RSpec.describe Veltrunode::Build::LayerPackager do
       end
     end
 
+    it 'copies and includes actual gem payload files into the ZIP archive when gems are available' do
+      with_tmpdir do |tmpdir|
+        lockfile_path = File.join(tmpdir, 'Gemfile.lock')
+        File.write(lockfile_path, sample_lockfile_content)
+
+        gem_payload = File.join(tmpdir, 'gems', 'json-2.7.1', 'lib', 'json.rb')
+        FileUtils.mkdir_p(File.dirname(gem_payload))
+        File.write(gem_payload, 'module JSON; VERSION = "2.7.1"; end')
+
+        output_dir = File.join(tmpdir, 'out')
+
+        result = described_class.package(
+          layer: layer,
+          gemfile_lock_path: lockfile_path,
+          source_dir: tmpdir,
+          output_dir: output_dir,
+          allow_missing_gems: true
+        )
+
+        expected_payload_entry = 'ruby/gems/3.3.0/gems/json-2.7.1/lib/json.rb'
+        expect(result.entries).to include(expected_payload_entry)
+
+        Zip::File.open(result.zip_path) do |zipfile|
+          entry = zipfile.find_entry(expected_payload_entry)
+          expect(entry).not_to be_nil
+          expect(zipfile.read(entry)).to eq('module JSON; VERSION = "2.7.1"; end')
+        end
+      end
+    end
+
     it 'filters gems according to include_gems rule' do
       with_tmpdir do |tmpdir|
         lockfile_path = File.join(tmpdir, 'Gemfile.lock')
