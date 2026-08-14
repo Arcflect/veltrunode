@@ -21,6 +21,8 @@ require_relative 'build/deterministic_archiver'
 require_relative 'build/package_result'
 require_relative 'build/secret_scanner'
 require_relative 'build/function_packager'
+require_relative 'build/layer_package_result'
+require_relative 'build/layer_packager'
 
 module Veltrunode
   module Build
