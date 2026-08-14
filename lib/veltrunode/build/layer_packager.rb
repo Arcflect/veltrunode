@@ -153,7 +153,10 @@ module Veltrunode
       end
 
       def read_gemfile_lock
-        return '' unless @gemfile_lock_path && File.file?(@gemfile_lock_path)
+        unless @gemfile_lock_path && File.file?(@gemfile_lock_path)
+          target = @gemfile_lock_path || File.join(@source_dir, 'Gemfile.lock')
+          raise ValidationError, "Gemfile.lock not found: #{target}"
+        end
 
         File.read(@gemfile_lock_path)
       end

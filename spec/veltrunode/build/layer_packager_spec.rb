@@ -168,5 +168,17 @@ RSpec.describe Veltrunode::Build::LayerPackager do
         expect(res1.content_hash).not_to eq(res2.content_hash)
       end
     end
+
+    it 'raises ValidationError when Gemfile.lock does not exist' do
+      with_tmpdir do |tmpdir|
+        expect do
+          described_class.package(
+            layer: layer,
+            gemfile_lock_path: File.join(tmpdir, 'non_existent.lock'),
+            output_dir: File.join(tmpdir, 'out')
+          )
+        end.to raise_error(Veltrunode::ValidationError, /Gemfile.lock not found/)
+      end
+    end
   end
 end
