@@ -23,6 +23,8 @@ require_relative 'build/secret_scanner'
 require_relative 'build/function_packager'
 require_relative 'build/layer_package_result'
 require_relative 'build/layer_packager'
+require_relative 'build/container_runner'
+require_relative 'build/native_builder'
 
 module Veltrunode
   module Build

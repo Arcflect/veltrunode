@@ -7,6 +7,8 @@ require 'bundler'
 require 'zip'
 require_relative 'deterministic_archiver'
 require_relative 'layer_package_result'
+require_relative 'container_runner'
+require_relative 'native_builder'
 require_relative '../validation'
 
 module Veltrunode
@@ -33,6 +35,9 @@ module Veltrunode
           include_gems: nil,
           build_image_id: nil,
           allow_missing_gems: false,
+          build_on: nil,
+          native_builder: NativeBuilder,
+          container_runner: ContainerRunner,
           includes: nil,
           excludes: nil
         )
@@ -46,6 +51,9 @@ module Veltrunode
             include_gems: include_gems,
             build_image_id: build_image_id,
             allow_missing_gems: allow_missing_gems,
+            build_on: build_on,
+            native_builder: native_builder,
+            container_runner: container_runner,
             includes: includes,
             excludes: excludes
           ).package
@@ -62,6 +70,9 @@ module Veltrunode
         include_gems: nil,
         build_image_id: nil,
         allow_missing_gems: false,
+        build_on: nil,
+        native_builder: NativeBuilder,
+        container_runner: ContainerRunner,
         includes: nil,
         excludes: nil
       )
@@ -74,6 +85,9 @@ module Veltrunode
         @include_gems = include_gems ? Array(include_gems).map(&:to_s) : []
         @build_image_id = build_image_id ? build_image_id.to_s : 'amazonlinux:default'
         @allow_missing_gems = allow_missing_gems
+        @build_on = build_on
+        @native_builder = native_builder
+        @container_runner = container_runner
         @user_includes = includes ? Array(includes).map(&:to_s) : []
         @user_excludes = excludes ? Array(excludes).map(&:to_s) : []
       end
@@ -81,7 +95,8 @@ module Veltrunode
       def package
         layer_name = extract_layer_name
         lock_content = read_gemfile_lock
-        content_hash = calculate_content_hash(lock_content)
+        image_digest = resolve_container_build_if_needed
+        content_hash = calculate_content_hash(lock_content, image_digest: image_digest)
 
         ruby_abi_version = resolve_ruby_abi_version
 
@@ -167,7 +182,42 @@ module Veltrunode
         File.read(@gemfile_lock_path)
       end
 
-      def calculate_content_hash(lock_content)
+      def resolve_container_build_if_needed
+        build_on_setting = @build_on || extract_build_on_from_layer
+        return nil unless build_on_setting
+
+        archs = extract_architectures
+        runtimes = extract_runtimes
+
+        if archs.size != 1 || runtimes.size != 1
+          raise ValidationError,
+                'build_on requires exactly one architecture and one runtime ' \
+                "(got architectures=#{archs.inspect}, runtimes=#{runtimes.inspect})"
+        end
+
+        arch = archs.first
+        runtime = runtimes.first
+
+        builder_result = @native_builder.build(
+          source_dir: @source_dir,
+          output_dir: File.join(@source_dir, 'vendor', 'bundle'),
+          runtime: runtime,
+          architecture: arch,
+          build_on: build_on_setting,
+          custom_image: @build_image_id == 'amazonlinux:default' ? nil : @build_image_id,
+          container_runner: @container_runner
+        )
+
+        builder_result[:image_digest]
+      end
+
+      def extract_build_on_from_layer
+        return unless @layer.respond_to?(:build_environment) && @layer.build_environment.is_a?(Hash)
+
+        @layer.build_environment['build_on'] || @layer.build_environment[:build_on]
+      end
+
+      def calculate_content_hash(lock_content, image_digest: nil)
         raw = [
           "schema_version:#{BUILD_SCHEMA_VERSION}",
           "gemfile_lock:#{lock_content}",
@@ -176,6 +226,7 @@ module Veltrunode
           "runtimes:#{extract_runtimes.sort.join(',')}",
           "architectures:#{extract_architectures.sort.join(',')}",
           "build_image_id:#{@build_image_id}",
+          "image_digest:#{image_digest}",
           "include_gems:#{@include_gems.sort.join(',')}",
           "includes:#{@user_includes.sort.join(',')}",
           "excludes:#{@user_excludes.sort.join(',')}"

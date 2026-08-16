@@ -360,5 +360,62 @@ RSpec.describe Veltrunode::Build::LayerPackager do
         end.to raise_error(Veltrunode::ValidationError, /Broken symlink found in layer contents/)
       end
     end
+
+    it 'triggers container build when build_on is specified and reflects image digest in content_hash' do
+      with_tmpdir do |tmpdir|
+        lockfile_path = File.join(tmpdir, 'Gemfile.lock')
+        File.write(lockfile_path, sample_lockfile_content)
+
+        mock_native_builder = class_double(Veltrunode::Build::NativeBuilder)
+        expect(mock_native_builder).to receive(:build).with(
+          hash_including(build_on: :amazon_linux_2023) # rubocop:disable Naming/VariableNumber
+        ).and_return(image_digest: 'sha256:fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210')
+
+        res_native = described_class.package(
+          layer: layer,
+          gemfile_lock_path: lockfile_path,
+          source_dir: tmpdir,
+          output_dir: File.join(tmpdir, 'out1'),
+          build_on: :amazon_linux_2023, # rubocop:disable Naming/VariableNumber
+          native_builder: mock_native_builder,
+          allow_missing_gems: true
+        )
+
+        res_plain = described_class.package(
+          layer: layer,
+          gemfile_lock_path: lockfile_path,
+          source_dir: tmpdir,
+          output_dir: File.join(tmpdir, 'out2'),
+          allow_missing_gems: true
+        )
+
+        expect(res_native.content_hash).not_to eq(res_plain.content_hash)
+      end
+    end
+
+    it 'raises ValidationError when build_on is used with multiple architectures or runtimes' do
+      with_tmpdir do |tmpdir|
+        lockfile_path = File.join(tmpdir, 'Gemfile.lock')
+        File.write(lockfile_path, sample_lockfile_content)
+
+        multi_arch_layer = instance_double(
+          Veltrunode::Model::Layer,
+          name: 'multi_layer',
+          compatible_runtimes: %w[ruby3.3 ruby3.2],
+          architectures: %w[x86_64 arm64]
+        )
+
+        expect do
+          described_class.package(
+            layer: multi_arch_layer,
+            gemfile_lock_path: lockfile_path,
+            source_dir: tmpdir,
+            output_dir: File.join(tmpdir, 'out'),
+            build_on: :amazon_linux_2023, # rubocop:disable Naming/VariableNumber
+            allow_missing_gems: true
+          )
+        end.to raise_error(Veltrunode::ValidationError, /build_on requires exactly one architecture and one runtime/)
+      end
+    end
   end
 end
