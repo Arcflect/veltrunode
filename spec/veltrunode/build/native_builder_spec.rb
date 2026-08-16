@@ -35,10 +35,38 @@ RSpec.describe Veltrunode::Build::NativeBuilder do
       end
     end
 
-    it 'uses correct image for arm64 architecture' do
+    it 'uses runtime-specific image for arm64 architecture when build_on is default' do
       expect(mock_container_runner).to receive(:run).with(
         hash_including(
           image: match(/latest-arm64@sha256:/),
+          architecture: 'arm64'
+        )
+      ).and_return(
+        executable: 'docker',
+        command: %w[docker run],
+        stdout: 'Build success',
+        stderr: '',
+        status: 0
+      )
+
+      Dir.mktmpdir do |dir|
+        result = described_class.build(
+          source_dir: dir,
+          output_dir: File.join(dir, 'vendor', 'bundle'),
+          runtime: 'ruby3.3',
+          architecture: 'arm64',
+          build_on: nil,
+          container_runner: mock_container_runner
+        )
+
+        expect(result[:image]).to include('latest-arm64')
+      end
+    end
+
+    it 'uses Amazon Linux 2023 image when build_on is :amazon_linux_2023' do
+      expect(mock_container_runner).to receive(:run).with(
+        hash_including(
+          image: match(/amazonlinux:2023@sha256:/),
           architecture: 'arm64'
         )
       ).and_return(
@@ -59,7 +87,7 @@ RSpec.describe Veltrunode::Build::NativeBuilder do
           container_runner: mock_container_runner
         )
 
-        expect(result[:image]).to include('arm64')
+        expect(result[:image]).to include('amazonlinux:2023')
       end
     end
 
