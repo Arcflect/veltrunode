@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'digest'
+require 'fileutils'
 require_relative 'container_runner'
 require_relative '../validation'
 
