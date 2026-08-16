@@ -61,6 +61,12 @@ module Veltrunode
       )
         @source_dir = File.expand_path(source_dir.to_s)
         @output_dir = File.expand_path(output_dir.to_s)
+        expected_output_dir = File.join(@source_dir, 'vendor', 'bundle')
+        unless @output_dir == expected_output_dir
+          raise ValidationError,
+                "output_dir must be '#{expected_output_dir}' when using NativeBuilder (got: '#{@output_dir}')"
+        end
+
         @runtime = runtime.to_s.freeze
         @architecture = architecture.to_s.freeze
         @build_on = build_on
