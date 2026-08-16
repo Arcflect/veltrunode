@@ -186,8 +186,17 @@ module Veltrunode
         build_on_setting = @build_on || extract_build_on_from_layer
         return nil unless build_on_setting
 
-        arch = extract_architectures.first || 'x86_64'
-        runtime = extract_runtimes.first || 'ruby3.3'
+        archs = extract_architectures
+        runtimes = extract_runtimes
+
+        if archs.size != 1 || runtimes.size != 1
+          raise ValidationError,
+                'build_on requires exactly one architecture and one runtime ' \
+                "(got architectures=#{archs.inspect}, runtimes=#{runtimes.inspect})"
+        end
+
+        arch = archs.first
+        runtime = runtimes.first
 
         builder_result = @native_builder.build(
           source_dir: @source_dir,
