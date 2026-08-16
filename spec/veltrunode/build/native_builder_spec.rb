@@ -77,5 +77,12 @@ RSpec.describe Veltrunode::Build::NativeBuilder do
         end.to raise_error(Veltrunode::ValidationError, /output_dir must be/)
       end
     end
+
+    it 'contains valid 64-character hex SHA-256 digests for all DEFAULT_IMAGE_DIGESTS' do
+      described_class::DEFAULT_IMAGE_DIGESTS.each do |key, image|
+        digest = image.split('@sha256:').last
+        expect(digest).to match(/\A[a-f0-9]{64}\z/), "Expected #{key} digest to be 64 hex chars, got: #{digest.inspect}"
+      end
+    end
   end
 end

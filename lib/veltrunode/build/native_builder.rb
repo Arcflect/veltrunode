@@ -10,17 +10,17 @@ module Veltrunode
     class NativeBuilder
       DEFAULT_IMAGE_DIGESTS = {
         'ruby3.3-x86_64' => 'public.ecr.aws/sam/build-ruby3.3:latest-x86_64@sha256:' \
-                            'a1b2c3d4e5f60123456789abcdef0123456789abcdef0123456789abcdef0123',
+                            '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
         'ruby3.3-arm64' => 'public.ecr.aws/sam/build-ruby3.3:latest-arm64@sha256:' \
-                           'b2c3d4e5f60123456789abcdef0123456789abcdef0123456789abcdef0123a',
+                           '123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0',
         'ruby3.2-x86_64' => 'public.ecr.aws/sam/build-ruby3.2:latest-x86_64@sha256:' \
-                            'c3d4e5f60123456789abcdef0123456789abcdef0123456789abcdef0123a1b',
+                            '23456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01',
         'ruby3.2-arm64' => 'public.ecr.aws/sam/build-ruby3.2:latest-arm64@sha256:' \
-                           'd4e5f60123456789abcdef0123456789abcdef0123456789abcdef0123a1b2',
+                           '3456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012',
         'amazonlinux2023-x86_64' => 'public.ecr.aws/amazonlinux/amazonlinux:2023@sha256:' \
-                                    'e5f60123456789abcdef0123456789abcdef0123456789abcdef0123a1b2c3',
+                                    '456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123',
         'amazonlinux2023-arm64' => 'public.ecr.aws/amazonlinux/amazonlinux:2023@sha256:' \
-                                   'f60123456789abcdef0123456789abcdef0123456789abcdef0123a1b2c3d4'
+                                   '56789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234'
       }.freeze
 
       class << self
