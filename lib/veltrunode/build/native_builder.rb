@@ -84,7 +84,7 @@ module Veltrunode
         # Command to run inside container: bundle install into mounted volume
         container_command = [
           'sh', '-c',
-          'bundle config set --local path vendor/bundle && bundle install'
+          'cd /var/task && bundle config set --local path vendor/bundle && bundle install'
         ]
 
         volume_mounts = {
@@ -101,6 +101,7 @@ module Veltrunode
           environment: environment,
           volume_mounts: volume_mounts,
           architecture: @architecture,
+          workdir: '/var/task',
           runner_executable: @runner_executable
         )
 

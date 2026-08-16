@@ -14,7 +14,7 @@ module Veltrunode
         'aarch64' => 'linux/arm64'
       }.freeze
 
-      attr_reader :image, :command, :environment, :volume_mounts, :architecture, :executable
+      attr_reader :image, :command, :environment, :volume_mounts, :architecture, :workdir, :executable
 
       class << self
         def detect_executable
@@ -43,13 +43,22 @@ module Veltrunode
           raise ValidationError.new(diag.summary, diagnostics: [diag])
         end
 
-        def run(image:, command:, environment: {}, volume_mounts: {}, architecture: 'x86_64', runner_executable: nil)
+        def run(
+          image:,
+          command:,
+          environment: {},
+          volume_mounts: {},
+          architecture: 'x86_64',
+          workdir: nil,
+          runner_executable: nil
+        )
           new(
             image: image,
             command: command,
             environment: environment,
             volume_mounts: volume_mounts,
             architecture: architecture,
+            workdir: workdir,
             runner_executable: runner_executable
           ).run
         end
@@ -61,6 +70,7 @@ module Veltrunode
         environment: {},
         volume_mounts: {},
         architecture: 'x86_64',
+        workdir: nil,
         runner_executable: nil
       )
         @executable = runner_executable || self.class.validate_runtime_available!
@@ -69,6 +79,7 @@ module Veltrunode
         @environment = environment.transform_keys(&:to_s).transform_values(&:to_s).freeze
         @volume_mounts = volume_mounts.transform_keys(&:to_s).transform_values(&:to_s).freeze
         @architecture = architecture.to_s.freeze
+        @workdir = workdir ? workdir.to_s.freeze : nil
         freeze
       end
 
@@ -77,6 +88,8 @@ module Veltrunode
 
         platform = PLATFORM_MAP[@architecture] || 'linux/amd64'
         cmd << '--platform' << platform
+
+        cmd << '-w' << @workdir if @workdir
 
         @environment.each do |k, v|
           cmd << '-e' << "#{k}=#{v}"

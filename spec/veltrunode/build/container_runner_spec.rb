@@ -48,15 +48,17 @@ RSpec.describe Veltrunode::Build::ContainerRunner do
         environment: { 'BUNDLE_SILENCE_ROOT_WARNING' => '1' },
         volume_mounts: { '/tmp/source' => '/var/task' },
         architecture: 'arm64',
+        workdir: '/var/task',
         runner_executable: 'docker'
       )
     end
 
-    it 'constructs the correct docker run command with platform linux/arm64' do
+    it 'constructs the correct docker run command with platform linux/arm64 and workdir' do
       cli_cmd = runner.build_cli_command
       expect(cli_cmd).to eq([
                               'docker', 'run', '--rm',
                               '--platform', 'linux/arm64',
+                              '-w', '/var/task',
                               '-e', 'BUNDLE_SILENCE_ROOT_WARNING=1',
                               '-v', '/tmp/source:/var/task',
                               'public.ecr.aws/sam/build-ruby3.3:latest-x86_64@sha256:1234567890abcdef',
