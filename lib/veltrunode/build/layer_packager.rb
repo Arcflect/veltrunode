@@ -39,7 +39,9 @@ module Veltrunode
           native_builder: NativeBuilder,
           container_runner: ContainerRunner,
           includes: nil,
-          excludes: nil
+          excludes: nil,
+          no_cache: false,
+          cache_dir: nil
         )
           new(
             layer: layer,
@@ -55,7 +57,9 @@ module Veltrunode
             native_builder: native_builder,
             container_runner: container_runner,
             includes: includes,
-            excludes: excludes
+            excludes: excludes,
+            no_cache: no_cache,
+            cache_dir: cache_dir
           ).package
         end
       end
@@ -74,7 +78,9 @@ module Veltrunode
         native_builder: NativeBuilder,
         container_runner: ContainerRunner,
         includes: nil,
-        excludes: nil
+        excludes: nil,
+        no_cache: false,
+        cache_dir: nil
       )
         @layer = layer
         @source_dir = source_dir ? File.expand_path(source_dir.to_s) : Dir.pwd
@@ -90,6 +96,8 @@ module Veltrunode
         @container_runner = container_runner
         @user_includes = includes ? Array(includes).map(&:to_s) : []
         @user_excludes = excludes ? Array(excludes).map(&:to_s) : []
+        @no_cache = no_cache
+        @cache_dir = cache_dir ? File.expand_path(cache_dir.to_s) : File.join(@source_dir, '.veltrunode', 'cache')
       end
 
       def package
@@ -98,15 +106,21 @@ module Veltrunode
         image_digest = resolve_container_build_if_needed
         content_hash = calculate_content_hash(lock_content, image_digest: image_digest)
 
+        zip_path = File.join(@output_dir, "#{layer_name}.zip")
+
+        unless @no_cache
+          cached_result = Cache.fetch(content_hash, zip_path, cache_dir: @cache_dir)
+          return cached_result if cached_result
+        end
+
         ruby_abi_version = resolve_ruby_abi_version
 
-        Dir.mktmpdir('veltrunode_layer_') do |tmp_dir|
+        result = Dir.mktmpdir('veltrunode_layer_') do |tmp_dir|
           layer_gems_dir = File.join(tmp_dir, 'ruby', 'gems', ruby_abi_version)
           stage_gems_into_structure(lock_content, layer_gems_dir)
 
           validate_symlinks!(tmp_dir)
 
-          zip_path = File.join(@output_dir, "#{layer_name}.zip")
           archive_result = DeterministicArchiver.archive(
             source_dir: tmp_dir,
             output_path: zip_path,
@@ -125,9 +139,14 @@ module Veltrunode
             uncompressed_size: size_diag[:uncompressed_size],
             size_diagnostics: size_diag,
             entries: archive_result.entries,
-            diagnostics: []
+            diagnostics: [],
+            cached: false
           )
         end
+
+        Cache.store(content_hash, result, cache_dir: @cache_dir) unless @no_cache
+
+        result
       end
 
       private
