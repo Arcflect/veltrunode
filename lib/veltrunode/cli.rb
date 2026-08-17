@@ -101,6 +101,12 @@ module Veltrunode
           @argv.delete_at(idx)
         end
 
+        # --no-cache フラグの抽出
+        if @argv.include?('--no-cache')
+          @options[:no_cache] = true
+          @argv.delete('--no-cache')
+        end
+
         # ヘルプフラグの抽出
         if @argv.include?('--help') || @argv.include?('-h') || @argv.include?('help')
           @options[:help] = true
@@ -166,8 +172,32 @@ module Veltrunode
       end
 
       def execute_build
-        load_application!
-        output_success('Build successful.', { message: 'Build successful' })
+        application = load_application!
+        no_cache = @options[:no_cache] || false
+        source_dir = @options[:file] ? File.dirname(@options[:file]) : Dir.pwd
+        source_dir = Dir.pwd if source_dir.empty? || source_dir == '.'
+
+        layer_results = application.layers.map do |layer|
+          Veltrunode::Build::LayerPackager.package(
+            layer: layer,
+            source_dir: source_dir,
+            no_cache: no_cache
+          )
+        end
+
+        function_results = application.functions.map do |fn|
+          Veltrunode::Build::FunctionPackager.package(
+            function: fn,
+            source_dir: source_dir,
+            no_cache: no_cache
+          )
+        end
+
+        output_success('Build successful.', {
+                         message: 'Build successful',
+                         layers_count: layer_results.size,
+                         functions_count: function_results.size
+                       })
       end
 
       def execute_plan
