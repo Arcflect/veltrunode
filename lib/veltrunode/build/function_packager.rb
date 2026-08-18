@@ -13,7 +13,7 @@ module Veltrunode
       DEFAULT_EXCLUDES = %w[
         spec/* test/* spec/**/* test/**/* *.tmp
         .git/* .git/**/* .DS_Store tmp/* tmp/**/* *.log
-        .veltrunode/* .veltrunode/**/*
+        build/* build/**/* .veltrunode/* .veltrunode/**/*
       ].freeze
 
       class << self

@@ -11,7 +11,7 @@ module Veltrunode
     class DeterministicArchiver
       DEFAULT_FIXED_TIME = Time.utc(2024, 1, 1, 0, 0, 0)
       DEFAULT_INCLUDES = ['**/*'].freeze
-      DEFAULT_EXCLUDES = ['.git/*', 'tmp/*', '*.tmp', '.DS_Store', '.veltrunode/*'].freeze
+      DEFAULT_EXCLUDES = ['.git/*', 'tmp/*', '*.tmp', '.DS_Store', '.veltrunode/*', 'build/*'].freeze
 
       class << self
         def archive(source_dir:, output_path:, includes: nil, excludes: nil, fixed_time: DEFAULT_FIXED_TIME)
