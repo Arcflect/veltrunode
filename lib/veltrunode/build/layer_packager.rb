@@ -110,6 +110,7 @@ module Veltrunode
         zip_path = File.join(@output_dir, "#{layer_name}.zip")
 
         unless @no_cache
+          require_relative 'cache' unless defined?(Veltrunode::Build::Cache)
           cached_result = Cache.fetch(content_hash, zip_path, cache_dir: @cache_dir)
           return cached_result if cached_result
         end
