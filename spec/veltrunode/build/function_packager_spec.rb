@@ -182,5 +182,90 @@ RSpec.describe Veltrunode::Build::FunctionPackager do
         }
       end
     end
+
+    it 'computes deterministic content_hash based on function config and source files' do
+      with_tmpdir do |tmpdir|
+        source_dir = File.join(tmpdir, 'src')
+        FileUtils.mkdir_p(File.join(source_dir, 'functions'))
+        File.write(File.join(source_dir, 'functions', 'convert.rb'), 'puts "hello"')
+
+        packager1 = described_class.new(function: function, source_dir: source_dir)
+        hash1 = packager1.calculate_content_hash
+
+        packager2 = described_class.new(function: function, source_dir: source_dir)
+        hash2 = packager2.calculate_content_hash
+
+        expect(hash1).to eq(hash2)
+        expect(hash1).not_to be_empty
+
+        # Modify source file
+        File.write(File.join(source_dir, 'functions', 'convert.rb'), 'puts "hello world"')
+        packager3 = described_class.new(function: function, source_dir: source_dir)
+        hash3 = packager3.calculate_content_hash
+
+        expect(hash3).not_to eq(hash1)
+      end
+    end
+
+    it 'skips zipping on cache hit and restores artifact from local cache' do
+      with_tmpdir do |tmpdir|
+        source_dir = File.join(tmpdir, 'src')
+        FileUtils.mkdir_p(File.join(source_dir, 'functions'))
+        File.write(File.join(source_dir, 'functions', 'convert.rb'), 'puts "cached code"')
+
+        output_dir1 = File.join(tmpdir, 'out1')
+        output_dir2 = File.join(tmpdir, 'out2')
+
+        res1 = described_class.package(function: function, source_dir: source_dir, output_dir: output_dir1)
+        expect(res1.cached?).to be false
+        expect(File.exist?(res1.zip_path)).to be true
+
+        res2 = described_class.package(function: function, source_dir: source_dir, output_dir: output_dir2)
+        expect(res2.cached?).to be true
+        expect(res2.content_hash).to eq(res1.content_hash)
+        expect(res2.sha256).to eq(res1.sha256)
+        expect(File.exist?(res2.zip_path)).to be true
+        expect(File.binread(res2.zip_path)).to eq(File.binread(res1.zip_path))
+      end
+    end
+
+    it 'bypasses cache when no_cache: true option is provided' do
+      with_tmpdir do |tmpdir|
+        source_dir = File.join(tmpdir, 'src')
+        FileUtils.mkdir_p(File.join(source_dir, 'functions'))
+        File.write(File.join(source_dir, 'functions', 'convert.rb'), 'puts "nocache"')
+
+        out1 = File.join(tmpdir, 'out1')
+        out2 = File.join(tmpdir, 'out2')
+
+        res1 = described_class.package(function: function, source_dir: source_dir, output_dir: out1)
+        expect(res1.cached?).to be false
+
+        res2 = described_class.package(function: function, source_dir: source_dir, output_dir: out2, no_cache: true)
+        expect(res2.cached?).to be false
+      end
+    end
+
+    it 'rebuilds artifact when cached artifact hash is corrupted (cache poisoning protection)' do
+      with_tmpdir do |tmpdir|
+        source_dir = File.join(tmpdir, 'src')
+        FileUtils.mkdir_p(File.join(source_dir, 'functions'))
+        File.write(File.join(source_dir, 'functions', 'convert.rb'), 'puts "poison test"')
+
+        out1 = File.join(tmpdir, 'out1')
+        out2 = File.join(tmpdir, 'out2')
+
+        res1 = described_class.package(function: function, source_dir: source_dir, output_dir: out1)
+        expect(res1.cached?).to be false
+
+        # Corrupt cached zip in .veltrunode/cache
+        cached_zip = File.join(source_dir, '.veltrunode', 'cache', "#{res1.content_hash}.zip")
+        File.write(cached_zip, 'CORRUPTED PAYLOAD')
+
+        res2 = described_class.package(function: function, source_dir: source_dir, output_dir: out2)
+        expect(res2.cached?).to be false
+        expect(res2.sha256).to eq(res1.sha256)
+      end
+    end
   end
 end

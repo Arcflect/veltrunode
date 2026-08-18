@@ -65,10 +65,42 @@ RSpec.describe Veltrunode::CLI::Router do
       expect(stdout.string.strip).to include('Validation successful.')
     end
 
-    it 'runs build command stub' do
+    it 'runs build command and packages application functions and layers' do
+      mock_app = instance_double(
+        Veltrunode::Application,
+        functions: [Veltrunode::Model::Function.new(logical_name: 'func1', handler: 'f.h')],
+        layers: []
+      )
+      allow(Veltrunode::SettingsLoader).to receive(:load).and_return(mock_app)
+      allow(Veltrunode::Build::FunctionPackager).to receive(:package).and_return(
+        instance_double(Veltrunode::Build::PackageResult, function_name: 'func1')
+      )
+
       code = run_cli(['build'])
       expect(code).to eq(0)
-      expect(stdout.string.strip).to eq('Build successful.')
+      expect(stdout.string.strip).to include('Build successful.')
+      expect(Veltrunode::Build::FunctionPackager).to have_received(:package).with(
+        hash_including(no_cache: false)
+      )
+    end
+
+    it 'runs build command with --no-cache flag' do
+      mock_app = instance_double(
+        Veltrunode::Application,
+        functions: [Veltrunode::Model::Function.new(logical_name: 'func1', handler: 'f.h')],
+        layers: []
+      )
+      allow(Veltrunode::SettingsLoader).to receive(:load).and_return(mock_app)
+      allow(Veltrunode::Build::FunctionPackager).to receive(:package).and_return(
+        instance_double(Veltrunode::Build::PackageResult, function_name: 'func1')
+      )
+
+      code = run_cli(['build', '--no-cache'])
+      expect(code).to eq(0)
+      expect(stdout.string.strip).to include('Build successful.')
+      expect(Veltrunode::Build::FunctionPackager).to have_received(:package).with(
+        hash_including(no_cache: true)
+      )
     end
 
     it 'runs plan command stub' do

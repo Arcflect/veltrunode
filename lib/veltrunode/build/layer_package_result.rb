@@ -11,7 +11,8 @@ module Veltrunode
                   :uncompressed_size,
                   :size_diagnostics,
                   :entries,
-                  :diagnostics
+                  :diagnostics,
+                  :cached
 
       def initialize(
         layer_name:,
@@ -22,7 +23,8 @@ module Veltrunode
         uncompressed_size:,
         size_diagnostics:,
         entries:,
-        diagnostics: []
+        diagnostics: [],
+        cached: false
       )
         @layer_name = layer_name.to_s.freeze
         @zip_path = zip_path.to_s.freeze
@@ -33,6 +35,7 @@ module Veltrunode
         @size_diagnostics = size_diagnostics.freeze
         @entries = Array(entries).map(&:to_s).freeze
         @diagnostics = Array(diagnostics).freeze
+        @cached = cached ? true : false
 
         freeze
       end
@@ -43,6 +46,10 @@ module Veltrunode
 
       def bytesize
         @compressed_size
+      end
+
+      def cached?
+        @cached
       end
     end
   end

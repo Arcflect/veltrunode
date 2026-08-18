@@ -417,5 +417,98 @@ RSpec.describe Veltrunode::Build::LayerPackager do
         end.to raise_error(Veltrunode::ValidationError, /build_on requires exactly one architecture and one runtime/)
       end
     end
+
+    it 'skips building on cache hit and restores layer artifact from local cache' do
+      with_tmpdir do |tmpdir|
+        lockfile_path = File.join(tmpdir, 'Gemfile.lock')
+        File.write(lockfile_path, sample_lockfile_content)
+
+        out1 = File.join(tmpdir, 'out1')
+        out2 = File.join(tmpdir, 'out2')
+
+        res1 = described_class.package(
+          layer: layer,
+          gemfile_lock_path: lockfile_path,
+          source_dir: tmpdir,
+          output_dir: out1,
+          allow_missing_gems: true
+        )
+        expect(res1.cached?).to be false
+
+        res2 = described_class.package(
+          layer: layer,
+          gemfile_lock_path: lockfile_path,
+          source_dir: tmpdir,
+          output_dir: out2,
+          allow_missing_gems: true
+        )
+        expect(res2.cached?).to be true
+        expect(res2.content_hash).to eq(res1.content_hash)
+        expect(res2.sha256).to eq(res1.sha256)
+        expect(File.binread(res2.zip_path)).to eq(File.binread(res1.zip_path))
+      end
+    end
+
+    it 'bypasses cache when no_cache: true option is provided' do
+      with_tmpdir do |tmpdir|
+        lockfile_path = File.join(tmpdir, 'Gemfile.lock')
+        File.write(lockfile_path, sample_lockfile_content)
+
+        out1 = File.join(tmpdir, 'out1')
+        out2 = File.join(tmpdir, 'out2')
+
+        res1 = described_class.package(
+          layer: layer,
+          gemfile_lock_path: lockfile_path,
+          source_dir: tmpdir,
+          output_dir: out1,
+          allow_missing_gems: true
+        )
+        expect(res1.cached?).to be false
+
+        res2 = described_class.package(
+          layer: layer,
+          gemfile_lock_path: lockfile_path,
+          source_dir: tmpdir,
+          output_dir: out2,
+          no_cache: true,
+          allow_missing_gems: true
+        )
+        expect(res2.cached?).to be false
+      end
+    end
+
+    it 'rebuilds layer artifact when cached zip is corrupted (cache poisoning protection)' do
+      with_tmpdir do |tmpdir|
+        lockfile_path = File.join(tmpdir, 'Gemfile.lock')
+        File.write(lockfile_path, sample_lockfile_content)
+
+        out1 = File.join(tmpdir, 'out1')
+        out2 = File.join(tmpdir, 'out2')
+
+        res1 = described_class.package(
+          layer: layer,
+          gemfile_lock_path: lockfile_path,
+          source_dir: tmpdir,
+          output_dir: out1,
+          allow_missing_gems: true
+        )
+        expect(res1.cached?).to be false
+
+        # Corrupt cached layer zip
+        cached_zip = File.join(tmpdir, '.veltrunode', 'cache', "#{res1.content_hash}.zip")
+        File.write(cached_zip, 'CORRUPTED LAYER PAYLOAD')
+
+        res2 = described_class.package(
+          layer: layer,
+          gemfile_lock_path: lockfile_path,
+          source_dir: tmpdir,
+          output_dir: out2,
+          allow_missing_gems: true
+        )
+        expect(res2.cached?).to be false
+        expect(res2.sha256).to eq(res1.sha256)
+      end
+    end
   end
 end

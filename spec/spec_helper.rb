@@ -19,4 +19,12 @@ RSpec.configure do |config|
   config.expect_with :rspec do |c|
     c.syntax = :expect
   end
+
+  config.before do
+    FileUtils.rm_rf(File.join(Dir.pwd, '.veltrunode', 'cache'))
+  end
+
+  config.after do
+    FileUtils.rm_rf(File.join(Dir.pwd, '.veltrunode', 'cache'))
+  end
 end
