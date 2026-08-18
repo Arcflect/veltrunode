@@ -9,6 +9,7 @@ require_relative 'deterministic_archiver'
 require_relative 'layer_package_result'
 require_relative 'container_runner'
 require_relative 'native_builder'
+require_relative 'cache'
 require_relative '../validation'
 
 module Veltrunode

@@ -3,6 +3,7 @@
 require_relative 'deterministic_archiver'
 require_relative 'package_result'
 require_relative 'secret_scanner'
+require_relative 'cache'
 require_relative '../validation'
 
 module Veltrunode
