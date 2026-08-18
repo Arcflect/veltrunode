@@ -91,7 +91,21 @@ RSpec.describe Veltrunode::Build::Cache do
         cache = described_class.new(cache_dir: cache_dir)
 
         dest_zip = File.join(tmpdir, 'out', 'nonexistent.zip')
-        expect(cache.fetch('unknown_hash', dest_zip)).to be_nil
+        expect(cache.fetch('a1b2c3d4e5f67890123456789abcdef0123456789abcdef0123456789abcdef9', dest_zip)).to be_nil
+      end
+    end
+
+    it 'rejects invalid non-hex keys or path traversal attempts defensively' do
+      with_tmpdir do |tmpdir|
+        cache_dir = File.join(tmpdir, 'cache')
+        cache = described_class.new(cache_dir: cache_dir)
+
+        dest_zip = File.join(tmpdir, 'out', 'dest.zip')
+        expect(cache.fetch('../path/traversal', dest_zip)).to be_nil
+        expect(cache.fetch('short_hash', dest_zip)).to be_nil
+
+        result = instance_double(Veltrunode::Build::PackageResult, zip_path: dest_zip)
+        expect(cache.store('../path/traversal', result)).to be_nil
       end
     end
 

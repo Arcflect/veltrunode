@@ -29,20 +29,21 @@ module Veltrunode
         @cache_dir = File.expand_path(cache_dir || DEFAULT_CACHE_DIR)
       end
 
+      HEX_HASH_PATTERN = /\A[0-9a-f]{64}\z/i
+
       def fetch(content_hash, output_path)
-        return nil if content_hash.nil? || content_hash.to_s.empty?
+        key = content_hash.to_s
+        return nil unless key.match?(HEX_HASH_PATTERN)
 
-        cache_zip_path = zip_path_for(content_hash)
-        cache_json_path = json_path_for(content_hash)
-
-        # puts "DEBUG FETCH @cache_dir=#{@cache_dir} zip=#{cache_zip_path} exists=#{File.file?(cache_zip_path)}"
+        cache_zip_path = zip_path_for(key)
+        cache_json_path = json_path_for(key)
 
         return nil unless File.file?(cache_zip_path) && File.file?(cache_json_path)
 
         begin
           data = JSON.parse(File.read(cache_json_path))
         rescue JSON::ParserError
-          invalidate!(content_hash)
+          invalidate!(key)
           return nil
         end
 
@@ -51,28 +52,29 @@ module Veltrunode
 
         if recorded_sha256 != actual_sha256
           # Cache poisoning or corruption detected
-          invalidate!(content_hash)
+          invalidate!(key)
           return nil
         end
 
         FileUtils.mkdir_p(File.dirname(output_path))
         FileUtils.cp(cache_zip_path, output_path)
 
-        restore_result(data, output_path, content_hash, actual_sha256)
+        restore_result(data, output_path, key, actual_sha256)
       end
 
       def store(content_hash, package_or_layer_result)
-        return if content_hash.nil? || content_hash.to_s.empty?
+        key = content_hash.to_s
+        return unless key.match?(HEX_HASH_PATTERN)
         return unless package_or_layer_result && File.file?(package_or_layer_result.zip_path)
 
         FileUtils.mkdir_p(@cache_dir)
 
-        cache_zip_path = zip_path_for(content_hash)
-        cache_json_path = json_path_for(content_hash)
+        cache_zip_path = zip_path_for(key)
+        cache_json_path = json_path_for(key)
 
         FileUtils.cp(package_or_layer_result.zip_path, cache_zip_path)
 
-        metadata = build_metadata(package_or_layer_result, content_hash)
+        metadata = build_metadata(package_or_layer_result, key)
         File.write(cache_json_path, JSON.pretty_generate(metadata))
       end
 
