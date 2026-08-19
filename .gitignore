@@ -17,3 +17,6 @@ Thumbs.db
 
 # coverage
 /coverage/
+
+# cache
+.veltrunode/

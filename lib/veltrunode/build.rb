@@ -25,6 +25,7 @@ require_relative 'build/layer_package_result'
 require_relative 'build/layer_packager'
 require_relative 'build/container_runner'
 require_relative 'build/native_builder'
+require_relative 'build/cache'
 
 module Veltrunode
   module Build
