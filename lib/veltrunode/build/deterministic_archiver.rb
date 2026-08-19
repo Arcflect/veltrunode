@@ -115,18 +115,9 @@ module Veltrunode
             is_dir = File.directory?(abs_path)
             entry_name = is_dir && !rel_path.end_with?('/') ? "#{rel_path}/" : rel_path
 
-            entry = Zip::Entry.new(
-              file_path,
-              entry_name,
-              nil,
-              nil,
-              0,
-              0,
-              is_dir ? Zip::Entry::STORED : Zip::Entry::DEFLATED,
-              0,
-              dos_time
-            )
-
+            entry = Zip::Entry.new(file_path, entry_name)
+            entry.compression_method = is_dir ? Zip::Entry::STORED : Zip::Entry::DEFLATED
+            entry.time = dos_time
             entry.unix_perms = is_dir || executable_file?(abs_path) ? 0o755 : 0o644
 
             zip.put_next_entry(entry)
