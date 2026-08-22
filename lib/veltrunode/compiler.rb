@@ -17,6 +17,8 @@
 #
 # 詳細: docs/20-transparent-compiler-architecture.md
 
+require_relative 'compiler/manifest'
+
 module Veltrunode
   module Compiler
   end
