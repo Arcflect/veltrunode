@@ -20,6 +20,33 @@ module Veltrunode
             built_at: built_at
           ).build_data
         end
+
+        def to_h(application:, function_results: [], layer_results: [], built_at: Time.now.utc)
+          new(
+            application: application,
+            function_results: function_results,
+            layer_results: layer_results,
+            built_at: built_at
+          ).to_h
+        end
+
+        def to_json(application:, function_results: [], layer_results: [], built_at: Time.now.utc)
+          new(
+            application: application,
+            function_results: function_results,
+            layer_results: layer_results,
+            built_at: built_at
+          ).to_json
+        end
+
+        def generate(application:, output_path:, function_results: [], layer_results: [], built_at: Time.now.utc)
+          new(
+            application: application,
+            function_results: function_results,
+            layer_results: layer_results,
+            built_at: built_at
+          ).generate(output_path)
+        end
       end
 
       def initialize(application:, function_results: [], layer_results: [], built_at: Time.now.utc)
@@ -41,6 +68,34 @@ module Veltrunode
           'schedules' => build_schedules_section,
           'iam_capabilities' => build_iam_capabilities_section
         }
+      end
+
+      def to_h
+        deep_sort_keys(build_data)
+      end
+
+      def to_json(*_args)
+        "#{JSON.pretty_generate(to_h)}\n"
+      end
+
+      def generate(output_path)
+        content = to_json
+        FileUtils.mkdir_p(File.dirname(output_path))
+        File.write(output_path, content)
+        to_h
+      end
+
+      def deep_sort_keys(obj)
+        case obj
+        when Hash
+          obj.keys.sort.to_h do |k|
+            [k, deep_sort_keys(obj[k])]
+          end
+        when Array
+          obj.map { |v| deep_sort_keys(v) }
+        else
+          obj
+        end
       end
 
       private
