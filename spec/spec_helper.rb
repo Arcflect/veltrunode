@@ -22,9 +22,11 @@ RSpec.configure do |config|
 
   config.before do
     FileUtils.rm_rf(File.join(Dir.pwd, '.veltrunode', 'cache'))
+    FileUtils.rm_rf(File.join(Dir.pwd, 'build'))
   end
 
   config.after do
     FileUtils.rm_rf(File.join(Dir.pwd, '.veltrunode', 'cache'))
+    FileUtils.rm_rf(File.join(Dir.pwd, 'build'))
   end
 end

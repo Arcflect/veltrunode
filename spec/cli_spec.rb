@@ -79,6 +79,7 @@ RSpec.describe Veltrunode::CLI::Router do
       code = run_cli(['build'])
       expect(code).to eq(0)
       expect(stdout.string.strip).to include('Build successful.')
+      expect(File.exist?(File.join(Dir.pwd, 'build', 'manifest.json'))).to be true
       expect(Veltrunode::Build::FunctionPackager).to have_received(:package).with(
         hash_including(no_cache: false)
       )
@@ -98,6 +99,7 @@ RSpec.describe Veltrunode::CLI::Router do
       code = run_cli(['build', '--no-cache'])
       expect(code).to eq(0)
       expect(stdout.string.strip).to include('Build successful.')
+      expect(File.exist?(File.join(Dir.pwd, 'build', 'manifest.json'))).to be true
       expect(Veltrunode::Build::FunctionPackager).to have_received(:package).with(
         hash_including(no_cache: true)
       )
