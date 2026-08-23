@@ -103,12 +103,16 @@ module Veltrunode
       def build_application_section
         return {} unless @application
 
-        res = {
-          'name' => @application.name,
-          'region' => @application.region,
-          'stage' => @application.stage
-        }
-        res['account_constraint'] = @application.account_constraint if @application.account_constraint
+        res = {}
+        name_val = extract_val(@application, :name)
+        region_val = extract_val(@application, :region)
+        stage_val = extract_val(@application, :stage)
+        account_val = extract_val(@application, :account_constraint)
+
+        res['name'] = name_val if name_val
+        res['region'] = region_val if region_val
+        res['stage'] = stage_val if stage_val
+        res['account_constraint'] = account_val if account_val
         res
       end
 
@@ -134,10 +138,14 @@ module Veltrunode
           }
 
           if res
-            fn_info['content_hash'] = res.respond_to?(:content_hash) ? res.content_hash : res.sha256
-            fn_info['sha256'] = res.sha256
-            fn_info['artifact_hash'] = res.sha256
-            fn_info['zip_path'] = File.basename(res.zip_path)
+            ch = extract_val(res, :content_hash) || extract_val(res, :sha256)
+            sha = extract_val(res, :sha256)
+            zip = extract_val(res, :zip_path)
+
+            fn_info['content_hash'] = ch if ch
+            fn_info['sha256'] = sha if sha
+            fn_info['artifact_hash'] = sha if sha
+            fn_info['zip_path'] = File.basename(zip) if zip
           end
 
           env = extract_val(fn, :environment)
@@ -148,7 +156,7 @@ module Veltrunode
       end
 
       def build_layers_section
-        return {} unless @application&.layers
+        return {} unless @application.respond_to?(:layers) && @application.layers
 
         results_map = @layer_results.each_with_object({}) do |res, memo|
           memo[res.layer_name.to_s] = res if res.respond_to?(:layer_name)
@@ -168,10 +176,14 @@ module Veltrunode
           }
 
           if res
-            layer_info['content_hash'] = res.content_hash
-            layer_info['sha256'] = res.sha256
-            layer_info['artifact_hash'] = res.sha256
-            layer_info['zip_path'] = File.basename(res.zip_path)
+            ch = extract_val(res, :content_hash) || extract_val(res, :sha256)
+            sha = extract_val(res, :sha256)
+            zip = extract_val(res, :zip_path)
+
+            layer_info['content_hash'] = ch if ch
+            layer_info['sha256'] = sha if sha
+            layer_info['artifact_hash'] = sha if sha
+            layer_info['zip_path'] = File.basename(zip) if zip
           end
 
           memo[layer_name] = layer_info
@@ -179,7 +191,7 @@ module Veltrunode
       end
 
       def build_schedules_section
-        return {} unless @application&.schedules
+        return {} unless @application.respond_to?(:schedules) && @application.schedules
 
         @application.schedules.each_with_object({}) do |sch, memo|
           sch_name = extract_name(sch)
@@ -205,12 +217,12 @@ module Veltrunode
       end
 
       def build_iam_capabilities_section
-        return {} unless @application&.functions
+        return {} unless @application.respond_to?(:functions) && @application.functions
 
         context = {
-          stage: @application.stage,
-          region: @application.region,
-          account: @application.account_constraint
+          stage: extract_val(@application, :stage) || 'dev',
+          region: extract_val(@application, :region) || 'ap-northeast-1',
+          account: extract_val(@application, :account_constraint)
         }
 
         @application.functions.each_with_object({}) do |fn, memo|

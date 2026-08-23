@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'json'
+require_relative 'compiler'
 
 module Veltrunode
   class CLI
@@ -193,10 +194,19 @@ module Veltrunode
           )
         end
 
+        manifest_path = File.join(source_dir, 'build', 'manifest.json')
+        Veltrunode::Compiler::Manifest.generate(
+          application: application,
+          function_results: function_results,
+          layer_results: layer_results,
+          output_path: manifest_path
+        )
+
         output_success('Build successful.', {
                          message: 'Build successful',
                          layers_count: layer_results.size,
-                         functions_count: function_results.size
+                         functions_count: function_results.size,
+                         manifest_path: manifest_path
                        })
       end
 
