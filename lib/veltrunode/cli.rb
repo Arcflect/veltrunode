@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'json'
+require_relative 'compiler'
 
 module Veltrunode
   class CLI
@@ -177,26 +178,39 @@ module Veltrunode
         source_dir = @options[:file] ? File.dirname(@options[:file]) : Dir.pwd
         source_dir = Dir.pwd if source_dir.empty? || source_dir == '.'
 
+        layer_output_dir = File.join(source_dir, 'build', 'artifacts', 'layers')
         layer_results = application.layers.map do |layer|
           Veltrunode::Build::LayerPackager.package(
             layer: layer,
             source_dir: source_dir,
+            output_dir: layer_output_dir,
             no_cache: no_cache
           )
         end
 
+        function_output_dir = File.join(source_dir, 'build', 'artifacts', 'functions')
         function_results = application.functions.map do |fn|
           Veltrunode::Build::FunctionPackager.package(
             function: fn,
             source_dir: source_dir,
+            output_dir: function_output_dir,
             no_cache: no_cache
           )
         end
 
+        manifest_path = File.join(source_dir, 'build', 'manifest.json')
+        Veltrunode::Compiler::Manifest.generate(
+          application: application,
+          function_results: function_results,
+          layer_results: layer_results,
+          output_path: manifest_path
+        )
+
         output_success('Build successful.', {
                          message: 'Build successful',
                          layers_count: layer_results.size,
-                         functions_count: function_results.size
+                         functions_count: function_results.size,
+                         manifest_path: manifest_path
                        })
       end
 

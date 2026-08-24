@@ -94,23 +94,28 @@ module Veltrunode
       private
 
       def normalize_capability(cap)
-        if cap.is_a?(Capability)
+        case cap
+        when Capability
           cap
-        elsif cap.is_a?(Hash)
+        when Hash
           type = cap[:type] || cap['type']
           params = cap[:params] || cap['params'] || cap.reject { |k, _| %w[type].include?(k.to_s) }
-          Capability.new(type:, params:)
+          Capability.new(type: type, params: params)
+        when String, Symbol
+          Capability.new(type: :custom, params: { actions: [cap.to_s], resources: ['*'] })
         else
           raise ValidationError, "Invalid capability format: #{cap.inspect}"
         end
       end
 
       def expand_read_from_s3(params)
-        bucket = fetch_param(params, :bucket)
-        raise ValidationError, 'read_from_s3 capability requires bucket param' if blank?(bucket)
+        raw_bucket = fetch_param(params, :bucket)
+        raise ValidationError, 'read_from_s3 capability requires bucket param' if blank?(raw_bucket)
 
-        prefix = fetch_param(params, :prefix) || ''
-        prefix_str = prefix.to_s.empty? ? '*' : "#{prefix}*"
+        bucket = format_value(raw_bucket)
+        raw_prefix = fetch_param(params, :prefix) || ''
+        prefix = format_value(raw_prefix)
+        prefix_str = prefix.empty? ? '*' : "#{prefix}*"
 
         bucket_arn = "arn:aws:s3:::#{bucket}"
         object_arn = "arn:aws:s3:::#{bucket}/#{prefix_str}"
@@ -125,11 +130,13 @@ module Veltrunode
       end
 
       def expand_write_to_s3(params)
-        bucket = fetch_param(params, :bucket)
-        raise ValidationError, 'write_to_s3 capability requires bucket param' if blank?(bucket)
+        raw_bucket = fetch_param(params, :bucket)
+        raise ValidationError, 'write_to_s3 capability requires bucket param' if blank?(raw_bucket)
 
-        prefix = fetch_param(params, :prefix) || ''
-        prefix_str = prefix.to_s.empty? ? '*' : "#{prefix}*"
+        bucket = format_value(raw_bucket)
+        raw_prefix = fetch_param(params, :prefix) || ''
+        prefix = format_value(raw_prefix)
+        prefix_str = prefix.empty? ? '*' : "#{prefix}*"
 
         object_arn = "arn:aws:s3:::#{bucket}/#{prefix_str}"
 
@@ -143,13 +150,14 @@ module Veltrunode
       end
 
       def expand_read_parameter(params)
-        name = fetch_param(params, :name) || fetch_param(params, :path) || fetch_param(params, :parameter_name)
-        raise ValidationError, 'read_parameter capability requires name or path param' if blank?(name)
+        raw_name = fetch_param(params, :name) || fetch_param(params, :path) || fetch_param(params, :parameter_name)
+        raise ValidationError, 'read_parameter capability requires name or path param' if blank?(raw_name)
 
-        region = fetch_context(:region) || '*'
-        account = fetch_context(:account) || '*'
+        name = format_value(raw_name)
+        region = format_value(fetch_context(:region) || '*')
+        account = format_value(fetch_context(:account) || '*')
 
-        param_path = name.to_s.sub(%r{\A/}, '')
+        param_path = name.sub(%r{\A/}, '')
         param_arn = "arn:aws:ssm:#{region}:#{account}:parameter/#{param_path}"
 
         [
@@ -172,8 +180,8 @@ module Veltrunode
         [
           {
             'Effect' => 'Allow',
-            'Action' => actions.map(&:to_s),
-            'Resource' => resources.map(&:to_s)
+            'Action' => actions.map { |a| format_value(a) },
+            'Resource' => resources.map { |r| format_value(r) }
           }
         ]
       end
@@ -185,6 +193,23 @@ module Veltrunode
 
         first_err = errors.first
         raise ValidationError.new(first_err.summary, diagnostics: diags)
+      end
+
+      def format_value(val)
+        case val
+        when Hash
+          val.each_with_object({}) do |(k, v), memo|
+            memo[format_value(k)] = format_value(v)
+          end
+        when Array
+          val.map { |v| format_value(v) }
+        else
+          if val.respond_to?(:secret?) && val.secret?
+            '[FILTERED]'
+          else
+            val.to_s
+          end
+        end
       end
 
       def fetch_param(params, key)
