@@ -178,18 +178,22 @@ module Veltrunode
         source_dir = @options[:file] ? File.dirname(@options[:file]) : Dir.pwd
         source_dir = Dir.pwd if source_dir.empty? || source_dir == '.'
 
+        layer_output_dir = File.join(source_dir, 'build', 'artifacts', 'layers')
         layer_results = application.layers.map do |layer|
           Veltrunode::Build::LayerPackager.package(
             layer: layer,
             source_dir: source_dir,
+            output_dir: layer_output_dir,
             no_cache: no_cache
           )
         end
 
+        function_output_dir = File.join(source_dir, 'build', 'artifacts', 'functions')
         function_results = application.functions.map do |fn|
           Veltrunode::Build::FunctionPackager.package(
             function: fn,
             source_dir: source_dir,
+            output_dir: function_output_dir,
             no_cache: no_cache
           )
         end
