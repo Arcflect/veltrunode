@@ -224,6 +224,26 @@ RSpec.describe Veltrunode::Compiler::Manifest do
       manifest = described_class.to_h(application: ref_app, built_at: fixed_time)
       expect(manifest['functions']['vpc_fn']['vpc_reference']).to eq('vpc_config')
     end
+
+    it 'redacts SecretValue instances in schedule execution_role and dlq to [FILTERED]' do
+      secret_role = Veltrunode::DSL::SecretValue.new('arn:aws:iam::123456789012:role/secret-role')
+      secret_dlq = Veltrunode::DSL::SecretValue.new('arn:aws:sqs:ap-northeast-1:123456789012:secret-queue')
+
+      builder = Veltrunode::DSL::ScheduleBuilder.new('secret_sch')
+      builder.target('api_handler')
+      builder.cron('cron(0 0 * * ? *)')
+      builder.execution_role(secret_role)
+      builder.dlq(secret_dlq)
+      sch = builder.build
+
+      secret_app = Veltrunode::Model::Application.new(name: 'sch-app', schedules: [sch])
+
+      manifest = described_class.to_h(application: secret_app, built_at: fixed_time)
+      sch_data = manifest['schedules']['secret_sch']
+
+      expect(sch_data['execution_role']).to eq('[FILTERED]')
+      expect(sch_data['dlq']).to eq('[FILTERED]')
+    end
   end
 
   describe '.to_json' do

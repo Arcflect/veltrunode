@@ -75,15 +75,15 @@ module Veltrunode
       end
 
       def dead_letter_queue(arn: nil)
-        @dlq = arn.to_s if arn
+        @dlq = preserve_secret(arn) if arn
       end
 
       def dlq(arn)
-        @dlq = arn.to_s
+        @dlq = preserve_secret(arn)
       end
 
       def execution_role(role)
-        @execution_role = role.to_s
+        @execution_role = preserve_secret(role)
       end
 
       def build
@@ -100,6 +100,12 @@ module Veltrunode
           dlq: @dlq,
           execution_role: @execution_role
         )
+      end
+
+      private
+
+      def preserve_secret(val)
+        val.respond_to?(:secret?) && val.secret? ? val : val.to_s
       end
     end
   end
