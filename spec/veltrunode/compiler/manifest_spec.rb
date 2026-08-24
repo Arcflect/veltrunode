@@ -244,6 +244,28 @@ RSpec.describe Veltrunode::Compiler::Manifest do
       expect(sch_data['execution_role']).to eq('[FILTERED]')
       expect(sch_data['dlq']).to eq('[FILTERED]')
     end
+
+    it 'redacts SecretValue parameters in IAM capability expansion' do
+      secret_bucket = Veltrunode::DSL::SecretValue.new('my-secret-bucket-name')
+      secret_cap_fn = Veltrunode::Model::Function.new(
+        logical_name: 'sec_cap_fn',
+        handler: 'fn.handler',
+        iam_capabilities: [
+          Veltrunode::Model::Capability.new(
+            type: :read_from_s3,
+            params: { bucket: secret_bucket }
+          )
+        ]
+      )
+      secret_cap_app = Veltrunode::Model::Application.new(name: 'sec-cap-app', functions: [secret_cap_fn])
+
+      manifest = described_class.to_h(application: secret_cap_app, built_at: fixed_time)
+      iam_stmts = manifest['iam_capabilities']['sec_cap_fn']
+
+      resources = iam_stmts.first['Resource']
+      expect(resources).to include('arn:aws:s3:::[FILTERED]')
+      expect(resources).to include('arn:aws:s3:::[FILTERED]/*')
+    end
   end
 
   describe '.to_json' do
