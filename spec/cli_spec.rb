@@ -68,13 +68,23 @@ RSpec.describe Veltrunode::CLI::Router do
     it 'runs build command and packages application functions and layers' do
       mock_app = instance_double(
         Veltrunode::Application,
+        name: 'test-app',
+        region: 'ap-northeast-1',
+        stage: 'dev',
+        account_constraint: nil,
+        schedules: [],
         functions: [Veltrunode::Model::Function.new(logical_name: 'func1', handler: 'f.h')],
         layers: []
       )
-      allow(Veltrunode::SettingsLoader).to receive(:load).and_return(mock_app)
-      allow(Veltrunode::Build::FunctionPackager).to receive(:package).and_return(
-        instance_double(Veltrunode::Build::PackageResult, function_name: 'func1')
+      mock_pkg_result = instance_double(
+        Veltrunode::Build::PackageResult,
+        function_name: 'func1',
+        content_hash: 'a1b2c3d4e5f67890123456789abcdef0123456789abcdef0123456789abcdef0',
+        sha256: '9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba',
+        zip_path: 'build/artifacts/functions/func1.zip'
       )
+      allow(Veltrunode::SettingsLoader).to receive(:load).and_return(mock_app)
+      allow(Veltrunode::Build::FunctionPackager).to receive(:package).and_return(mock_pkg_result)
 
       code = run_cli(['build'])
       expect(code).to eq(0)
@@ -88,13 +98,23 @@ RSpec.describe Veltrunode::CLI::Router do
     it 'runs build command with --no-cache flag' do
       mock_app = instance_double(
         Veltrunode::Application,
+        name: 'test-app',
+        region: 'ap-northeast-1',
+        stage: 'dev',
+        account_constraint: nil,
+        schedules: [],
         functions: [Veltrunode::Model::Function.new(logical_name: 'func1', handler: 'f.h')],
         layers: []
       )
-      allow(Veltrunode::SettingsLoader).to receive(:load).and_return(mock_app)
-      allow(Veltrunode::Build::FunctionPackager).to receive(:package).and_return(
-        instance_double(Veltrunode::Build::PackageResult, function_name: 'func1')
+      mock_pkg_result = instance_double(
+        Veltrunode::Build::PackageResult,
+        function_name: 'func1',
+        content_hash: 'a1b2c3d4e5f67890123456789abcdef0123456789abcdef0123456789abcdef0',
+        sha256: '9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba',
+        zip_path: 'build/artifacts/functions/func1.zip'
       )
+      allow(Veltrunode::SettingsLoader).to receive(:load).and_return(mock_app)
+      allow(Veltrunode::Build::FunctionPackager).to receive(:package).and_return(mock_pkg_result)
 
       code = run_cli(['build', '--no-cache'])
       expect(code).to eq(0)
