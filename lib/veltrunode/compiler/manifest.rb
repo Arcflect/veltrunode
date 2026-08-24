@@ -237,10 +237,14 @@ module Veltrunode
 
           flex = extract_val(sch, :flexible_window)
           sch_info['flexible_window'] = flex if flex
+          input_val = extract_val(sch, :input)
+          sch_info['input'] = input_val if input_val
           retry_pol = extract_val(sch, :retry_policy)
           sch_info['retry_policy'] = retry_pol if retry_pol
           dlq_val = extract_val(sch, :dlq)
           sch_info['dlq'] = dlq_val if dlq_val
+          exec_role = extract_val(sch, :execution_role)
+          sch_info['execution_role'] = exec_role if exec_role
 
           memo[sch_name] = sch_info
         end

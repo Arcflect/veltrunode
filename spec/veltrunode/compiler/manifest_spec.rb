@@ -58,7 +58,9 @@ RSpec.describe Veltrunode::Compiler::Manifest do
           timezone: 'Asia/Tokyo',
           state: :enabled,
           flexible_window: { mode: :off },
-          retry_policy: { maximum_attempts: 2 }
+          input: { 'action' => 'sync' },
+          retry_policy: { maximum_attempts: 2 },
+          execution_role: 'arn:aws:iam::123456789012:role/scheduler-role'
         )
       ]
     )
@@ -150,6 +152,8 @@ RSpec.describe Veltrunode::Compiler::Manifest do
       expect(sch_data['expression']).to eq('cron(0 0 * * ? *)')
       expect(sch_data['timezone']).to eq('Asia/Tokyo')
       expect(sch_data['state']).to eq('enabled')
+      expect(sch_data['input']).to eq({ 'action' => 'sync' })
+      expect(sch_data['execution_role']).to eq('arn:aws:iam::123456789012:role/scheduler-role')
 
       # IAM Capabilities
       iam_stmts = manifest['iam_capabilities']['api_handler']
