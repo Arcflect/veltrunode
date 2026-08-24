@@ -162,6 +162,24 @@ RSpec.describe Veltrunode::Compiler::Manifest do
       fn_keys = manifest['functions']['api_handler'].keys
       expect(fn_keys).to eq(fn_keys.sort)
     end
+
+    it 'redacts SecretValue instances in function environment variables to [FILTERED]' do
+      secret_fn = Veltrunode::Model::Function.new(
+        logical_name: 'secret_fn',
+        handler: 'fn.handler',
+        environment: {
+          'PUBLIC_KEY' => 'public_val',
+          'SECRET_TOKEN' => Veltrunode::DSL::SecretValue.new('super_secret_password')
+        }
+      )
+      secret_app = Veltrunode::Model::Application.new(name: 'sec-app', functions: [secret_fn])
+
+      manifest = described_class.to_h(application: secret_app, built_at: fixed_time)
+      env_data = manifest['functions']['secret_fn']['environment']
+
+      expect(env_data['PUBLIC_KEY']).to eq('public_val')
+      expect(env_data['SECRET_TOKEN']).to eq('[FILTERED]')
+    end
   end
 
   describe '.to_json' do

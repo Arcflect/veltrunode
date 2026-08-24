@@ -251,6 +251,8 @@ module Veltrunode
       end
 
       def deep_stringify_keys(obj)
+        return '[FILTERED]' if obj.respond_to?(:secret?) && obj.secret?
+
         case obj
         when Hash
           obj.each_with_object({}) do |(k, v), memo|
