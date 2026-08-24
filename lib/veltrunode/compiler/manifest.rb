@@ -151,6 +151,21 @@ module Veltrunode
           env = extract_val(fn, :environment)
           fn_info['environment'] = env if env && !env.empty?
 
+          vpc_ref = extract_val(fn, :vpc_reference)
+          fn_info['vpc_reference'] = vpc_ref if vpc_ref && !vpc_ref.empty?
+
+          attached_layers = extract_val(fn, :layers)
+          fn_info['layers'] = Array(attached_layers) if attached_layers && !attached_layers.empty?
+
+          mount_list = extract_val(fn, :mounts)
+          fn_info['mounts'] = Array(mount_list) if mount_list && !mount_list.empty?
+
+          conc = extract_val(fn, :concurrency)
+          fn_info['concurrency'] = conc if conc && !conc.empty?
+
+          log_cfg = extract_val(fn, :logging)
+          fn_info['logging'] = log_cfg if log_cfg && !log_cfg.empty?
+
           memo[fn_name] = fn_info
         end
       end

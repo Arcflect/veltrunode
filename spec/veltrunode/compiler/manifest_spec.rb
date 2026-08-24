@@ -28,6 +28,10 @@ RSpec.describe Veltrunode::Compiler::Manifest do
           timeout: 10,
           ephemeral_storage: 512,
           environment: { 'LOG_LEVEL' => 'info' },
+          vpc_reference: { security_group_ids: ['sg-12345'], subnet_ids: ['subnet-abc'] },
+          layers: ['gem_deps'],
+          concurrency: { reserved: 5 },
+          logging: { format: 'JSON', level: 'INFO' },
           iam_capabilities: [
             Veltrunode::Model::Capability.new(
               type: :read_from_s3,
@@ -114,6 +118,10 @@ RSpec.describe Veltrunode::Compiler::Manifest do
       expect(fn_data['architecture']).to eq('arm64')
       expect(fn_data['memory']).to eq(256)
       expect(fn_data['timeout']).to eq(10)
+      expect(fn_data['vpc_reference']).to eq({ 'security_group_ids' => ['sg-12345'], 'subnet_ids' => ['subnet-abc'] })
+      expect(fn_data['layers']).to eq(['gem_deps'])
+      expect(fn_data['concurrency']).to eq({ 'reserved' => 5 })
+      expect(fn_data['logging']).to eq({ 'format' => 'JSON', 'level' => 'INFO' })
       expect(fn_data['content_hash']).to eq(fn_result.content_hash)
       expect(fn_data['sha256']).to eq(fn_result.sha256)
       expect(fn_data['artifact_hash']).to eq(fn_result.sha256)
