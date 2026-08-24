@@ -149,22 +149,22 @@ module Veltrunode
           end
 
           env = extract_val(fn, :environment)
-          fn_info['environment'] = env if env && !env.empty?
+          fn_info['environment'] = env if present?(env)
 
           vpc_ref = extract_val(fn, :vpc_reference)
-          fn_info['vpc_reference'] = vpc_ref if vpc_ref && !vpc_ref.empty?
+          fn_info['vpc_reference'] = vpc_ref if present?(vpc_ref)
 
           attached_layers = extract_val(fn, :layers)
-          fn_info['layers'] = Array(attached_layers) if attached_layers && !attached_layers.empty?
+          fn_info['layers'] = Array(attached_layers) if present?(attached_layers)
 
           mount_list = extract_val(fn, :mounts)
-          fn_info['mounts'] = Array(mount_list) if mount_list && !mount_list.empty?
+          fn_info['mounts'] = Array(mount_list) if present?(mount_list)
 
           conc = extract_val(fn, :concurrency)
-          fn_info['concurrency'] = conc if conc && !conc.empty?
+          fn_info['concurrency'] = conc if present?(conc)
 
           log_cfg = extract_val(fn, :logging)
-          fn_info['logging'] = log_cfg if log_cfg && !log_cfg.empty?
+          fn_info['logging'] = log_cfg if present?(log_cfg)
 
           memo[fn_name] = fn_info
         end
@@ -191,19 +191,19 @@ module Veltrunode
           }
 
           src_spec = extract_val(layer, :source_spec)
-          layer_info['source_spec'] = src_spec if src_spec && !src_spec.empty?
+          layer_info['source_spec'] = src_spec if present?(src_spec)
 
           build_env = extract_val(layer, :build_environment)
-          layer_info['build_environment'] = build_env if build_env && !build_env.empty?
+          layer_info['build_environment'] = build_env if present?(build_env)
 
           ret_policy = extract_val(layer, :retention_policy)
-          layer_info['retention_policy'] = ret_policy if ret_policy && !ret_policy.empty?
+          layer_info['retention_policy'] = ret_policy if present?(ret_policy)
 
           desc = extract_val(layer, :description)
-          layer_info['description'] = desc if desc && !desc.to_s.empty?
+          layer_info['description'] = desc if present?(desc)
 
           lic = extract_val(layer, :license_metadata)
-          layer_info['license_metadata'] = lic if lic && !lic.to_s.empty?
+          layer_info['license_metadata'] = lic if present?(lic)
 
           if res
             ch = extract_val(res, :content_hash) || extract_val(res, :sha256)
@@ -236,15 +236,15 @@ module Veltrunode
           }
 
           flex = extract_val(sch, :flexible_window)
-          sch_info['flexible_window'] = flex if flex
+          sch_info['flexible_window'] = flex if present?(flex)
           input_val = extract_val(sch, :input)
-          sch_info['input'] = input_val if input_val
+          sch_info['input'] = input_val if present?(input_val)
           retry_pol = extract_val(sch, :retry_policy)
-          sch_info['retry_policy'] = retry_pol if retry_pol
+          sch_info['retry_policy'] = retry_pol if present?(retry_pol)
           dlq_val = extract_val(sch, :dlq)
-          sch_info['dlq'] = dlq_val if dlq_val
+          sch_info['dlq'] = dlq_val if present?(dlq_val)
           exec_role = extract_val(sch, :execution_role)
-          sch_info['execution_role'] = exec_role if exec_role
+          sch_info['execution_role'] = exec_role if present?(exec_role)
 
           memo[sch_name] = sch_info
         end
@@ -261,7 +261,7 @@ module Veltrunode
 
         @application.functions.each_with_object({}) do |fn, memo|
           fn_name = extract_name(fn)
-          caps = extract_val(fn, :iam_capabilities) || []
+          caps = fn.respond_to?(:iam_capabilities) ? fn.iam_capabilities : []
           statements = Model::CapabilityExpander.expand_all(caps, context)
           memo[fn_name] = statements.map { |stmt| deep_stringify_keys(stmt) }
         end
@@ -284,8 +284,19 @@ module Veltrunode
         deep_stringify_keys(val)
       end
 
+      def present?(val)
+        return false if val.nil?
+
+        if val.respond_to?(:empty?)
+          !val.empty?
+        else
+          !val.to_s.strip.empty?
+        end
+      end
+
       def deep_stringify_keys(obj)
         return '[FILTERED]' if obj.respond_to?(:secret?) && obj.secret?
+        return obj.to_s if obj.respond_to?(:name) && obj.class.name.to_s.end_with?('Reference')
 
         case obj
         when Hash

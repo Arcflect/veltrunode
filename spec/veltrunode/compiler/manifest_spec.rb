@@ -212,6 +212,18 @@ RSpec.describe Veltrunode::Compiler::Manifest do
       expect(iam_stmts).to be_an(Array)
       expect(iam_stmts.first['Action']).to eq(['s3:GetObject'])
     end
+
+    it 'safely serializes DSL::Reference objects (e.g. ref(:vpc_config)) without raising NoMethodError' do
+      ref_vpc_fn = Veltrunode::Model::Function.new(
+        logical_name: 'vpc_fn',
+        handler: 'fn.handler',
+        vpc_reference: Veltrunode::DSL::Reference.new(:vpc_config)
+      )
+      ref_app = Veltrunode::Model::Application.new(name: 'vpc-app', functions: [ref_vpc_fn])
+
+      manifest = described_class.to_h(application: ref_app, built_at: fixed_time)
+      expect(manifest['functions']['vpc_fn']['vpc_reference']).to eq('vpc_config')
+    end
   end
 
   describe '.to_json' do
