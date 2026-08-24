@@ -94,12 +94,15 @@ module Veltrunode
       private
 
       def normalize_capability(cap)
-        if cap.is_a?(Capability)
+        case cap
+        when Capability
           cap
-        elsif cap.is_a?(Hash)
+        when Hash
           type = cap[:type] || cap['type']
           params = cap[:params] || cap['params'] || cap.reject { |k, _| %w[type].include?(k.to_s) }
-          Capability.new(type:, params:)
+          Capability.new(type: type, params: params)
+        when String, Symbol
+          Capability.new(type: :custom, params: { actions: [cap.to_s], resources: ['*'] })
         else
           raise ValidationError, "Invalid capability format: #{cap.inspect}"
         end

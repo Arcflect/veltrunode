@@ -197,6 +197,21 @@ RSpec.describe Veltrunode::Compiler::Manifest do
       expect(env_data['PUBLIC_KEY']).to eq('public_val')
       expect(env_data['SECRET_TOKEN']).to eq('[FILTERED]')
     end
+
+    it 'expands raw action strings in iam_capabilities without error' do
+      raw_action_fn = Veltrunode::Model::Function.new(
+        logical_name: 'raw_fn',
+        handler: 'fn.handler',
+        iam_capabilities: ['s3:GetObject']
+      )
+      raw_app = Veltrunode::Model::Application.new(name: 'raw-app', functions: [raw_action_fn])
+
+      manifest = described_class.to_h(application: raw_app, built_at: fixed_time)
+      iam_stmts = manifest['iam_capabilities']['raw_fn']
+
+      expect(iam_stmts).to be_an(Array)
+      expect(iam_stmts.first['Action']).to eq(['s3:GetObject'])
+    end
   end
 
   describe '.to_json' do
