@@ -44,7 +44,9 @@ RSpec.describe Veltrunode::Compiler::Manifest do
         Veltrunode::Model::Layer.new(
           name: 'gem_deps',
           compatible_runtimes: ['ruby3.3'],
-          architectures: ['arm64']
+          architectures: ['arm64'],
+          description: 'Common gem dependencies layer',
+          license_metadata: 'MIT'
         )
       ],
       schedules: [
@@ -132,6 +134,9 @@ RSpec.describe Veltrunode::Compiler::Manifest do
       expect(layer_data['name']).to eq('gem_deps')
       expect(layer_data['compatible_runtimes']).to eq(['ruby3.3'])
       expect(layer_data['architectures']).to eq(['arm64'])
+      expect(layer_data['description']).to eq('Common gem dependencies layer')
+      expect(layer_data['license_metadata']).to eq('MIT')
+      expect(layer_data['retention_policy']).to eq({ 'latest' => 5 })
       expect(layer_data['content_hash']).to eq(layer_result.content_hash)
       expect(layer_data['sha256']).to eq(layer_result.sha256)
       expect(layer_data['artifact_hash']).to eq(layer_result.sha256)

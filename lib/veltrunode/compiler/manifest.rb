@@ -190,6 +190,21 @@ module Veltrunode
             'architectures' => Array(architectures).map(&:to_s)
           }
 
+          src_spec = extract_val(layer, :source_spec)
+          layer_info['source_spec'] = src_spec if src_spec && !src_spec.empty?
+
+          build_env = extract_val(layer, :build_environment)
+          layer_info['build_environment'] = build_env if build_env && !build_env.empty?
+
+          ret_policy = extract_val(layer, :retention_policy)
+          layer_info['retention_policy'] = ret_policy if ret_policy && !ret_policy.empty?
+
+          desc = extract_val(layer, :description)
+          layer_info['description'] = desc if desc && !desc.to_s.empty?
+
+          lic = extract_val(layer, :license_metadata)
+          layer_info['license_metadata'] = lic if lic && !lic.to_s.empty?
+
           if res
             ch = extract_val(res, :content_hash) || extract_val(res, :sha256)
             sha = extract_val(res, :sha256)
