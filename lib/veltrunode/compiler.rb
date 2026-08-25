@@ -18,6 +18,7 @@
 # 詳細: docs/20-transparent-compiler-architecture.md
 
 require_relative 'compiler/manifest'
+require_relative 'compiler/cloudformation'
 
 module Veltrunode
   module Compiler
