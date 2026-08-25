@@ -6,7 +6,7 @@ module Veltrunode
   module Compiler
     module CloudFormation
       class FunctionCompiler
-        attr_reader :function, :role, :code, :layer_map, :mount_map, :context
+        attr_reader :function, :role, :code, :layer_map, :mount_map, :context, :depends_on
 
         class << self
           def compile(function, **)
@@ -32,13 +32,14 @@ module Veltrunode
           end
         end
 
-        def initialize(function, role: nil, code: nil, layer_map: {}, mount_map: {}, context: {})
+        def initialize(function, role: nil, code: nil, layer_map: {}, mount_map: {}, depends_on: nil, context: {})
           @function = function
           @role = role
           @code = code
           @layer_map = freeze_hash(layer_map)
           @mount_map = freeze_hash(mount_map)
           @context = freeze_hash(context)
+          @depends_on = resolve_depends_on(depends_on)
         end
 
         def logical_id
@@ -102,10 +103,12 @@ module Veltrunode
         end
 
         def resource_definition
-          {
+          res = {
             'Type' => resource_type,
             'Properties' => properties
           }
+          res['DependsOn'] = depends_on.sort if present?(depends_on)
+          deep_sort_keys(res)
         end
 
         def to_h
@@ -120,6 +123,16 @@ module Veltrunode
         end
 
         private
+
+        def resolve_depends_on(dep)
+          return nil if dep == false
+
+          if dep.nil?
+            ["#{logical_id}LogGroup"]
+          else
+            Array(dep).map(&:to_s)
+          end
+        end
 
         def present?(val)
           return false if val.nil?
