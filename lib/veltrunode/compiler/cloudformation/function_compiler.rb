@@ -141,29 +141,29 @@ module Veltrunode
         end
 
         def format_vpc_config(vpc_ref)
-          if vpc_ref.is_a?(Hash)
-            sg_ids = vpc_ref[:security_group_ids] || vpc_ref['security_group_ids'] || vpc_ref['SecurityGroupIds']
-            sub_ids = vpc_ref[:subnet_ids] || vpc_ref['subnet_ids'] || vpc_ref['SubnetIds']
-
-            cfg = {}
-            cfg['SecurityGroupIds'] = Array(sg_ids).map(&:to_s) if sg_ids
-            cfg['SubnetIds'] = Array(sub_ids).map(&:to_s) if sub_ids
-            cfg
-          elsif vpc_ref.respond_to?(:name)
-            { 'Ref' => self.class.pascalize(vpc_ref.name) }
-          elsif vpc_ref.is_a?(Symbol) || vpc_ref.is_a?(String)
+          unless vpc_ref.is_a?(Hash)
             str = vpc_ref.to_s
-            if str.start_with?('vpc-')
+            if (vpc_ref.is_a?(String) || vpc_ref.is_a?(Symbol)) && str.start_with?('vpc-')
               raise ValidationError,
                     'vpc_reference must provide security_group_ids/subnet_ids; ' \
                     "VPC IDs (#{str}) are not supported for Lambda VpcConfig"
             end
 
-            { 'Ref' => self.class.pascalize(str) }
-
-          else
-            vpc_ref
+            raise ValidationError,
+                  'vpc_reference must be a Hash containing security_group_ids and subnet_ids for Lambda VpcConfig'
           end
+
+          sg_ids = vpc_ref[:security_group_ids] || vpc_ref['security_group_ids'] || vpc_ref['SecurityGroupIds']
+          sub_ids = vpc_ref[:subnet_ids] || vpc_ref['subnet_ids'] || vpc_ref['SubnetIds']
+
+          cfg = {}
+          if sg_ids
+            cfg['SecurityGroupIds'] = sg_ids.is_a?(Hash) ? sg_ids : Array(sg_ids).map(&:to_s)
+          end
+          if sub_ids
+            cfg['SubnetIds'] = sub_ids.is_a?(Hash) ? sub_ids : Array(sub_ids).map(&:to_s)
+          end
+          cfg
         end
 
         def format_layers(layers_array)

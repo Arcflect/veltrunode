@@ -144,6 +144,34 @@ RSpec.describe Veltrunode::Compiler::CloudFormation::FunctionCompiler do
         .to raise_error(Veltrunode::ValidationError, /VPC IDs \(vpc-12345678\) are not supported/)
     end
 
+    it 'raises ValidationError when vpc_reference is a non-Hash reference' do
+      invalid_vpc_fn = Veltrunode::Model::Function.new(
+        logical_name: 'invalid_vpc_fn',
+        handler: 'fn.handler',
+        vpc_reference: Veltrunode::DSL::Reference.new(:vpc_config)
+      )
+
+      expect { described_class.compile(invalid_vpc_fn) }
+        .to raise_error(Veltrunode::ValidationError, /vpc_reference must be a Hash/)
+    end
+
+    it 'preserves intrinsic function Hashes in security_group_ids and subnet_ids' do
+      intrinsic_vpc_fn = Veltrunode::Model::Function.new(
+        logical_name: 'intrinsic_vpc_fn',
+        handler: 'fn.handler',
+        vpc_reference: {
+          security_group_ids: { 'Ref' => 'SecurityGroupParam' },
+          subnet_ids: { 'Fn::GetParam' => 'SubnetList' }
+        }
+      )
+
+      result = described_class.compile(intrinsic_vpc_fn)
+      vpc_cfg = result['IntrinsicVpcFnFunction']['Properties']['VpcConfig']
+
+      expect(vpc_cfg['SecurityGroupIds']).to eq({ 'Ref' => 'SecurityGroupParam' })
+      expect(vpc_cfg['SubnetIds']).to eq({ 'Fn::GetParam' => 'SubnetList' })
+    end
+
     it 'formats mount entries with name:path string syntax correctly' do
       mount_str_fn = Veltrunode::Model::Function.new(
         logical_name: 'mount_str_fn',
