@@ -191,14 +191,26 @@ module Veltrunode
                 'LocalMountPath' => mount_entry.local_path
               }
             elsif mount_entry.is_a?(Hash)
-              arn = mount_entry[:arn] || mount_entry['arn'] || mount_entry['Arn'] ||
-                    mount_entry[:access_point_source] || mount_entry['access_point_source']
+              mount_name = mount_entry[:name] || mount_entry['name'] ||
+                           mount_entry[:symbolic_name] || mount_entry['symbolic_name']
+              raw_arn = mount_entry[:arn] || mount_entry['arn'] || mount_entry['Arn'] ||
+                        mount_entry[:access_point_source] || mount_entry['access_point_source']
+
+              if raw_arn.nil? && mount_name && mount_map.key?(mount_name.to_s)
+                m = mount_map[mount_name.to_s]
+                raw_arn = m.respond_to?(:access_point_source) ? m.access_point_source : m
+              end
+
+              arn = raw_arn || mount_name
               local_path = mount_entry[:local_path] || mount_entry['local_path'] ||
-                           mount_entry['LocalMountPath'] || mount_entry[:local_mount_path]
+                           mount_entry['LocalMountPath'] || mount_entry[:local_mount_path] ||
+                           (mount_name ? "/mnt/#{mount_name}" : nil)
+
               {
                 'Arn' => format_arn_or_ref(arn),
                 'LocalMountPath' => local_path.to_s
               }
+
             else
               entry_str = mount_entry.to_s
               mount_name, mount_path = entry_str.include?(':') ? entry_str.split(':', 2) : [entry_str, nil]

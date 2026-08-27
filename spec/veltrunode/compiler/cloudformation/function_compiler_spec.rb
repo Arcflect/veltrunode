@@ -157,6 +157,20 @@ RSpec.describe Veltrunode::Compiler::CloudFormation::FunctionCompiler do
       expect(fs_cfg['Arn']).to eq({ 'Fn::GetAtt' => %w[SharedDataAccessPoint Arn] })
       expect(fs_cfg['LocalMountPath']).to eq('/mnt/custom')
     end
+
+    it 'formats mount entries provided as a Hash containing name and local_path' do
+      mount_hash_fn = Veltrunode::Model::Function.new(
+        logical_name: 'mount_hash_fn',
+        handler: 'fn.handler',
+        mounts: [{ name: 'data_mount', local_path: '/mnt/data' }]
+      )
+
+      result = described_class.compile(mount_hash_fn)
+      fs_cfg = result['MountHashFnFunction']['Properties']['FileSystemConfigs'].first
+
+      expect(fs_cfg['Arn']).to eq({ 'Fn::GetAtt' => %w[DataMountAccessPoint Arn] })
+      expect(fs_cfg['LocalMountPath']).to eq('/mnt/data')
+    end
   end
 
   describe 'Determinism & Key Sorting' do
