@@ -154,10 +154,13 @@ module Veltrunode
           elsif vpc_ref.is_a?(Symbol) || vpc_ref.is_a?(String)
             str = vpc_ref.to_s
             if str.start_with?('vpc-')
-              { 'VpcId' => str }
-            else
-              { 'Ref' => self.class.pascalize(str) }
+              raise ValidationError,
+                    'vpc_reference must provide security_group_ids/subnet_ids; ' \
+                    "VPC IDs (#{str}) are not supported for Lambda VpcConfig"
             end
+
+            { 'Ref' => self.class.pascalize(str) }
+
           else
             vpc_ref
           end

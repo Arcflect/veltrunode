@@ -132,6 +132,17 @@ RSpec.describe Veltrunode::Compiler::CloudFormation::FunctionCompiler do
 
       expect(env_vars['PARAM_VAL']).to eq({ 'Ref' => 'MyParam' })
     end
+
+    it 'raises ValidationError when vpc_reference is a raw VPC ID string' do
+      vpc_id_fn = Veltrunode::Model::Function.new(
+        logical_name: 'vpc_id_fn',
+        handler: 'fn.handler',
+        vpc_reference: 'vpc-12345678'
+      )
+
+      expect { described_class.compile(vpc_id_fn) }
+        .to raise_error(Veltrunode::ValidationError, /VPC IDs \(vpc-12345678\) are not supported/)
+    end
   end
 
   describe 'Determinism & Key Sorting' do
