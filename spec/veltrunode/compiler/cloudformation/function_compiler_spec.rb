@@ -143,6 +143,20 @@ RSpec.describe Veltrunode::Compiler::CloudFormation::FunctionCompiler do
       expect { described_class.compile(vpc_id_fn) }
         .to raise_error(Veltrunode::ValidationError, /VPC IDs \(vpc-12345678\) are not supported/)
     end
+
+    it 'formats mount entries with name:path string syntax correctly' do
+      mount_str_fn = Veltrunode::Model::Function.new(
+        logical_name: 'mount_str_fn',
+        handler: 'fn.handler',
+        mounts: ['shared_data:/mnt/custom']
+      )
+
+      result = described_class.compile(mount_str_fn)
+      fs_cfg = result['MountStrFnFunction']['Properties']['FileSystemConfigs'].first
+
+      expect(fs_cfg['Arn']).to eq({ 'Fn::GetAtt' => %w[SharedDataAccessPoint Arn] })
+      expect(fs_cfg['LocalMountPath']).to eq('/mnt/custom')
+    end
   end
 
   describe 'Determinism & Key Sorting' do

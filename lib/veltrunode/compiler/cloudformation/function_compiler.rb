@@ -199,23 +199,27 @@ module Veltrunode
                 'Arn' => format_arn_or_ref(arn),
                 'LocalMountPath' => local_path.to_s
               }
-            elsif mount_map.key?(mount_entry.to_s)
-              m = mount_map[mount_entry.to_s]
-              if m.respond_to?(:access_point_source) && m.respond_to?(:local_path)
-                {
-                  'Arn' => format_arn_or_ref(m.access_point_source),
-                  'LocalMountPath' => m.local_path
-                }
-              else
-                m
-              end
-
             else
-              ref_name = "#{self.class.pascalize(mount_entry)}AccessPoint"
-              {
-                'Arn' => { 'Fn::GetAtt' => [ref_name, 'Arn'] },
-                'LocalMountPath' => "/mnt/#{mount_entry}"
-              }
+              entry_str = mount_entry.to_s
+              mount_name, mount_path = entry_str.include?(':') ? entry_str.split(':', 2) : [entry_str, nil]
+
+              if mount_map.key?(mount_name)
+                m = mount_map[mount_name]
+                if m.respond_to?(:access_point_source) && m.respond_to?(:local_path)
+                  {
+                    'Arn' => format_arn_or_ref(m.access_point_source),
+                    'LocalMountPath' => mount_path || m.local_path
+                  }
+                else
+                  m
+                end
+              else
+                ref_name = "#{self.class.pascalize(mount_name)}AccessPoint"
+                {
+                  'Arn' => { 'Fn::GetAtt' => [ref_name, 'Arn'] },
+                  'LocalMountPath' => mount_path || "/mnt/#{mount_name}"
+                }
+              end
             end
           end
         end
