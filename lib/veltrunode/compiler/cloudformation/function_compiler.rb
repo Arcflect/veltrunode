@@ -132,7 +132,11 @@ module Veltrunode
           return {} unless env_hash.is_a?(Hash)
 
           env_hash.each_with_object({}) do |(k, v), memo|
-            memo[k.to_s] = v.to_s
+            if v.respond_to?(:secret?) && v.secret?
+              raise ValidationError, "SecretValue cannot be embedded into CloudFormation templates (env var '#{k}')"
+            end
+
+            memo[k.to_s] = v.is_a?(Hash) || v.is_a?(Array) ? v : v.to_s
           end
         end
 

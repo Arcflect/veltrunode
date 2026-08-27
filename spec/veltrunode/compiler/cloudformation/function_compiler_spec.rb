@@ -108,6 +108,30 @@ RSpec.describe Veltrunode::Compiler::CloudFormation::FunctionCompiler do
       expect(props['Role']).to eq(custom_role)
       expect(props['Code']).to eq(custom_code)
     end
+
+    it 'raises ValidationError when environment variables contain SecretValue' do
+      secret_env_fn = Veltrunode::Model::Function.new(
+        logical_name: 'sec_fn',
+        handler: 'fn.handler',
+        environment: { 'DB_PASS' => Veltrunode::DSL::SecretValue.new('secret_password') }
+      )
+
+      expect { described_class.compile(secret_env_fn) }
+        .to raise_error(Veltrunode::ValidationError, /SecretValue cannot be embedded/)
+    end
+
+    it 'preserves Hash or Array intrinsic functions in environment variables' do
+      intrinsic_fn = Veltrunode::Model::Function.new(
+        logical_name: 'intrinsic_fn',
+        handler: 'fn.handler',
+        environment: { 'PARAM_VAL' => { 'Ref' => 'MyParam' } }
+      )
+
+      result = described_class.compile(intrinsic_fn)
+      env_vars = result['IntrinsicFnFunction']['Properties']['Environment']['Variables']
+
+      expect(env_vars['PARAM_VAL']).to eq({ 'Ref' => 'MyParam' })
+    end
   end
 
   describe 'Determinism & Key Sorting' do
