@@ -54,8 +54,10 @@ RSpec.describe Veltrunode::Compiler::CloudFormation::FunctionCompiler do
 
       resource = result['ApiHandlerFunction']
       expect(resource['Type']).to eq('AWS::Lambda::Function')
+      expect(resource['DependsOn']).to eq(['ApiHandlerFunctionLogGroup'])
 
       props = resource['Properties']
+
       expect(props['FunctionName']).to eq('api_handler')
       expect(props['Handler']).to eq('functions/api.handler')
       expect(props['Runtime']).to eq('ruby3.3')
@@ -224,6 +226,8 @@ RSpec.describe Veltrunode::Compiler::CloudFormation::FunctionCompiler do
       expected_yaml = <<~YAML
         ---
         ApiHandlerFunction:
+          DependsOn:
+          - ApiHandlerFunctionLogGroup
           Properties:
             Architectures:
             - arm64
