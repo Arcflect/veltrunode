@@ -144,7 +144,9 @@ RSpec.describe Veltrunode::Compiler::CloudFormation::RoleCompiler do
       result = described_class.compile_scheduler_role(arn_target_schedule)
       policy_stmts = result['ExternalJobScheduleRole']['Properties']['Policies'].first['PolicyDocument']['Statement']
 
-      expect(policy_stmts.first['Resource']).to eq(['arn:aws:lambda:ap-northeast-1:123456789012:function:custom_worker'])
+      expect(policy_stmts.first['Resource']).to eq([
+                                                     'arn:aws:lambda:ap-northeast-1:123456789012:function:custom_worker'
+                                                   ])
     end
   end
 
