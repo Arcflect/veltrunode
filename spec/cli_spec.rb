@@ -125,10 +125,44 @@ RSpec.describe Veltrunode::CLI::Router do
       )
     end
 
-    it 'runs plan command stub' do
+    it 'runs plan command and outputs application plan and IAM capabilities' do
+      mock_fn = Veltrunode::Model::Function.new(
+        logical_name: 'api_fn',
+        handler: 'api.handler',
+        iam_capabilities: [{ type: :read_from_s3, params: { bucket: 'my-bucket' } }]
+      )
+      mock_app = Veltrunode::Model::Application.new(
+        name: 'plan-app',
+        functions: [mock_fn]
+      )
+      allow(Veltrunode::SettingsLoader).to receive(:load).and_return(mock_app)
+
       code = run_cli(['plan'])
       expect(code).to eq(0)
-      expect(stdout.string.strip).to eq('Plan generated.')
+      expect(stdout.string).to include("Plan generated for application 'plan-app'.")
+      expect(stdout.string).to include('IAM Capabilities Expansion:')
+      expect(stdout.string).to include("Function 'api_fn':")
+      expect(stdout.string).to include('s3:GetObject, s3:ListBucket')
+    end
+
+    it 'runs plan command with --format json and outputs expanded IAM capabilities in JSON' do
+      mock_fn = Veltrunode::Model::Function.new(
+        logical_name: 'api_fn',
+        handler: 'api.handler',
+        iam_capabilities: [{ type: :read_from_s3, params: { bucket: 'my-bucket' } }]
+      )
+      mock_app = Veltrunode::Model::Application.new(
+        name: 'plan-app',
+        functions: [mock_fn]
+      )
+      allow(Veltrunode::SettingsLoader).to receive(:load).and_return(mock_app)
+
+      code = run_cli(['plan', '--format', 'json'])
+      expect(code).to eq(0)
+      json = JSON.parse(stdout.string)
+      expect(json['status']).to eq('success')
+      expect(json['iam_capabilities']['api_fn']).to be_an(Array)
+      expect(json['iam_capabilities']['api_fn'].first['Action']).to eq(%w[s3:GetObject s3:ListBucket])
     end
 
     it 'runs deploy command stub' do

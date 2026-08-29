@@ -215,8 +215,36 @@ module Veltrunode
       end
 
       def execute_plan
-        load_application!
-        output_success('Plan generated.', { message: 'Plan generated' })
+        application = load_application!
+        manifest_data = Veltrunode::Compiler::Manifest.build_data(application: application)
+        iam_caps = manifest_data['iam_capabilities'] || {}
+
+        if @options[:format] == :json
+          output_success('Plan generated.', {
+                           message: 'Plan generated',
+                           iam_capabilities: iam_caps,
+                           functions_count: application.functions.size,
+                           schedules_count: application.schedules.size
+                         })
+        else
+          $stdout.puts "Plan generated for application '#{application.name}'."
+          unless iam_caps.empty?
+            $stdout.puts 'IAM Capabilities Expansion:'
+            iam_caps.each do |fn_name, stmts|
+              $stdout.puts "  Function '#{fn_name}':"
+              if stmts.empty?
+                $stdout.puts '    (none)'
+              else
+                stmts.each do |stmt|
+                  actions = Array(stmt['Action']).join(', ')
+                  resources = Array(stmt['Resource']).join(', ')
+                  $stdout.puts "    - Effect: #{stmt['Effect']}, Action: [#{actions}], Resource: [#{resources}]"
+                end
+              end
+            end
+          end
+          EXIT_SUCCESS
+        end
       end
 
       def execute_deploy
