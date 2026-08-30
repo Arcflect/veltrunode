@@ -9,6 +9,6 @@ group :development, :test do
   gem 'benchmark'
   gem 'racc', '1.8.1'
   gem 'rspec', '~> 3.12'
-  gem 'rubocop', '1.89.0'
+  gem 'rubocop', '1.90.0'
   gem 'simplecov', '~> 1.0', require: false
 end
