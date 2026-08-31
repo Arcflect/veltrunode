@@ -163,9 +163,8 @@ module Veltrunode
           if errors.empty?
             $stdout.puts 'Validation successful.'
           else
-            # rubocop:disable Style/StderrPuts
+            # rubocop:disable-next Style/StderrPuts
             $stderr.puts "Validation failed with #{errors.size} error(s)."
-            # rubocop:enable Style/StderrPuts
           end
         end
 
@@ -285,9 +284,8 @@ module Veltrunode
       def load_application!
         file_path = @options[:file]
         file_path = nil if file_path.respond_to?(:empty?) && file_path.empty?
-        # rubocop:disable Naming/MemoizedInstanceVariableName
+        # rubocop:disable-next Naming/MemoizedInstanceVariableName
         @loaded_application ||= file_path ? Veltrunode::SettingsLoader.load(file_path: file_path) : Veltrunode::SettingsLoader.load
-        # rubocop:enable Naming/MemoizedInstanceVariableName
       end
 
       # ヘルプ・バージョン・エラー表示
