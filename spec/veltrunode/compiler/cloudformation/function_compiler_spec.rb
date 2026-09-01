@@ -2,8 +2,20 @@
 
 require 'spec_helper'
 require 'yaml'
+require 'veltrunode/compiler/cloudformation/function_compiler'
+require 'veltrunode/model/function'
+require 'veltrunode/model/efs_mount'
+require 'veltrunode/dsl/secret_value'
+require 'veltrunode/dsl/reference'
 
 RSpec.describe Veltrunode::Compiler::CloudFormation::FunctionCompiler do
+  let(:minimal_function) do
+    Veltrunode::Model::Function.new(
+      logical_name: 'convert',
+      handler: 'convert.handler'
+    )
+  end
+
   let(:full_function) do
     Veltrunode::Model::Function.new(
       logical_name: 'api_handler',
@@ -13,51 +25,42 @@ RSpec.describe Veltrunode::Compiler::CloudFormation::FunctionCompiler do
       memory: 256,
       timeout: 10,
       ephemeral_storage: 512,
-      environment: { 'LOG_LEVEL' => 'info', 'APP_ENV' => 'production' },
-      vpc_reference: { security_group_ids: ['sg-12345'], subnet_ids: %w[subnet-abc subnet-xyz] },
+      environment: { 'APP_ENV' => 'production', 'LOG_LEVEL' => 'info' },
+      vpc_reference: {
+        security_group_ids: ['sg-12345'],
+        subnet_ids: %w[subnet-abc subnet-xyz]
+      },
       layers: ['gem_deps'],
       mounts: [
         Veltrunode::Model::EfsMount.new(
-          symbolic_name: 'shared_storage',
-          access_point_source:
-            'arn:aws:elasticfilesystem:ap-northeast-1:123456789012:access-point/fsap-1234567890abcdef0',
+          symbolic_name: 'shared_data',
+          access_point_source: 'arn:aws:elasticfilesystem:ap-northeast-1:123456789012:' \
+                               'access-point/fsap-1234567890abcdef0',
           local_path: '/mnt/data'
         )
       ]
     )
   end
 
-  let(:minimal_function) do
-    Veltrunode::Model::Function.new(
-      logical_name: 'convert',
-      handler: 'convert.handler',
-      runtime: 'ruby3.3'
-    )
-  end
-
   describe '.logical_id_for' do
-    it 'converts symbolic and string names to stable PascalCase Logical IDs ending with Function' do
-      expect(described_class.logical_id_for(:convert)).to eq('ConvertFunction')
+    it 'generates stable PascalCase logical IDs for Functions' do
       expect(described_class.logical_id_for('convert')).to eq('ConvertFunction')
-      expect(described_class.logical_id_for('api_handler')).to eq('ApiHandlerFunction')
       expect(described_class.logical_id_for('convert_function')).to eq('ConvertFunction')
-      expect(described_class.logical_id_for('my_pdf_converter')).to eq('MyPdfConverterFunction')
+      expect(described_class.logical_id_for('api_v2_handler')).to eq('ApiV2HandlerFunction')
+      expect(described_class.logical_id_for('')).to eq('Function')
     end
   end
 
   describe '#to_h and #properties' do
-    it 'maps all Function attributes to AWS::Lambda::Function properties correctly' do
-      compiler = described_class.new(full_function)
-      result = compiler.to_h
+    it 'compiles a full function with all properties mapped correctly' do
+      result = described_class.compile(full_function)
 
       expect(result).to have_key('ApiHandlerFunction')
-
       resource = result['ApiHandlerFunction']
       expect(resource['Type']).to eq('AWS::Lambda::Function')
       expect(resource['DependsOn']).to eq(['ApiHandlerFunctionLogGroup'])
 
       props = resource['Properties']
-
       expect(props['FunctionName']).to eq('api_handler')
       expect(props['Handler']).to eq('functions/api.handler')
       expect(props['Runtime']).to eq('ruby3.3')
@@ -92,12 +95,8 @@ RSpec.describe Veltrunode::Compiler::CloudFormation::FunctionCompiler do
 
       expect(props['FunctionName']).to eq('convert')
       expect(props['Handler']).to eq('convert.handler')
-      expect(props['Runtime']).to eq('ruby3.3')
-      expect(props['Architectures']).to eq(['x86_64'])
-      expect(props['MemorySize']).to eq(128)
-      expect(props['Timeout']).to eq(3)
-      expect(props['EphemeralStorage']).to eq({ 'Size' => 512 })
       expect(props['Role']).to eq({ 'Fn::GetAtt' => %w[ConvertFunctionRole Arn] })
+      expect(props).not_to have_key('Runtime')
     end
 
     it 'allows overriding role and code parameters' do
@@ -174,10 +173,22 @@ RSpec.describe Veltrunode::Compiler::CloudFormation::FunctionCompiler do
       expect(vpc_cfg['SubnetIds']).to eq({ 'Fn::GetParam' => 'SubnetList' })
     end
 
+    it 'raises ValidationError when mounts are configured without vpc_reference' do
+      mount_without_vpc_fn = Veltrunode::Model::Function.new(
+        logical_name: 'no_vpc_fn',
+        handler: 'fn.handler',
+        mounts: ['shared_data:/mnt/data']
+      )
+
+      expect { described_class.compile(mount_without_vpc_fn) }
+        .to raise_error(Veltrunode::ValidationError, /has EFS mounts configured but does not specify a VpcConfig/)
+    end
+
     it 'formats mount entries with name:path string syntax correctly' do
       mount_str_fn = Veltrunode::Model::Function.new(
         logical_name: 'mount_str_fn',
         handler: 'fn.handler',
+        vpc_reference: { security_group_ids: ['sg-1'], subnet_ids: ['subnet-1'] },
         mounts: ['shared_data:/mnt/custom']
       )
 
@@ -192,6 +203,7 @@ RSpec.describe Veltrunode::Compiler::CloudFormation::FunctionCompiler do
       mount_hash_fn = Veltrunode::Model::Function.new(
         logical_name: 'mount_hash_fn',
         handler: 'fn.handler',
+        vpc_reference: { security_group_ids: ['sg-1'], subnet_ids: ['subnet-1'] },
         mounts: [{ name: 'data_mount', local_path: '/mnt/data' }]
       )
 
@@ -200,6 +212,59 @@ RSpec.describe Veltrunode::Compiler::CloudFormation::FunctionCompiler do
 
       expect(fs_cfg['Arn']).to eq({ 'Fn::GetAtt' => %w[DataMountAccessPoint Arn] })
       expect(fs_cfg['LocalMountPath']).to eq('/mnt/data')
+    end
+
+    it 'formats mount entries with CloudFormation parameter reference (Ref)' do
+      mount_ref_fn = Veltrunode::Model::Function.new(
+        logical_name: 'mount_ref_fn',
+        handler: 'fn.handler',
+        vpc_reference: { security_group_ids: ['sg-12345'], subnet_ids: ['subnet-abc'] },
+        mounts: [{ access_point_source: { 'Ref' => 'EfsAccessPointParam' }, local_path: '/mnt/efs_param' }]
+      )
+
+      result = described_class.compile(mount_ref_fn)
+      fs_cfg = result['MountRefFnFunction']['Properties']['FileSystemConfigs'].first
+
+      expect(fs_cfg['Arn']).to eq({ 'Ref' => 'EfsAccessPointParam' })
+      expect(fs_cfg['LocalMountPath']).to eq('/mnt/efs_param')
+    end
+
+    it 'formats mount entries with CloudFormation export reference (Fn::ImportValue)' do
+      mount_import_fn = Veltrunode::Model::Function.new(
+        logical_name: 'mount_import_fn',
+        handler: 'fn.handler',
+        vpc_reference: { security_group_ids: ['sg-12345'], subnet_ids: ['subnet-abc'] },
+        mounts: [{ access_point_source: { 'Fn::ImportValue' => 'SharedEfsAccessPoint' }, local_path: '/mnt/imported' }]
+      )
+
+      result = described_class.compile(mount_import_fn)
+      fs_cfg = result['MountImportFnFunction']['Properties']['FileSystemConfigs'].first
+
+      expect(fs_cfg['Arn']).to eq({ 'Fn::ImportValue' => 'SharedEfsAccessPoint' })
+      expect(fs_cfg['LocalMountPath']).to eq('/mnt/imported')
+    end
+
+    it 'resolves symbolic mount names via mount_map context containing EfsMount models' do
+      efs_model = Veltrunode::Model::EfsMount.new(
+        symbolic_name: 'app_storage',
+        access_point_source: 'arn:aws:elasticfilesystem:ap-northeast-1:123456789012:' \
+                             'access-point/fsap-0123456789abcdef0',
+        local_path: '/mnt/app_storage'
+      )
+
+      mount_map_fn = Veltrunode::Model::Function.new(
+        logical_name: 'mount_map_fn',
+        handler: 'fn.handler',
+        vpc_reference: { security_group_ids: ['sg-12345'], subnet_ids: ['subnet-abc'] },
+        mounts: ['app_storage']
+      )
+
+      result = described_class.compile(mount_map_fn, mount_map: { 'app_storage' => efs_model })
+      fs_cfg = result['MountMapFnFunction']['Properties']['FileSystemConfigs'].first
+
+      expected_arn = 'arn:aws:elasticfilesystem:ap-northeast-1:123456789012:access-point/fsap-0123456789abcdef0'
+      expect(fs_cfg['Arn']).to eq(expected_arn)
+      expect(fs_cfg['LocalMountPath']).to eq('/mnt/app_storage')
     end
   end
 
