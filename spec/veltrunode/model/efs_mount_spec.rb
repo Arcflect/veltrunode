@@ -98,6 +98,19 @@ RSpec.describe Veltrunode::Model::EfsMount do
         expect(m2.access_point_source).to eq('logical_ap_name')
       end
 
+      it 'allows Hash access_point_source for CloudFormation parameters and import references' do
+        ref_source = { 'Ref' => 'EfsAccessPointParam' }
+        import_source = { 'Fn::ImportValue' => 'ExportedAccessPointArn' }
+
+        m1 = described_class.new(symbolic_name: 'm1', access_point_source: ref_source, local_path: '/mnt/ref')
+        m2 = described_class.new(symbolic_name: 'm2', access_point_source: import_source, local_path: '/mnt/imp')
+
+        expect(m1.access_point_source).to eq(ref_source)
+        expect(m1.access_point_source).to be_frozen
+        expect(m2.access_point_source).to eq(import_source)
+        expect(m2.access_point_source).to be_frozen
+      end
+
       it 'raises ValidationError when access_point_source is an invalid ARN' do
         expect do
           described_class.new(symbolic_name: 'm', access_point_source: 'arn:aws:s3:::mybucket', local_path: '/mnt/a')

@@ -17,15 +17,15 @@ module Veltrunode
       end
 
       def existing_access_point(arn: nil)
-        @access_point_source = arn.to_s if arn
+        @access_point_source = arn if arn
       end
 
       def arn(val)
-        @access_point_source = val.to_s
+        @access_point_source = val
       end
 
       def access_point_source(val)
-        @access_point_source = val.to_s
+        @access_point_source = val
       end
 
       def local_path(path)
