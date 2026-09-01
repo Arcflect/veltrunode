@@ -44,7 +44,7 @@ module Veltrunode
         validate!(symbolic_name:, access_point_source:, local_path:)
 
         @symbolic_name = symbolic_name.to_s.freeze
-        @access_point_source = access_point_source.to_s.freeze
+        @access_point_source = freeze_value(access_point_source)
         @local_path = local_path.to_s.freeze
         @vpc_expectations = freeze_value(vpc_expectations)
         @posix_expectations = freeze_value(posix_expectations)
@@ -71,6 +71,8 @@ module Veltrunode
       end
 
       def validate_access_point_source!(source)
+        return if source.is_a?(Hash)
+
         src_str = source.to_s.strip
         return unless src_str.start_with?('arn:')
 
@@ -82,7 +84,7 @@ module Veltrunode
       end
 
       def blank?(val)
-        val.nil? || val.to_s.strip.empty?
+        val.nil? || (val.respond_to?(:empty?) ? val.empty? : val.to_s.strip.empty?)
       end
 
       def freeze_value(val)

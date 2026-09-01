@@ -197,6 +197,12 @@ module Veltrunode
         end
 
         def format_file_system_configs(mounts_array)
+          if mounts_array && !mounts_array.empty? && (function.vpc_reference.nil? || function.vpc_reference.empty?)
+            raise ValidationError,
+                  "Function '#{function.logical_name}' has EFS mounts configured but does not specify a VpcConfig " \
+                  '(vpc_reference). Lambda requires VpcConfig to mount EFS.'
+          end
+
           Array(mounts_array).map do |mount_entry|
             if mount_entry.respond_to?(:access_point_source) && mount_entry.respond_to?(:local_path)
               {
@@ -238,6 +244,11 @@ module Veltrunode
                 else
                   m
                 end
+              elsif mount_name.start_with?('arn:')
+                {
+                  'Arn' => mount_name,
+                  'LocalMountPath' => mount_path || '/mnt/data'
+                }
               else
                 ref_name = "#{self.class.pascalize(mount_name)}AccessPoint"
                 {
@@ -250,13 +261,13 @@ module Veltrunode
         end
 
         def format_arn_or_ref(val)
+          return val if val.is_a?(Hash)
+
           val_str = val.to_s
           if val_str.start_with?('arn:')
             val_str
           elsif val.respond_to?(:name)
             { 'Fn::GetAtt' => ["#{self.class.pascalize(val.name)}AccessPoint", 'Arn'] }
-          elsif val.is_a?(Hash)
-            val
           else
             { 'Fn::GetAtt' => ["#{self.class.pascalize(val_str)}AccessPoint", 'Arn'] }
           end
