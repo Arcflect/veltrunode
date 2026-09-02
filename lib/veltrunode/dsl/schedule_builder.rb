@@ -105,6 +105,8 @@ module Veltrunode
       private
 
       def preserve_secret(val)
+        return val if val.is_a?(Hash)
+
         val.respond_to?(:secret?) && val.secret? ? val : val.to_s
       end
     end
