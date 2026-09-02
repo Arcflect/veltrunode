@@ -183,17 +183,29 @@ module Veltrunode
             ]
           }
 
-          statement = {
-            'Effect' => 'Allow',
-            'Action' => ['lambda:InvokeFunction'],
-            'Resource' => [target_arn]
-          }
+          statements = [
+            {
+              'Effect' => 'Allow',
+              'Action' => ['lambda:InvokeFunction'],
+              'Resource' => [target_arn]
+            }
+          ]
+
+          dlq = extract_val(target, :dlq)
+          if dlq && !dlq.empty?
+            dlq_arn = resolve_dlq_arn(dlq)
+            statements << {
+              'Effect' => 'Allow',
+              'Action' => ['sqs:SendMessage'],
+              'Resource' => [dlq_arn]
+            }
+          end
 
           policy = {
             'PolicyName' => "#{logical_id}Policy",
             'PolicyDocument' => {
               'Version' => '2012-10-17',
-              'Statement' => [statement]
+              'Statement' => statements
             }
           }
 
@@ -201,6 +213,22 @@ module Veltrunode
             'AssumeRolePolicyDocument' => assume_role_policy,
             'Policies' => [policy]
           }
+        end
+
+        def resolve_dlq_arn(dlq)
+          return context[:dlq_arn] if context[:dlq_arn]
+          return context['dlq_arn'] if context['dlq_arn']
+
+          return dlq if dlq.is_a?(Hash)
+
+          dlq_str = dlq.to_s
+          if dlq_str.start_with?('arn:')
+            dlq_str
+          else
+            q_id = self.class.pascalize(dlq_str)
+            q_id = "#{q_id}Queue" unless q_id.end_with?('Queue')
+            { 'Fn::GetAtt' => [q_id, 'Arn'] }
+          end
         end
 
         def resolve_target_function_arn(target_fn)

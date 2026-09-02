@@ -2,6 +2,7 @@
 
 require_relative 'cloudformation/function_compiler'
 require_relative 'cloudformation/log_group_compiler'
+require_relative 'cloudformation/queue_compiler'
 require_relative 'cloudformation/role_compiler'
 require_relative 'cloudformation/schedule_compiler'
 

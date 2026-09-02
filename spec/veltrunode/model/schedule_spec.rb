@@ -202,6 +202,52 @@ RSpec.describe Veltrunode::Model::Schedule do
       end
     end
 
+    context 'dlq validation' do
+      it 'allows valid SQS queue ARNs' do
+        s1 = described_class.new(
+          name: 's1', target_function: 'fn', expression_type: :cron, expression: '0 12 * * ? *',
+          dlq: 'arn:aws:sqs:ap-northeast-1:123456789012:my-dead-letter-queue'
+        )
+        s2 = described_class.new(
+          name: 's2', target_function: 'fn', expression_type: :cron, expression: '0 12 * * ? *',
+          dlq: 'arn:aws:sqs:us-east-1:123456789012:fifo-queue.fifo'
+        )
+
+        expect(s1.dlq).to eq('arn:aws:sqs:ap-northeast-1:123456789012:my-dead-letter-queue')
+        expect(s2.dlq).to eq('arn:aws:sqs:us-east-1:123456789012:fifo-queue.fifo')
+      end
+
+      it 'allows symbolic DLQ queue names and Hash references' do
+        s1 = described_class.new(
+          name: 's1', target_function: 'fn', expression_type: :cron, expression: '0 12 * * ? *',
+          dlq: 'batch_dlq'
+        )
+        s2 = described_class.new(
+          name: 's2', target_function: 'fn', expression_type: :cron, expression: '0 12 * * ? *',
+          dlq: { 'Ref' => 'DlqQueueParam' }
+        )
+
+        expect(s1.dlq).to eq('batch_dlq')
+        expect(s2.dlq).to eq({ 'Ref' => 'DlqQueueParam' })
+      end
+
+      it 'raises ValidationError when dlq is an invalid ARN or non-SQS ARN' do
+        expect do
+          described_class.new(
+            name: 's', target_function: 'fn', expression_type: :cron, expression: '0 12 * * ? *',
+            dlq: 'arn:aws:sns:ap-northeast-1:123456789012:my-topic'
+          )
+        end.to raise_error(Veltrunode::ValidationError, /Invalid SQS DLQ ARN/)
+
+        expect do
+          described_class.new(
+            name: 's', target_function: 'fn', expression_type: :cron, expression: '0 12 * * ? *',
+            dlq: 'arn:aws:sqs:invalid-arn'
+          )
+        end.to raise_error(Veltrunode::ValidationError, /Invalid SQS DLQ ARN/)
+      end
+    end
+
     context 'retry_policy validation' do
       it 'allows maximum_attempts between 0 and 185' do
         s0 = described_class.new(

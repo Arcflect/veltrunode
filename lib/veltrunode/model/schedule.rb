@@ -9,6 +9,7 @@ module Veltrunode
       STATES = %i[enabled disabled].freeze
       RATE_UNIT_PATTERN = /\Arate\(\s*(?:1\s+(?:minute|hour|day)|[2-9]\d*\s+(?:minutes|hours|days))\s*\)\z/i
       IANA_TIMEZONE_PATTERN = %r{\A(?:UTC|GMT|[A-Za-z0-9_\-+]+(?:/[A-Za-z0-9_\-+]+)+)\z}
+      SQS_ARN_PATTERN = /\Aarn:aws:sqs:[a-z0-9-]+:\d{12}:[a-zA-Z0-9_-]+(?:\.fifo)?\z/
 
       attr_reader :name,
                   :target_function,
@@ -45,7 +46,8 @@ module Veltrunode
           expression:,
           timezone:,
           state: st,
-          retry_policy:
+          retry_policy:,
+          dlq:
         )
 
         @name = name.to_s.freeze
@@ -65,7 +67,7 @@ module Veltrunode
 
       private
 
-      def validate!(name:, target_function:, expression_type:, expression:, timezone:, state:, retry_policy:)
+      def validate!(name:, target_function:, expression_type:, expression:, timezone:, state:, retry_policy:, dlq:)
         raise ValidationError, 'Schedule name is required' if blank?(name)
         raise ValidationError, 'Schedule target_function is required' if blank?(target_function)
 
@@ -81,6 +83,7 @@ module Veltrunode
         validate_expression!(expression_type, expression)
         validate_timezone!(timezone)
         validate_retry_policy!(retry_policy)
+        validate_dlq!(dlq)
       end
 
       def validate_expression!(type, expr)
@@ -163,6 +166,21 @@ module Veltrunode
         elsif policy.respond_to?(:maximum_attempts)
           policy.maximum_attempts
         end
+      end
+
+      def validate_dlq!(dlq)
+        return if dlq.nil?
+        return if dlq.is_a?(Hash)
+
+        dlq_str = dlq.to_s.strip
+        return if dlq_str.empty?
+        return unless dlq_str.start_with?('arn:')
+
+        return if SQS_ARN_PATTERN.match?(dlq_str)
+
+        raise ValidationError,
+              "Invalid SQS DLQ ARN '#{dlq_str}'. " \
+              'Must match arn:aws:sqs:<region>:<account>:<queue-name>'
       end
 
       def blank?(val)

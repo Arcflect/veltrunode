@@ -43,6 +43,26 @@ RSpec.describe Veltrunode::Compiler::CloudFormation::RoleCompiler do
     )
   end
 
+  let(:dlq_schedule) do
+    Veltrunode::Model::Schedule.new(
+      name: 'batch_sync',
+      target_function: 'exporter',
+      expression_type: :cron,
+      expression: '0 2 * * ? *',
+      dlq: 'batch_dlq'
+    )
+  end
+
+  let(:arn_dlq_schedule) do
+    Veltrunode::Model::Schedule.new(
+      name: 'arn_dlq_task',
+      target_function: 'exporter',
+      expression_type: :cron,
+      expression: '0 2 * * ? *',
+      dlq: 'arn:aws:sqs:ap-northeast-1:123456789012:custom-dead-letter'
+    )
+  end
+
   let(:arn_target_schedule) do
     Veltrunode::Model::Schedule.new(
       name: 'external_job',
@@ -148,6 +168,31 @@ RSpec.describe Veltrunode::Compiler::CloudFormation::RoleCompiler do
                                                      'arn:aws:lambda:ap-northeast-1:123456789012:function:custom_worker'
                                                    ])
     end
+
+    it 'compiles a Scheduler invocation role with sqs:SendMessage permission when dlq is specified' do
+      result = described_class.compile_scheduler_role(dlq_schedule)
+
+      expect(result).to have_key('BatchSyncScheduleRole')
+      policy_stmts = result['BatchSyncScheduleRole']['Properties']['Policies'].first['PolicyDocument']['Statement']
+      expect(policy_stmts.size).to eq(2)
+
+      invoke_stmt = policy_stmts[0]
+      expect(invoke_stmt['Action']).to eq(['lambda:InvokeFunction'])
+      expect(invoke_stmt['Resource']).to eq([{ 'Fn::GetAtt' => %w[ExporterFunction Arn] }])
+
+      sqs_stmt = policy_stmts[1]
+      expect(sqs_stmt['Action']).to eq(['sqs:SendMessage'])
+      expect(sqs_stmt['Resource']).to eq([{ 'Fn::GetAtt' => %w[BatchDlqQueue Arn] }])
+    end
+
+    it 'uses explicit SQS ARN in sqs:SendMessage permission when dlq is an ARN string' do
+      result = described_class.compile_scheduler_role(arn_dlq_schedule)
+      policy_stmts = result['ArnDlqTaskScheduleRole']['Properties']['Policies'].first['PolicyDocument']['Statement']
+      sqs_stmt = policy_stmts[1]
+
+      expect(sqs_stmt['Action']).to eq(['sqs:SendMessage'])
+      expect(sqs_stmt['Resource']).to eq(['arn:aws:sqs:ap-northeast-1:123456789012:custom-dead-letter'])
+    end
   end
 
   describe 'Determinism & Key Sorting' do
@@ -243,6 +288,45 @@ RSpec.describe Veltrunode::Compiler::CloudFormation::RoleCompiler do
       YAML
 
       generated_yaml = described_class.to_yaml_scheduler_role(minimal_schedule)
+      expect(YAML.safe_load(generated_yaml)).to eq(YAML.safe_load(expected_yaml))
+      expect(generated_yaml.strip).to eq(expected_yaml.strip)
+    end
+
+    it 'matches the expected golden YAML output for Scheduler invocation role with DLQ' do
+      expected_yaml = <<~YAML
+        ---
+        BatchSyncScheduleRole:
+          Properties:
+            AssumeRolePolicyDocument:
+              Statement:
+              - Action: sts:AssumeRole
+                Effect: Allow
+                Principal:
+                  Service: scheduler.amazonaws.com
+              Version: '2012-10-17'
+            Policies:
+            - PolicyDocument:
+                Statement:
+                - Action:
+                  - lambda:InvokeFunction
+                  Effect: Allow
+                  Resource:
+                  - Fn::GetAtt:
+                    - ExporterFunction
+                    - Arn
+                - Action:
+                  - sqs:SendMessage
+                  Effect: Allow
+                  Resource:
+                  - Fn::GetAtt:
+                    - BatchDlqQueue
+                    - Arn
+                Version: '2012-10-17'
+              PolicyName: BatchSyncScheduleRolePolicy
+          Type: AWS::IAM::Role
+      YAML
+
+      generated_yaml = described_class.to_yaml_scheduler_role(dlq_schedule)
       expect(YAML.safe_load(generated_yaml)).to eq(YAML.safe_load(expected_yaml))
       expect(generated_yaml.strip).to eq(expected_yaml.strip)
     end
