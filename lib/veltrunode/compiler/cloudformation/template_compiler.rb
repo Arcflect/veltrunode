@@ -88,7 +88,15 @@ module Veltrunode
             }
           }
 
-          # Include explicitly specified parameters
+          # Include context parameters (defaults)
+          ctx_params = context[:parameters] || context['parameters']
+          if ctx_params.is_a?(Hash)
+            ctx_params.each do |k, v|
+              params[k.to_s] = v.is_a?(Hash) ? v : { 'Type' => 'String', 'Default' => v.to_s }
+            end
+          end
+
+          # Include explicitly specified parameters (highest precedence)
           parameters.each do |k, v|
             param_def = if v.is_a?(Hash)
                           v
@@ -96,14 +104,6 @@ module Veltrunode
                           { 'Type' => 'String', 'Default' => v.to_s }
                         end
             params[k.to_s] = param_def
-          end
-
-          # Include context parameters
-          ctx_params = context[:parameters] || context['parameters']
-          if ctx_params.is_a?(Hash)
-            ctx_params.each do |k, v|
-              params[k.to_s] = v.is_a?(Hash) ? v : { 'Type' => 'String', 'Default' => v.to_s }
-            end
           end
 
           deep_sort_keys(params)

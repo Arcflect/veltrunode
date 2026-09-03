@@ -157,6 +157,22 @@ RSpec.describe Veltrunode::Compiler::CloudFormation::TemplateCompiler do
     end
   end
 
+  it 'prioritizes explicit parameters over context parameters' do
+    result = described_class.compile(
+      minimal_application,
+      context: {
+        parameters: {
+          'MyParam' => { 'Type' => 'String', 'Default' => 'from_context' }
+        }
+      },
+      parameters: {
+        'MyParam' => { 'Type' => 'String', 'Default' => 'from_explicit' }
+      }
+    )
+
+    expect(result['Parameters']['MyParam']['Default']).to eq('from_explicit')
+  end
+
   describe '#generate and file writing' do
     it 'writes valid template YAML to destination file' do
       Dir.mktmpdir do |dir|
