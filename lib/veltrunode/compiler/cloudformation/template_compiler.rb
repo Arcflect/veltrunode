@@ -63,10 +63,11 @@ module Veltrunode
         end
 
         def generate(output_path = 'build/template.yml')
-          content = to_yaml
+          hash = to_h
+          content = YAML.dump(hash)
           FileUtils.mkdir_p(File.dirname(output_path))
           File.write(output_path, content)
-          to_h
+          hash
         end
 
         private
