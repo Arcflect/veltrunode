@@ -190,7 +190,9 @@ module Veltrunode
             elsif layer_name.start_with?('arn:')
               layer_name
             else
-              ref_name = "#{self.class.pascalize(layer_name)}LayerVersion"
+              base = self.class.pascalize(layer_name)
+              base = 'LayerVersion' if base.empty?
+              ref_name = base.end_with?('LayerVersion') ? base : "#{base}LayerVersion"
               { 'Ref' => ref_name }
             end
           end

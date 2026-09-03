@@ -115,6 +115,33 @@ RSpec.describe Veltrunode::Compiler::CloudFormation::TemplateCompiler do
       expect(outputs).to have_key('NightlySyncScheduleArn')
     end
 
+    it 'correctly normalizes layer Ref when layer name already ends with layer_version' do
+      app_with_suffixed_layer = Veltrunode::Model::Application.new(
+        name: 'suffixed-layer-app',
+        region: 'ap-northeast-1',
+        stage: 'dev',
+        layers: [
+          Veltrunode::Model::Layer.new(
+            name: 'runtime_gems_layer_version',
+            compatible_runtimes: %w[ruby3.3]
+          )
+        ],
+        functions: [
+          Veltrunode::Model::Function.new(
+            logical_name: 'app_worker',
+            handler: 'functions/app_worker.handler',
+            runtime: 'ruby3.3',
+            layers: ['runtime_gems_layer_version']
+          )
+        ]
+      )
+
+      result = described_class.compile(app_with_suffixed_layer)
+      fn_layers = result['Resources']['AppWorkerFunction']['Properties']['Layers']
+      expect(fn_layers).to eq([{ 'Ref' => 'RuntimeGemsLayerVersion' }])
+      expect(result['Resources']).to have_key('RuntimeGemsLayerVersion')
+    end
+
     it 'allows custom parameters via parameters option' do
       result = described_class.compile(
         minimal_application,

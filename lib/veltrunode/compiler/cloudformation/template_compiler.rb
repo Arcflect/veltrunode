@@ -127,7 +127,13 @@ module Veltrunode
 
           # 3. Compile Functions (Role, LogGroup, Function with DependsOn)
           fn_nodes = extract_collection(:functions)
-          local_layer_names = layer_nodes.map { |l| extract_name(l) }.compact
+          layer_ref_map = layer_nodes.each_with_object({}) do |layer, memo|
+            name = extract_name(layer).to_s
+            next if name.strip.empty?
+
+            memo[name] = { 'Ref' => LayerVersionCompiler.logical_id_for(name) }
+          end
+          local_layer_names = layer_ref_map.keys
 
           fn_nodes.each do |fn|
             # Lambda Execution Role
@@ -147,7 +153,8 @@ module Veltrunode
             fn_res = FunctionCompiler.compile(
               fn,
               context: context,
-              depends_on: depends_on
+              depends_on: depends_on,
+              layer_map: layer_ref_map
             )
             resources.merge!(fn_res)
           end

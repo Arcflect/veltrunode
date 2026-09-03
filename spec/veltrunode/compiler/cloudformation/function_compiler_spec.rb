@@ -268,6 +268,17 @@ RSpec.describe Veltrunode::Compiler::CloudFormation::FunctionCompiler do
     end
   end
 
+  it 'avoids duplicate LayerVersion suffix when layer name ends with layer_version' do
+    fn = Veltrunode::Model::Function.new(
+      logical_name: 'worker',
+      handler: 'functions/worker.handler',
+      runtime: 'ruby3.3',
+      layers: ['runtime_gems_layer_version']
+    )
+    result = described_class.compile(fn)
+    expect(result['WorkerFunction']['Properties']['Layers']).to eq([{ 'Ref' => 'RuntimeGemsLayerVersion' }])
+  end
+
   describe 'Determinism & Key Sorting' do
     it 'guarantees keys in to_h map are sorted alphabetically' do
       result = described_class.compile(full_function)
