@@ -26,8 +26,15 @@ require_relative 'build/layer_packager'
 require_relative 'build/container_runner'
 require_relative 'build/native_builder'
 require_relative 'build/cache'
+require_relative 'build/build_result'
+require_relative 'build/pipeline'
 
 module Veltrunode
   module Build
+    class << self
+      def execute(application, **)
+        Pipeline.execute(application, **)
+      end
+    end
   end
 end

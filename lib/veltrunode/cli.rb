@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'json'
+require_relative 'build'
 require_relative 'compiler'
 
 module Veltrunode
@@ -174,43 +175,76 @@ module Veltrunode
       def execute_build
         application = load_application!
         no_cache = @options[:no_cache] || false
-        source_dir = @options[:file] ? File.dirname(@options[:file]) : Dir.pwd
+        source_dir = @options[:file] ? File.dirname(File.expand_path(@options[:file])) : Dir.pwd
         source_dir = Dir.pwd if source_dir.empty? || source_dir == '.'
 
-        layer_output_dir = File.join(source_dir, 'build', 'artifacts', 'layers')
-        layer_results = application.layers.map do |layer|
-          Veltrunode::Build::LayerPackager.package(
-            layer: layer,
+        begin
+          result = Veltrunode::Build::Pipeline.execute(
+            application,
             source_dir: source_dir,
-            output_dir: layer_output_dir,
             no_cache: no_cache
           )
+        rescue Veltrunode::ValidationError => e
+          return handle_validation_error(e.diagnostics)
+        rescue StandardError => e
+          return handle_error(e.message, EXIT_BUILD_FAILED)
         end
 
-        function_output_dir = File.join(source_dir, 'build', 'artifacts', 'functions')
-        function_results = application.functions.map do |fn|
-          Veltrunode::Build::FunctionPackager.package(
-            function: fn,
-            source_dir: source_dir,
-            output_dir: function_output_dir,
-            no_cache: no_cache
-          )
+        output_build_success(result)
+      end
+
+      def handle_validation_error(diagnostics)
+        errors = diagnostics.select { |d| d.severity == :error }
+
+        if @options[:format] == :json
+          output = {
+            status: 'error',
+            error_code: EXIT_VALIDATION_FAILED,
+            message: "Validation failed with #{errors.size} error(s).",
+            diagnostics: diagnostics.map(&:to_h)
+          }
+          # rubocop:disable Style/StderrPuts
+          $stderr.puts JSON.generate(output)
+        else
+          diagnostics.each do |diag|
+            prefix = diag.severity == :error ? '[ERROR]' : '[WARN]'
+            $stdout.puts "#{prefix} [#{diag.code}] #{diag.summary}"
+          end
+          $stderr.puts "Validation failed with #{errors.size} error(s)."
+          # rubocop:enable Style/StderrPuts
         end
 
-        manifest_path = File.join(source_dir, 'build', 'manifest.json')
-        Veltrunode::Compiler::Manifest.generate(
-          application: application,
-          function_results: function_results,
-          layer_results: layer_results,
-          output_path: manifest_path
-        )
+        EXIT_VALIDATION_FAILED
+      end
 
-        output_success('Build successful.', {
-                         message: 'Build successful',
-                         layers_count: layer_results.size,
-                         functions_count: function_results.size,
-                         manifest_path: manifest_path
-                       })
+      def output_build_success(result)
+        if @options[:format] == :json
+          $stdout.puts JSON.generate(result.to_h)
+        else
+          $stdout.puts 'Build successful.'
+          $stdout.puts 'Generated artifacts:'
+
+          unless result.function_results.empty?
+            $stdout.puts '  Functions:'
+            result.function_results.each do |fn_res|
+              $stdout.puts "    - #{fn_res.function_name}: #{fn_res.zip_path} " \
+                           "(SHA-256: #{fn_res.sha256}, #{fn_res.bytesize} bytes)"
+            end
+          end
+
+          unless result.layer_results.empty?
+            $stdout.puts '  Layers:'
+            result.layer_results.each do |layer_res|
+              $stdout.puts "    - #{layer_res.layer_name}: #{layer_res.zip_path} " \
+                           "(SHA-256: #{layer_res.sha256}, #{layer_res.bytesize} bytes)"
+            end
+          end
+
+          $stdout.puts "  Template:\n    - #{result.template_path}"
+          $stdout.puts "  Manifest:\n    - #{result.manifest_path}"
+        end
+
+        EXIT_SUCCESS
       end
 
       def execute_plan
