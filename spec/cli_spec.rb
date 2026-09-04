@@ -65,64 +65,169 @@ RSpec.describe Veltrunode::CLI::Router do
       expect(stdout.string.strip).to include('Validation successful.')
     end
 
-    it 'runs build command and packages application functions and layers' do
-      mock_app = instance_double(
-        Veltrunode::Application,
-        name: 'test-app',
-        region: 'ap-northeast-1',
-        stage: 'dev',
-        account_constraint: nil,
-        schedules: [],
-        functions: [Veltrunode::Model::Function.new(logical_name: 'func1', handler: 'f.h')],
-        layers: []
-      )
-      mock_pkg_result = instance_double(
-        Veltrunode::Build::PackageResult,
-        function_name: 'func1',
-        content_hash: 'a1b2c3d4e5f67890123456789abcdef0123456789abcdef0123456789abcdef0',
-        sha256: '9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba',
-        zip_path: 'build/artifacts/functions/func1.zip'
-      )
-      allow(Veltrunode::SettingsLoader).to receive(:load).and_return(mock_app)
-      allow(Veltrunode::Build::FunctionPackager).to receive(:package).and_return(mock_pkg_result)
+    describe 'build command' do
+      let(:mock_fn) do
+        Veltrunode::Model::Function.new(
+          logical_name: 'func1',
+          handler: 'f.h',
+          runtime: 'ruby3.3'
+        )
+      end
 
-      code = run_cli(['build'])
-      expect(code).to eq(0)
-      expect(stdout.string.strip).to include('Build successful.')
-      expect(File.exist?(File.join(Dir.pwd, 'build', 'manifest.json'))).to be true
-      expect(Veltrunode::Build::FunctionPackager).to have_received(:package).with(
-        hash_including(no_cache: false)
-      )
-    end
+      let(:mock_layer) do
+        Veltrunode::Model::Layer.new(
+          name: 'gems',
+          compatible_runtimes: %w[ruby3.2 ruby3.3]
+        )
+      end
 
-    it 'runs build command with --no-cache flag' do
-      mock_app = instance_double(
-        Veltrunode::Application,
-        name: 'test-app',
-        region: 'ap-northeast-1',
-        stage: 'dev',
-        account_constraint: nil,
-        schedules: [],
-        functions: [Veltrunode::Model::Function.new(logical_name: 'func1', handler: 'f.h')],
-        layers: []
-      )
-      mock_pkg_result = instance_double(
-        Veltrunode::Build::PackageResult,
-        function_name: 'func1',
-        content_hash: 'a1b2c3d4e5f67890123456789abcdef0123456789abcdef0123456789abcdef0',
-        sha256: '9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba',
-        zip_path: 'build/artifacts/functions/func1.zip'
-      )
-      allow(Veltrunode::SettingsLoader).to receive(:load).and_return(mock_app)
-      allow(Veltrunode::Build::FunctionPackager).to receive(:package).and_return(mock_pkg_result)
+      let(:mock_app) do
+        instance_double(
+          Veltrunode::Application,
+          name: 'test-app',
+          region: 'ap-northeast-1',
+          stage: 'dev',
+          account_constraint: nil,
+          schedules: [],
+          functions: [mock_fn],
+          layers: [mock_layer],
+          mounts: []
+        )
+      end
 
-      code = run_cli(['build', '--no-cache'])
-      expect(code).to eq(0)
-      expect(stdout.string.strip).to include('Build successful.')
-      expect(File.exist?(File.join(Dir.pwd, 'build', 'manifest.json'))).to be true
-      expect(Veltrunode::Build::FunctionPackager).to have_received(:package).with(
-        hash_including(no_cache: true)
-      )
+      let(:mock_fn_pkg_result) do
+        instance_double(
+          Veltrunode::Build::PackageResult,
+          function_name: 'func1',
+          content_hash: 'a1b2c3d4e5f67890123456789abcdef0123456789abcdef0123456789abcdef0',
+          sha256: '9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba',
+          zip_path: 'build/artifacts/functions/func1.zip',
+          bytesize: 1234,
+          cached?: false,
+          diagnostics: []
+        )
+      end
+
+      let(:mock_layer_pkg_result) do
+        instance_double(
+          Veltrunode::Build::LayerPackageResult,
+          layer_name: 'gems',
+          content_hash: 'c3d4e5f6a1b27890123456789abcdef0123456789abcdef0123456789abcdef0',
+          sha256: 'fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210',
+          zip_path: 'build/artifacts/layers/gems.zip',
+          bytesize: 4567,
+          cached?: false,
+          diagnostics: []
+        )
+      end
+
+      before do
+        allow(Veltrunode::SettingsLoader).to receive(:load).and_return(mock_app)
+        allow(Veltrunode::Build::FunctionPackager).to receive(:package).and_return(mock_fn_pkg_result)
+        allow(Veltrunode::Build::LayerPackager).to receive(:package).and_return(mock_layer_pkg_result)
+      end
+
+      it 'runs build command, packages application functions and layers, and outputs hashes' do
+        code = run_cli(['build'])
+        expect(code).to eq(0)
+        expect(stdout.string).to include('Build successful.')
+        expect(stdout.string).to include('Generated artifacts:')
+        expect(stdout.string).to include('func1: build/artifacts/functions/func1.zip')
+        expect(stdout.string).to include('9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba')
+        expect(stdout.string).to include('gems: build/artifacts/layers/gems.zip')
+        expect(stdout.string).to include('fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210')
+        expect(stdout.string).to include('Template:')
+        expect(stdout.string).to include('Manifest:')
+        expect(File.exist?(File.join(Dir.pwd, 'build', 'template.yml'))).to be true
+        expect(File.exist?(File.join(Dir.pwd, 'build', 'manifest.json'))).to be true
+        expect(Veltrunode::Build::FunctionPackager).to have_received(:package).with(
+          hash_including(no_cache: false)
+        )
+        expect(Veltrunode::Build::LayerPackager).to have_received(:package).with(
+          hash_including(no_cache: false)
+        )
+      end
+
+      it 'runs build command with --no-cache flag' do
+        code = run_cli(['build', '--no-cache'])
+        expect(code).to eq(0)
+        expect(stdout.string).to include('Build successful.')
+        expect(Veltrunode::Build::FunctionPackager).to have_received(:package).with(
+          hash_including(no_cache: true)
+        )
+        expect(Veltrunode::Build::LayerPackager).to have_received(:package).with(
+          hash_including(no_cache: true)
+        )
+      end
+
+      it 'runs build command with --format json and outputs structured JSON' do
+        code = run_cli(['build', '--format', 'json'])
+        expect(code).to eq(0)
+        json = JSON.parse(stdout.string)
+        expect(json['status']).to eq('success')
+        expect(json['functions_count']).to eq(1)
+        expect(json['layers_count']).to eq(1)
+        expect(json['artifacts']['functions'].first['sha256']).to eq(
+          '9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba'
+        )
+        expect(json['artifacts']['layers'].first['sha256']).to eq(
+          'fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210'
+        )
+        expect(json['template_path']).to end_with('template.yml')
+        expect(json['manifest_path']).to end_with('manifest.json')
+      end
+
+      it 'aborts and returns exit code 3 on validation failure in text format' do
+        diag = Veltrunode::Diagnostics::Diagnostic.new(
+          code: 'VLT-LAYER-001',
+          severity: :error,
+          summary: 'Function uses incompatible runtime with Layer.',
+          suggested_action: 'Fix runtime incompatibility.'
+        )
+        allow(Veltrunode::Validation::Engine).to receive(:run).and_return([diag])
+
+        code = run_cli(['build'])
+        expect(code).to eq(3)
+        expect(stdout.string).to include('[ERROR] [VLT-LAYER-001] Function uses incompatible runtime with Layer.')
+        expect(stderr.string).to include('Validation failed with 1 error(s).')
+        expect(Veltrunode::Build::FunctionPackager).not_to have_received(:package)
+      end
+
+      it 'aborts and returns exit code 3 with structured JSON on validation failure with --format json' do
+        diag = Veltrunode::Diagnostics::Diagnostic.new(
+          code: 'VLT-LAYER-001',
+          severity: :error,
+          summary: 'Function uses incompatible runtime with Layer.',
+          suggested_action: 'Fix runtime incompatibility.'
+        )
+        allow(Veltrunode::Validation::Engine).to receive(:run).and_return([diag])
+
+        code = run_cli(['build', '--format', 'json'])
+        expect(code).to eq(3)
+        json = JSON.parse(stderr.string)
+        expect(json['status']).to eq('error')
+        expect(json['error_code']).to eq(3)
+        expect(json['diagnostics'].first['code']).to eq('VLT-LAYER-001')
+      end
+
+      it 'returns exit code 5 on build failure in text format' do
+        allow(Veltrunode::Build::FunctionPackager).to receive(:package).and_raise(RuntimeError, 'Archive error')
+
+        code = run_cli(['build'])
+        expect(code).to eq(5)
+        expect(stderr.string).to include('Error: Build failed: Archive error')
+      end
+
+      it 'returns exit code 5 with structured JSON on build failure with --format json' do
+        allow(Veltrunode::Build::FunctionPackager).to receive(:package).and_raise(RuntimeError, 'Archive error')
+
+        code = run_cli(['build', '--format', 'json'])
+        expect(code).to eq(5)
+        json = JSON.parse(stderr.string)
+        expect(json['status']).to eq('error')
+        expect(json['error_code']).to eq(5)
+        expect(json['message']).to include('Build failed: Archive error')
+      end
     end
 
     it 'runs plan command and outputs application plan and IAM capabilities' do

@@ -153,13 +153,13 @@ RSpec.describe Veltrunode::Build::LayerPackager do
           allow_missing_gems: true
         )
 
-        expect(result.compressed_size).to be > 0
+        expect(result.compressed_size).to be_positive
         expect(result.uncompressed_size).to be >= 0
 
         diag = result.size_diagnostics
         expect(diag[:compressed_size]).to eq(result.compressed_size)
         expect(diag[:uncompressed_size]).to eq(result.uncompressed_size)
-        expect(diag[:entry_count]).to be > 0
+        expect(diag[:entry_count]).to be_positive
         expect(diag[:largest_entries]).to be_an(Array)
       end
     end
