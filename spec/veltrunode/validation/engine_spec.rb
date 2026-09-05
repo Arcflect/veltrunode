@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'spec_helper'
+require 'tmpdir'
 
 RSpec.describe Veltrunode::Validation::Engine do
   let(:valid_layer) do
@@ -193,6 +194,78 @@ RSpec.describe Veltrunode::Validation::Engine do
 
       expect(wildcard_error).not_to be_nil
       expect(wildcard_error.severity).to eq(:error)
+    end
+
+    it 'warns when prod stage lacks account_constraint' do
+      prod_app = Veltrunode::Model::Application.new(
+        name: 'prod-app',
+        region: 'ap-northeast-1',
+        stage: 'prod',
+        functions: [valid_function]
+      )
+
+      diagnostics = described_class.run(prod_app)
+      account_warn = diagnostics.find { |d| d.code == 'VLT-AWS-ACCOUNT-002' && d.severity == :warning }
+
+      expect(account_warn).not_to be_nil
+      expect(account_warn.summary).to include('does not have an explicit account_constraint configured')
+    end
+
+    it 'detects missing handler files in source_dir (VLT-BUILD-HANDLER-NOT-FOUND)' do
+      Dir.mktmpdir('veltrunode-test-source-') do |tmp_dir|
+        diagnostics = described_class.run(valid_app, source_dir: tmp_dir)
+        handler_error = diagnostics.find { |d| d.code == 'VLT-BUILD-HANDLER-NOT-FOUND' }
+
+        expect(handler_error).not_to be_nil
+        expect(handler_error.severity).to eq(:error)
+        expect(handler_error.evidence['function']).to eq('valid_fn')
+      end
+    end
+
+    it 'passes packaging preconditions when handler file exists in source_dir' do
+      Dir.mktmpdir('veltrunode-test-source-') do |tmp_dir|
+        File.write(File.join(tmp_dir, 'app.rb'), 'def handler(event, context); end')
+
+        diagnostics = described_class.run(valid_app, source_dir: tmp_dir)
+        handler_error = diagnostics.find { |d| d.code == 'VLT-BUILD-HANDLER-NOT-FOUND' }
+
+        expect(handler_error).to be_nil
+      end
+    end
+
+    it 'detects symlinks pointing outside source_dir (VLT-BUILD-SYMLINK-TRAVERSAL)' do
+      Dir.mktmpdir('veltrunode-test-source-') do |tmp_dir|
+        Dir.mktmpdir('veltrunode-test-outside-') do |outside_dir|
+          File.write(File.join(tmp_dir, 'app.rb'), 'def handler(event, context); end')
+          outside_file = File.join(outside_dir, 'secret.txt')
+          File.write(outside_file, 'secret')
+          File.symlink(outside_file, File.join(tmp_dir, 'leak.txt'))
+
+          diagnostics = described_class.run(valid_app, source_dir: tmp_dir)
+          symlink_error = diagnostics.find { |d| d.code == 'VLT-BUILD-SYMLINK-TRAVERSAL' }
+
+          expect(symlink_error).not_to be_nil
+          expect(symlink_error.severity).to eq(:error)
+        end
+      end
+    end
+
+    it 'prunes well-known large/unpackaged directories like .git and node_modules from symlink scan' do
+      Dir.mktmpdir('veltrunode-test-source-') do |tmp_dir|
+        Dir.mktmpdir('veltrunode-test-outside-') do |outside_dir|
+          File.write(File.join(tmp_dir, 'app.rb'), 'def handler(event, context); end')
+          git_dir = File.join(tmp_dir, '.git')
+          Dir.mkdir(git_dir)
+          outside_file = File.join(outside_dir, 'git_hook_target')
+          File.write(outside_file, 'hook')
+          File.symlink(outside_file, File.join(git_dir, 'hook_symlink'))
+
+          diagnostics = described_class.run(valid_app, source_dir: tmp_dir)
+          symlink_error = diagnostics.find { |d| d.code == 'VLT-BUILD-SYMLINK-TRAVERSAL' }
+
+          expect(symlink_error).to be_nil
+        end
+      end
     end
 
     it 'deduplicates identical diagnostics produced across validation phases' do

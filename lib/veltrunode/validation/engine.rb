@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require 'find'
+
 require_relative '../diagnostics/diagnostic'
 require_relative '../graph/resource_graph'
 require_relative '../model/capability_expander'
@@ -7,18 +9,21 @@ require_relative '../model/capability_expander'
 module Veltrunode
   module Validation
     class Engine
+      IGNORED_SCAN_DIRECTORIES = %w[.git node_modules build .veltrunode tmp coverage .bundle .cache vendor].freeze
+
       NAME_PATTERN = /\A[a-zA-Z0-9_-]+\z/
 
-      def self.run(application)
-        new(application).run
+      def self.run(application, source_dir: nil)
+        new(application, source_dir: source_dir).run
       end
 
-      def self.run!(application)
-        new(application).run!
+      def self.run!(application, source_dir: nil)
+        new(application, source_dir: source_dir).run!
       end
 
-      def initialize(application)
+      def initialize(application, source_dir: nil)
         @application = application
+        @source_dir = source_dir ? File.expand_path(source_dir.to_s) : nil
       end
 
       def run
@@ -29,6 +34,8 @@ module Veltrunode
         diagnostics.concat(validate_runtime_compatibility)
         diagnostics.concat(validate_model_invariants)
         diagnostics.concat(validate_iam_capabilities)
+        diagnostics.concat(validate_stage_policies)
+        diagnostics.concat(validate_packaging_preconditions) if @source_dir
 
         deduplicate_diagnostics(diagnostics)
       end
@@ -44,7 +51,7 @@ module Veltrunode
 
       private
 
-      attr_reader :application
+      attr_reader :application, :source_dir
 
       def validate_resource_names
         diagnostics = []
@@ -171,6 +178,107 @@ module Veltrunode
           rescue ValidationError => e
             diagnostics.concat(e.diagnostics)
           end
+        end
+
+        diagnostics
+      end
+
+      def validate_stage_policies
+        diagnostics = []
+        stage = (application.stage || 'dev').to_s.downcase
+        is_prod = %w[prod production].include?(stage)
+
+        if is_prod && (application.account_constraint.nil? || application.account_constraint.to_s.strip.empty?)
+          diagnostics << Diagnostics::Diagnostic.new(
+            code: 'VLT-AWS-ACCOUNT-002',
+            severity: :warning,
+            summary: "Application stage '#{application.stage}' " \
+                     'does not have an explicit account_constraint configured.',
+            suggested_action: "Configure account_constraint for stage '#{application.stage}' " \
+                              'to prevent accidental deployment to the wrong AWS account.',
+            evidence: { 'stage' => application.stage }
+          )
+        end
+
+        diagnostics
+      end
+
+      def validate_packaging_preconditions
+        diagnostics = []
+        return diagnostics unless source_dir && File.directory?(source_dir)
+
+        real_source_dir = File.realpath(source_dir)
+        base_prefix = real_source_dir.end_with?(File::SEPARATOR) ? real_source_dir : "#{real_source_dir}#{File::SEPARATOR}"
+
+        # 1. Handler file existence
+        Array(application.functions).each do |fn|
+          handler_str = fn.respond_to?(:handler) ? fn.handler.to_s.strip : ''
+          next if handler_str.empty?
+
+          mod_path = handler_str.include?('.') ? handler_str.rpartition('.').first : handler_str
+          next if mod_path.nil? || mod_path.empty?
+
+          candidate_extensions = ['', '.rb', '.py', '.js', '.mjs', '.cjs']
+          found = candidate_extensions.any? do |ext|
+            rel = "#{mod_path}#{ext}"
+            abs = File.expand_path(rel, real_source_dir)
+            abs = File.realpath(abs) if File.exist?(abs)
+            next false unless abs.start_with?(base_prefix)
+
+            File.file?(abs)
+          end
+
+          next if found
+
+          expected_files = candidate_extensions.map { |ext| "#{mod_path}#{ext}" }
+          diagnostics << Diagnostics::Diagnostic.new(
+            code: 'VLT-BUILD-HANDLER-NOT-FOUND',
+            severity: :error,
+            summary: "Handler file not found for function '#{fn.logical_name}': " \
+                     "expected one of #{expected_files.join(', ')}.",
+            suggested_action: "Ensure the handler file exists in source directory '#{source_dir}' " \
+                              "(handler: '#{handler_str}').",
+            evidence: {
+              'function' => fn.logical_name,
+              'handler' => handler_str,
+              'expected_files' => expected_files
+            }
+          )
+        end
+
+        # 2. Symlink checks with pruning of unpackaged / large directories
+        Find.find(source_dir) do |abs_path|
+          if File.directory?(abs_path) && (abs_path != source_dir)
+            basename = File.basename(abs_path)
+            Find.prune if IGNORED_SCAN_DIRECTORIES.include?(basename)
+          end
+
+          next unless File.symlink?(abs_path)
+
+          rel_path = abs_path.start_with?(base_prefix) ? abs_path.delete_prefix(base_prefix) : File.basename(abs_path)
+
+          unless File.exist?(abs_path)
+            diagnostics << Diagnostics::Diagnostic.new(
+              code: 'VLT-BUILD-SYMLINK-TRAVERSAL',
+              severity: :error,
+              summary: "Broken symlink found in source directory: '#{rel_path}'",
+              suggested_action: "Remove broken symlink '#{rel_path}' from source directory '#{source_dir}'.",
+              evidence: { 'symlink' => rel_path }
+            )
+            next
+          end
+
+          real_target = File.realpath(abs_path)
+          next if real_target.start_with?(base_prefix)
+
+          diagnostics << Diagnostics::Diagnostic.new(
+            code: 'VLT-BUILD-SYMLINK-TRAVERSAL',
+            severity: :error,
+            summary: "Symlink points outside source directory: '#{rel_path}' -> '#{real_target}'",
+            suggested_action: "Remove symlink pointing outside source directory '#{source_dir}' " \
+                              "(symlink: '#{rel_path}').",
+            evidence: { 'symlink' => rel_path, 'target' => real_target }
+          )
         end
 
         diagnostics
