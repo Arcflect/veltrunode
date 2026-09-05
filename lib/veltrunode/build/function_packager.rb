@@ -181,12 +181,11 @@ module Veltrunode
 
         real_source_dir = File.realpath(@source_dir)
         base_prefix = real_source_dir.end_with?(File::SEPARATOR) ? real_source_dir : "#{real_source_dir}#{File::SEPARATOR}"
-        ignored_dirs = %w[.git node_modules build .veltrunode tmp coverage .bundle .cache vendor]
 
         Find.find(@source_dir) do |abs_path|
           if File.directory?(abs_path) && (abs_path != @source_dir)
             basename = File.basename(abs_path)
-            Find.prune if ignored_dirs.include?(basename)
+            Find.prune if Validation::Engine::IGNORED_SCAN_DIRECTORIES.include?(basename)
           end
 
           next unless File.symlink?(abs_path)

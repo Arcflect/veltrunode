@@ -183,6 +183,28 @@ RSpec.describe Veltrunode::Build::FunctionPackager do
       end
     end
 
+    it 'prunes ignored directories from symlink validation scan' do
+      with_tmpdir do |tmpdir|
+        source_dir = File.join(tmpdir, 'src')
+        FileUtils.mkdir_p(File.join(source_dir, 'functions'))
+        File.write(File.join(source_dir, 'functions', 'convert.rb'), 'puts "code"')
+
+        git_dir = File.join(source_dir, '.git')
+        FileUtils.mkdir_p(git_dir)
+        outside_secret = File.join(tmpdir, 'outside_file')
+        File.write(outside_secret, 'secret')
+        File.symlink(outside_secret, File.join(git_dir, 'hook_symlink'))
+
+        expect do
+          described_class.package(
+            function: function,
+            source_dir: source_dir,
+            output_dir: File.join(tmpdir, 'out')
+          )
+        end.not_to raise_error
+      end
+    end
+
     it 'computes deterministic content_hash based on function config and source files' do
       with_tmpdir do |tmpdir|
         source_dir = File.join(tmpdir, 'src')
