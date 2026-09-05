@@ -14,6 +14,7 @@
 - **VLT-EFS-2049-INGRESS**: NFS インバウンド設定不足 (missing NFS ingress)
 - **VLT-EFS-2049-EGRESS**: NFS アウトバウンド設定不足 (missing NFS egress)
 - **VLT-AWS-ACCOUNT-001**: AWSアカウント情報の不整合 (account mismatch)
+- **VLT-AWS-ACCOUNT-002**: 本番ステージにおけるAWSアカウント制約未設定の警告 (missing account constraint in production stage)
 - **VLT-IAM-001**: ステージポリシーによるワイルドカード指定の拒否 (wildcard denied by stage policy)
 - **VLT-CFN-001**: 変更セット（Change Set）の作成失敗 (change set creation failed)
 

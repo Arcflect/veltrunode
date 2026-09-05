@@ -206,7 +206,7 @@ RSpec.describe Veltrunode::Validation::Engine do
       )
 
       diagnostics = described_class.run(prod_app)
-      account_warn = diagnostics.find { |d| d.code == 'VLT-AWS-ACCOUNT-001' && d.severity == :warning }
+      account_warn = diagnostics.find { |d| d.code == 'VLT-AWS-ACCOUNT-002' && d.severity == :warning }
 
       expect(account_warn).not_to be_nil
       expect(account_warn.summary).to include('does not have an explicit account_constraint configured')

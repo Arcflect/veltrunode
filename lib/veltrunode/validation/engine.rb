@@ -186,7 +186,7 @@ module Veltrunode
 
         if is_prod && (application.account_constraint.nil? || application.account_constraint.to_s.strip.empty?)
           diagnostics << Diagnostics::Diagnostic.new(
-            code: 'VLT-AWS-ACCOUNT-001',
+            code: 'VLT-AWS-ACCOUNT-002',
             severity: :warning,
             summary: "Application stage '#{application.stage}' " \
                      'does not have an explicit account_constraint configured.',
