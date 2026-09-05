@@ -128,7 +128,7 @@ RSpec.describe Veltrunode::CLI::Router do
 
         code = run_cli(['validate', '--format', 'json'])
         expect(code).to eq(3)
-        json = JSON.parse(stdout.string)
+        json = JSON.parse(stderr.string)
         expect(json['status']).to eq('error')
         expect(json['error_code']).to eq(3)
         expect(json['errors_count']).to eq(1)

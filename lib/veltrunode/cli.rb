@@ -166,30 +166,25 @@ module Veltrunode
 
         errors = diagnostics.select { |d| d.severity == :error }
 
+        return handle_validation_error(diagnostics) unless errors.empty?
+
         if @options[:format] == :json
           output = {
-            status: errors.empty? ? 'success' : 'error',
-            errors_count: errors.size,
+            status: 'success',
+            errors_count: 0,
             warnings_count: diagnostics.count { |d| d.severity == :warning },
             diagnostics: diagnostics.map(&:to_h)
           }
-          output[:error_code] = EXIT_VALIDATION_FAILED unless errors.empty?
           $stdout.puts JSON.generate(output)
         else
           diagnostics.each do |diag|
             prefix = diag.severity == :error ? '[ERROR]' : '[WARN]'
             $stdout.puts "#{prefix} [#{diag.code}] #{diag.summary}"
           end
-
-          if errors.empty?
-            $stdout.puts 'Validation successful.'
-          else
-            # rubocop:disable-next Style/StderrPuts
-            $stderr.puts "Validation failed with #{errors.size} error(s)."
-          end
+          $stdout.puts 'Validation successful.'
         end
 
-        errors.empty? ? EXIT_SUCCESS : EXIT_VALIDATION_FAILED
+        EXIT_SUCCESS
       end
 
       def execute_build
@@ -221,6 +216,8 @@ module Veltrunode
             status: 'error',
             error_code: EXIT_VALIDATION_FAILED,
             message: "Validation failed with #{errors.size} error(s).",
+            errors_count: errors.size,
+            warnings_count: diagnostics.count { |d| d.severity == :warning },
             diagnostics: diagnostics.map(&:to_h)
           }
           # rubocop:disable Style/StderrPuts
