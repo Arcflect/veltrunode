@@ -2,7 +2,6 @@
 
 require 'spec_helper'
 require 'tmpdir'
-require 'fileutils'
 
 RSpec.describe Veltrunode::Validation::Engine do
   let(:valid_layer) do
@@ -256,7 +255,7 @@ RSpec.describe Veltrunode::Validation::Engine do
         Dir.mktmpdir('veltrunode-test-outside-') do |outside_dir|
           File.write(File.join(tmp_dir, 'app.rb'), 'def handler(event, context); end')
           git_dir = File.join(tmp_dir, '.git')
-          FileUtils.mkdir_p(git_dir)
+          Dir.mkdir(git_dir)
           outside_file = File.join(outside_dir, 'git_hook_target')
           File.write(outside_file, 'hook')
           File.symlink(outside_file, File.join(git_dir, 'hook_symlink'))
