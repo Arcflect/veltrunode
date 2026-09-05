@@ -59,10 +59,109 @@ RSpec.describe Veltrunode::CLI::Router do
       expect(stdout.string.strip).to eq('Project initialized.')
     end
 
-    it 'runs validate command and invokes Validation Engine' do
-      code = run_cli(['validate'])
-      expect(code).to eq(0)
-      expect(stdout.string.strip).to include('Validation successful.')
+    describe 'validate command' do
+      let(:valid_app) do
+        Veltrunode::Model::Application.new(
+          name: 'valid-app',
+          region: 'ap-northeast-1',
+          stage: 'dev'
+        )
+      end
+
+      before do
+        allow(Veltrunode::SettingsLoader).to receive(:load).and_return(valid_app)
+        allow(Veltrunode::Validation::Engine).to receive(:run).and_return([])
+      end
+
+      it 'returns exit code 0 on successful validation' do
+        code = run_cli(['validate'])
+        expect(code).to eq(0)
+        expect(stdout.string).to include('Validation successful.')
+        expect(Veltrunode::Validation::Engine).to have_received(:run).with(
+          valid_app,
+          source_dir: Dir.pwd
+        )
+      end
+
+      it 'passes source_dir when --file option is specified' do
+        code = run_cli(['validate', '--file', '/custom/path/Veltrunodefile'])
+        expect(code).to eq(0)
+        expect(Veltrunode::Validation::Engine).to have_received(:run).with(
+          valid_app,
+          source_dir: '/custom/path'
+        )
+      end
+
+      it 'returns exit code 3 with error diagnostics on validation failure' do
+        error_diag = Veltrunode::Diagnostics::Diagnostic.new(
+          code: 'VLT-DSL-INVALID-NAME',
+          severity: :error,
+          summary: 'Invalid resource name.',
+          suggested_action: 'Fix name.'
+        )
+        allow(Veltrunode::Validation::Engine).to receive(:run).and_return([error_diag])
+
+        code = run_cli(['validate'])
+        expect(code).to eq(3)
+        expect(stdout.string).to include('[ERROR] [VLT-DSL-INVALID-NAME] Invalid resource name.')
+        expect(stderr.string).to include('Validation failed with 1 error(s).')
+      end
+
+      it 'outputs structured JSON on success when --format json is provided' do
+        code = run_cli(['validate', '--format', 'json'])
+        expect(code).to eq(0)
+        json = JSON.parse(stdout.string)
+        expect(json['status']).to eq('success')
+        expect(json['errors_count']).to eq(0)
+        expect(json['warnings_count']).to eq(0)
+        expect(json['diagnostics']).to eq([])
+      end
+
+      it 'outputs structured JSON on error when --format json is provided' do
+        error_diag = Veltrunode::Diagnostics::Diagnostic.new(
+          code: 'VLT-BUILD-HANDLER-NOT-FOUND',
+          severity: :error,
+          summary: 'Handler file app.rb not found.',
+          suggested_action: 'Create app.rb.'
+        )
+        allow(Veltrunode::Validation::Engine).to receive(:run).and_return([error_diag])
+
+        code = run_cli(['validate', '--format', 'json'])
+        expect(code).to eq(3)
+        json = JSON.parse(stdout.string)
+        expect(json['status']).to eq('error')
+        expect(json['error_code']).to eq(3)
+        expect(json['errors_count']).to eq(1)
+        expect(json['diagnostics'].first['code']).to eq('VLT-BUILD-HANDLER-NOT-FOUND')
+      end
+
+      describe 'with --aws option' do
+        it 'invokes ConnectionInspector and passes when AWS check succeeds' do
+          require 'veltrunode/aws/inspectors/connection_inspector'
+          allow(Veltrunode::AWS::Inspectors::ConnectionInspector).to receive(:inspect).and_return([])
+
+          code = run_cli(['validate', '--aws'])
+          expect(code).to eq(0)
+          expect(stdout.string).to include('Validation successful.')
+          expect(Veltrunode::AWS::Inspectors::ConnectionInspector).to have_received(:inspect).with(valid_app)
+        end
+
+        it 'fails with exit code 3 when ConnectionInspector reports an error' do
+          require 'veltrunode/aws/inspectors/connection_inspector'
+          aws_error = Veltrunode::Diagnostics::Diagnostic.new(
+            code: 'VLT-AWS-ACCOUNT-001',
+            severity: :error,
+            summary: 'AWS account mismatch.',
+            suggested_action: 'Switch credentials.'
+          )
+          allow(Veltrunode::AWS::Inspectors::ConnectionInspector).to receive(:inspect).and_return([aws_error])
+
+          code = run_cli(['validate', '--aws'])
+          expect(code).to eq(3)
+          expect(stdout.string).to include('[ERROR] [VLT-AWS-ACCOUNT-001] AWS account mismatch.')
+          expect(stderr.string).to include('Validation failed with 1 error(s).')
+        end
+      end
     end
 
     describe 'build command' do

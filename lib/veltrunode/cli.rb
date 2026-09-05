@@ -30,7 +30,8 @@ module Veltrunode
         @argv = argv.dup
         @options = {
           format: :text,
-          file: 'Veltrunodefile'
+          file: 'Veltrunodefile',
+          aws: false
         }
       end
 
@@ -109,6 +110,12 @@ module Veltrunode
           @argv.delete('--no-cache')
         end
 
+        # --aws フラグの抽出
+        if @argv.include?('--aws')
+          @options[:aws] = true
+          @argv.delete('--aws')
+        end
+
         # ヘルプフラグの抽出
         if @argv.include?('--help') || @argv.include?('-h') || @argv.include?('help')
           @options[:help] = true
@@ -146,14 +153,27 @@ module Veltrunode
 
       def execute_validate
         application = load_application!
-        diagnostics = Veltrunode::Validation::Engine.run(application)
+        source_dir = @options[:file] ? File.dirname(File.expand_path(@options[:file])) : Dir.pwd
+        source_dir = Dir.pwd if source_dir.empty? || source_dir == '.'
+
+        diagnostics = Veltrunode::Validation::Engine.run(application, source_dir: source_dir)
+
+        if @options[:aws]
+          require_relative 'aws/inspectors'
+          aws_diags = Veltrunode::AWS::Inspectors::ConnectionInspector.inspect(application)
+          diagnostics.concat(aws_diags)
+        end
+
         errors = diagnostics.select { |d| d.severity == :error }
 
         if @options[:format] == :json
           output = {
             status: errors.empty? ? 'success' : 'error',
+            errors_count: errors.size,
+            warnings_count: diagnostics.count { |d| d.severity == :warning },
             diagnostics: diagnostics.map(&:to_h)
           }
+          output[:error_code] = EXIT_VALIDATION_FAILED unless errors.empty?
           $stdout.puts JSON.generate(output)
         else
           diagnostics.each do |diag|
@@ -344,6 +364,8 @@ module Veltrunode
             --version, -v            Show version information
             --format <json|text>     Set output format (default: text)
             --file <path>            Set custom Veltrunodefile path (default: Veltrunodefile)
+            --no-cache               Disable packaging cache
+            --aws                    Run AWS connection and account constraint validation
 
           Commands:
             init                       # Initialize a new Veltrunode project
