@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require 'find'
+
 require_relative 'deterministic_archiver'
 require_relative 'package_result'
 require_relative 'secret_scanner'
@@ -179,12 +181,17 @@ module Veltrunode
 
         real_source_dir = File.realpath(@source_dir)
         base_prefix = real_source_dir.end_with?(File::SEPARATOR) ? real_source_dir : "#{real_source_dir}#{File::SEPARATOR}"
+        ignored_dirs = %w[.git node_modules build .veltrunode tmp coverage .bundle .cache vendor]
 
-        Dir.glob('**/*', File::FNM_DOTMATCH, base: @source_dir).each do |rel_path|
-          next if %w[. ..].include?(rel_path)
+        Find.find(@source_dir) do |abs_path|
+          if File.directory?(abs_path) && (abs_path != @source_dir)
+            basename = File.basename(abs_path)
+            Find.prune if ignored_dirs.include?(basename)
+          end
 
-          abs_path = File.join(@source_dir, rel_path)
           next unless File.symlink?(abs_path)
+
+          rel_path = abs_path.start_with?(base_prefix) ? abs_path.delete_prefix(base_prefix) : File.basename(abs_path)
 
           unless File.exist?(abs_path)
             diag = Diagnostics::Diagnostic.new(

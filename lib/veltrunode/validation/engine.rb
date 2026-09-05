@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require 'find'
+
 require_relative '../diagnostics/diagnostic'
 require_relative '../graph/resource_graph'
 require_relative '../model/capability_expander'
@@ -7,6 +9,8 @@ require_relative '../model/capability_expander'
 module Veltrunode
   module Validation
     class Engine
+      IGNORED_SCAN_DIRECTORIES = %w[.git node_modules build .veltrunode tmp coverage .bundle .cache vendor].freeze
+
       NAME_PATTERN = /\A[a-zA-Z0-9_-]+\z/
 
       def self.run(application, source_dir: nil)
@@ -242,12 +246,16 @@ module Veltrunode
           )
         end
 
-        # 2. Symlink checks
-        Dir.glob('**/*', File::FNM_DOTMATCH, base: source_dir).each do |rel_path|
-          next if %w[. ..].include?(rel_path)
+        # 2. Symlink checks with pruning of unpackaged / large directories
+        Find.find(source_dir) do |abs_path|
+          if File.directory?(abs_path) && (abs_path != source_dir)
+            basename = File.basename(abs_path)
+            Find.prune if IGNORED_SCAN_DIRECTORIES.include?(basename)
+          end
 
-          abs_path = File.join(source_dir, rel_path)
           next unless File.symlink?(abs_path)
+
+          rel_path = abs_path.start_with?(base_prefix) ? abs_path.delete_prefix(base_prefix) : File.basename(abs_path)
 
           unless File.exist?(abs_path)
             diagnostics << Diagnostics::Diagnostic.new(

@@ -251,6 +251,24 @@ RSpec.describe Veltrunode::Validation::Engine do
       end
     end
 
+    it 'prunes well-known large/unpackaged directories like .git and node_modules from symlink scan' do
+      Dir.mktmpdir('veltrunode-test-source-') do |tmp_dir|
+        Dir.mktmpdir('veltrunode-test-outside-') do |outside_dir|
+          File.write(File.join(tmp_dir, 'app.rb'), 'def handler(event, context); end')
+          git_dir = File.join(tmp_dir, '.git')
+          FileUtils.mkdir_p(git_dir)
+          outside_file = File.join(outside_dir, 'git_hook_target')
+          File.write(outside_file, 'hook')
+          File.symlink(outside_file, File.join(git_dir, 'hook_symlink'))
+
+          diagnostics = described_class.run(valid_app, source_dir: tmp_dir)
+          symlink_error = diagnostics.find { |d| d.code == 'VLT-BUILD-SYMLINK-TRAVERSAL' }
+
+          expect(symlink_error).to be_nil
+        end
+      end
+    end
+
     it 'deduplicates identical diagnostics produced across validation phases' do
       invalid_ref_fn = Veltrunode::Model::Function.new(
         logical_name: 'ref_fn',
