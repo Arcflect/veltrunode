@@ -3,6 +3,7 @@
 require 'json'
 require_relative 'build'
 require_relative 'compiler'
+require_relative 'generator'
 
 module Veltrunode
   class CLI
@@ -31,7 +32,8 @@ module Veltrunode
         @options = {
           format: :text,
           file: 'Veltrunodefile',
-          aws: false
+          aws: false,
+          runtime: 'ruby'
         }
       end
 
@@ -116,6 +118,18 @@ module Veltrunode
           @argv.delete('--aws')
         end
 
+        # --runtime オプションの抽出
+        if (idx = @argv.index('--runtime'))
+          if (val = @argv[idx + 1])
+            @options[:runtime] = val
+            @argv.delete_at(idx + 1)
+          end
+          @argv.delete_at(idx)
+        elsif (idx = @argv.find_index { |arg| arg.start_with?('--runtime=') })
+          @options[:runtime] = @argv[idx].split('=', 2)[1]
+          @argv.delete_at(idx)
+        end
+
         # ヘルプフラグの抽出
         if @argv.include?('--help') || @argv.include?('-h') || @argv.include?('help')
           @options[:help] = true
@@ -148,7 +162,32 @@ module Veltrunode
       # 各種サブコマンドのスタブ実装
 
       def execute_init
-        output_success('Project initialized.', { message: 'Project initialized' })
+        target_dir = @argv.first || '.'
+        runtime = @options[:runtime] || 'ruby'
+        result = Veltrunode::Generator.run(target_dir, runtime: runtime)
+
+        if @options[:format] == :json
+          output = {
+            status: 'success',
+            message: 'Project initialized successfully.',
+            created_files: result.created_files,
+            skipped_files: result.skipped_files,
+            target_dir: result.target_dir
+          }
+          $stdout.puts JSON.generate(output)
+        else
+          $stdout.puts 'Project initialized successfully.'
+          unless result.created_files.empty?
+            $stdout.puts 'Created files:'
+            result.created_files.each { |f| $stdout.puts "  - #{f}" }
+          end
+          unless result.skipped_files.empty?
+            $stdout.puts 'Skipped files (already exists):'
+            result.skipped_files.each { |f| $stdout.puts "  - #{f}" }
+          end
+        end
+
+        EXIT_SUCCESS
       end
 
       def execute_validate
@@ -363,6 +402,7 @@ module Veltrunode
             --file <path>            Set custom Veltrunodefile path (default: Veltrunodefile)
             --no-cache               Disable packaging cache
             --aws                    Run AWS connection and account constraint validation
+            --runtime <name>         Set function runtime (default: ruby)
 
           Commands:
             init                       # Initialize a new Veltrunode project
