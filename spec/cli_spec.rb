@@ -53,10 +53,61 @@ RSpec.describe Veltrunode::CLI::Router do
       expect(stderr.string).to include("Unknown command 'invalid_subcommand'")
     end
 
-    it 'runs init command stub' do
-      code = run_cli(['init'])
-      expect(code).to eq(0)
-      expect(stdout.string.strip).to eq('Project initialized.')
+    describe 'init command' do
+      let(:mock_gen_result) do
+        Veltrunode::Generator::Result.new(
+          created_files: %w[Veltrunodefile Gemfile .gitignore functions/app.rb],
+          skipped_files: [],
+          target_dir: '/path/to/app'
+        )
+      end
+
+      before do
+        allow(Veltrunode::Generator).to receive(:run).and_return(mock_gen_result)
+      end
+
+      it 'runs init command with default runtime and displays created files' do
+        code = run_cli(['init'])
+        expect(code).to eq(0)
+        expect(stdout.string).to include('Project initialized successfully.')
+        expect(stdout.string).to include('Created files:')
+        expect(stdout.string).to include('- Veltrunodefile')
+        expect(stdout.string).to include('- functions/app.rb')
+        expect(Veltrunode::Generator).to have_received(:run).with('.', runtime: 'ruby')
+      end
+
+      it 'passes target directory and --runtime option to Generator' do
+        code = run_cli(%w[init my_new_app --runtime python3.12])
+        expect(code).to eq(0)
+        expect(Veltrunode::Generator).to have_received(:run).with('my_new_app', runtime: 'python3.12')
+      end
+
+      it 'outputs structured JSON when --format json is specified' do
+        code = run_cli(['init', '--format', 'json'])
+        expect(code).to eq(0)
+        json = JSON.parse(stdout.string)
+        expect(json['status']).to eq('success')
+        expect(json['message']).to eq('Project initialized successfully.')
+        expect(json['created_files']).to eq(%w[Veltrunodefile Gemfile .gitignore functions/app.rb])
+        expect(json['skipped_files']).to eq([])
+        expect(json['target_dir']).to eq('/path/to/app')
+      end
+
+      it 'displays skipped files when Generator skips existing files' do
+        skip_result = Veltrunode::Generator::Result.new(
+          created_files: ['functions/app.rb'],
+          skipped_files: ['Veltrunodefile'],
+          target_dir: '/path/to/app'
+        )
+        allow(Veltrunode::Generator).to receive(:run).and_return(skip_result)
+
+        code = run_cli(['init'])
+        expect(code).to eq(0)
+        expect(stdout.string).to include('Created files:')
+        expect(stdout.string).to include('- functions/app.rb')
+        expect(stdout.string).to include('Skipped files (already exists):')
+        expect(stdout.string).to include('- Veltrunodefile')
+      end
     end
 
     describe 'validate command' do
