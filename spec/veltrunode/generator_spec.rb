@@ -108,5 +108,16 @@ RSpec.describe Veltrunode::Generator do
         expect(content).to include("Veltrunode.application 'my_invalid_app_name_'")
       end
     end
+
+    it 'sanitizes invalid or unsafe runtime strings and falls back to default runtime' do
+      Dir.mktmpdir('veltrunode-init-safe-') do |tmp_dir|
+        result = described_class.run(tmp_dir, runtime: "ruby'\n# injected content")
+
+        expect(result.created_files).to include('Veltrunodefile', 'functions/app.rb')
+        content = File.read(File.join(tmp_dir, 'Veltrunodefile'))
+        expect(content).not_to include('# injected content')
+        expect(content).to include("runtime ruby: '3.3'")
+      end
+    end
   end
 end

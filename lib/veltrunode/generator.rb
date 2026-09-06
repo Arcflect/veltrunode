@@ -15,11 +15,13 @@ module Veltrunode
       end
     end
 
+    SAFE_RUNTIME_PATTERN = /\A[a-z][a-z0-9._-]*\z/
+
     attr_reader :target_dir, :runtime, :app_name
 
     def initialize(target_dir = '.', runtime: DEFAULT_RUNTIME, app_name: nil)
       @target_dir = File.expand_path(target_dir.to_s)
-      @runtime = (runtime || DEFAULT_RUNTIME).to_s.strip.downcase
+      @runtime = normalize_runtime(runtime)
       @app_name = normalize_app_name(app_name || File.basename(@target_dir))
     end
 
@@ -46,6 +48,11 @@ module Veltrunode
     end
 
     private
+
+    def normalize_runtime(raw_runtime)
+      rt = (raw_runtime || DEFAULT_RUNTIME).to_s.strip.downcase
+      rt.match?(SAFE_RUNTIME_PATTERN) ? rt : DEFAULT_RUNTIME
+    end
 
     def normalize_app_name(raw_name)
       name = raw_name.to_s.strip
@@ -90,7 +97,7 @@ module Veltrunode
     def veltrunodefile_content
       case runtime_type
       when :python
-        py_ver = @runtime.match?(/3\.\d+/) ? @runtime : 'python3.12'
+        py_ver = @runtime.match?(/\Apython3\.\d+\z/) ? @runtime : 'python3.12'
         <<~RUBY
           # frozen_string_literal: true
 
@@ -110,7 +117,7 @@ module Veltrunode
           end
         RUBY
       when :nodejs
-        node_ver = @runtime.match?(/\d+/) ? @runtime : 'nodejs20.x'
+        node_ver = @runtime.match?(/\Anodejs\d+\.x\z/) ? @runtime : 'nodejs20.x'
         <<~RUBY
           # frozen_string_literal: true
 
