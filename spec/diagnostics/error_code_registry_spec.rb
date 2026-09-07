@@ -27,6 +27,7 @@ RSpec.describe Veltrunode::Diagnostics::ErrorCodeRegistry do
       expect(described_class.valid?('VLT-AWS-AUTH-001')).to be(true)
       expect(described_class.valid?('VLT-AWS-ACCOUNT-001')).to be(true)
       expect(described_class.valid?('VLT-AWS-ACCOUNT-002')).to be(true)
+      expect(described_class.valid?('VLT-BUILD-SECRET-WARN')).to be(true)
     end
 
     it 'rejects invalid code formats' do

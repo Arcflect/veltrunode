@@ -4,6 +4,7 @@ require 'find'
 
 require_relative '../diagnostics/diagnostic'
 require_relative '../graph/resource_graph'
+require_relative '../build/secret_scanner'
 require_relative '../model/capability_expander'
 
 module Veltrunode
@@ -246,40 +247,48 @@ module Veltrunode
           )
         end
 
-        # 2. Symlink checks with pruning of unpackaged / large directories
+        # 2. Symlink checks with pruning and collecting files for secret scanning
+        files_to_scan = []
         Find.find(source_dir) do |abs_path|
           if File.directory?(abs_path) && (abs_path != source_dir)
             basename = File.basename(abs_path)
             Find.prune if IGNORED_SCAN_DIRECTORIES.include?(basename)
           end
 
-          next unless File.symlink?(abs_path)
-
           rel_path = abs_path.start_with?(base_prefix) ? abs_path.delete_prefix(base_prefix) : File.basename(abs_path)
 
-          unless File.exist?(abs_path)
-            diagnostics << Diagnostics::Diagnostic.new(
-              code: 'VLT-BUILD-SYMLINK-TRAVERSAL',
-              severity: :error,
-              summary: "Broken symlink found in source directory: '#{rel_path}'",
-              suggested_action: "Remove broken symlink '#{rel_path}' from source directory '#{source_dir}'.",
-              evidence: { 'symlink' => rel_path }
-            )
-            next
+          if File.symlink?(abs_path)
+            unless File.exist?(abs_path)
+              diagnostics << Diagnostics::Diagnostic.new(
+                code: 'VLT-BUILD-SYMLINK-TRAVERSAL',
+                severity: :error,
+                summary: "Broken symlink found in source directory: '#{rel_path}'",
+                suggested_action: "Remove broken symlink '#{rel_path}' from source directory '#{source_dir}'.",
+                evidence: { 'symlink' => rel_path }
+              )
+              next
+            end
+
+            real_target = File.realpath(abs_path)
+            if real_target.start_with?(base_prefix)
+              files_to_scan << rel_path
+            else
+              diagnostics << Diagnostics::Diagnostic.new(
+                code: 'VLT-BUILD-SYMLINK-TRAVERSAL',
+                severity: :error,
+                summary: "Symlink points outside source directory: '#{rel_path}' -> '#{real_target}'",
+                suggested_action: "Remove symlink pointing outside source directory '#{source_dir}' " \
+                                  "(symlink: '#{rel_path}').",
+                evidence: { 'symlink' => rel_path, 'target' => real_target }
+              )
+            end
+          elsif File.file?(abs_path)
+            files_to_scan << rel_path
           end
-
-          real_target = File.realpath(abs_path)
-          next if real_target.start_with?(base_prefix)
-
-          diagnostics << Diagnostics::Diagnostic.new(
-            code: 'VLT-BUILD-SYMLINK-TRAVERSAL',
-            severity: :error,
-            summary: "Symlink points outside source directory: '#{rel_path}' -> '#{real_target}'",
-            suggested_action: "Remove symlink pointing outside source directory '#{source_dir}' " \
-                              "(symlink: '#{rel_path}').",
-            evidence: { 'symlink' => rel_path, 'target' => real_target }
-          )
         end
+
+        # 3. Secret scanning on source files
+        diagnostics.concat(Build::SecretScanner.scan(source_dir: source_dir, entries: files_to_scan))
 
         diagnostics
       end

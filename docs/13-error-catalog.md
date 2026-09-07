@@ -8,6 +8,7 @@
 - **VLT-REF-001**: 未解決のシンボリック参照 (unresolved symbolic reference)
 - **VLT-GRAPH-001**: 循環依存関係の検出 (dependency cycle)
 - **VLT-BUILD-001**: ネイティブビルドの失敗 (native build failed)
+- **VLT-BUILD-SECRET-WARN**: 機密情報ファイルの検出警告 (possible secret file or high-entropy string detected)
 - **VLT-LAYER-001**: 互換性のないアーキテクチャ (incompatible architecture)
 - **VLT-SCHED-001**: 無効なスケジュール式 (invalid schedule expression)
 - **VLT-EFS-001**: EFSアクセスポイントが見つからない (access point not found)
