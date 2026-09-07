@@ -268,6 +268,37 @@ RSpec.describe Veltrunode::Validation::Engine do
       end
     end
 
+    it 'detects sensitive files (.env, *.secret, credentials) during packaging validation' do
+      Dir.mktmpdir('veltrunode-test-source-') do |tmp_dir|
+        File.write(File.join(tmp_dir, 'app.rb'), 'def handler(event, context); end')
+        File.write(File.join(tmp_dir, '.env'), 'SECRET_KEY=123')
+        File.write(File.join(tmp_dir, 'app.secret'), 'mysecret')
+
+        diagnostics = described_class.run(valid_app, source_dir: tmp_dir)
+        secret_warns = diagnostics.select { |d| d.code == 'VLT-BUILD-SECRET-WARN' }
+
+        expect(secret_warns.size).to eq(2)
+        expect(secret_warns.map(&:severity)).to all(eq(:warning))
+        expect(secret_warns.map { |d| d.evidence['file'] }).to contain_exactly('.env', 'app.secret')
+      end
+    end
+
+    it 'detects high-entropy strings during packaging validation' do
+      Dir.mktmpdir('veltrunode-test-source-') do |tmp_dir|
+        File.write(File.join(tmp_dir, 'app.rb'), <<~RUBY)
+          API_KEY = "d8F9ax83Lq4b72MzA1p9V0kLmNoPqRsT"
+          def handler(event, context); end
+        RUBY
+
+        diagnostics = described_class.run(valid_app, source_dir: tmp_dir)
+        secret_warn = diagnostics.find { |d| d.code == 'VLT-BUILD-SECRET-WARN' }
+
+        expect(secret_warn).not_to be_nil
+        expect(secret_warn.severity).to eq(:warning)
+        expect(secret_warn.evidence['reason']).to eq('high entropy string detected')
+      end
+    end
+
     it 'deduplicates identical diagnostics produced across validation phases' do
       invalid_ref_fn = Veltrunode::Model::Function.new(
         logical_name: 'ref_fn',
