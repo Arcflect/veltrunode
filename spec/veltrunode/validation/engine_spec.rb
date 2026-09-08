@@ -329,6 +329,37 @@ RSpec.describe Veltrunode::Validation::Engine do
         expect(iam_error.evidence['policy_violation']).to be(true)
       end
 
+      it 'detects wildcard IAM actions in production when deny_wildcard_actions is enabled (VLT-IAM-001)' do
+        cap = Veltrunode::Model::Capability.new(
+          type: :custom,
+          params: { actions: ['s3:*'], resources: ['arn:aws:s3:::my-bucket/*'] }
+        )
+        fn = Veltrunode::Model::Function.new(
+          logical_name: 'prod_wildcard_fn',
+          handler: 'app.handler',
+          iam_capabilities: [cap]
+        )
+        policy = Veltrunode::Model::StagePolicy.new(
+          :production,
+          deny_wildcard_actions: true
+        )
+        app = Veltrunode::Model::Application.new(
+          name: 'policy-app',
+          stage: 'production',
+          account_constraint: '123456789012',
+          policies: [policy],
+          functions: [fn]
+        )
+
+        diagnostics = described_class.run(app)
+        iam_error = diagnostics.find { |d| d.code == 'VLT-IAM-001' && d.evidence['policy_violation'] }
+
+        expect(iam_error).not_to be_nil
+        expect(iam_error.severity).to eq(:error)
+        expect(iam_error.evidence['policy_violation']).to be(true)
+        expect(iam_error.evidence['stage']).to eq('production')
+      end
+
       it 'detects missing DLQ when require_dlq is enabled (VLT-SCHED-001)' do
         sched = Veltrunode::Model::Schedule.new(
           name: 'nightly',

@@ -221,7 +221,7 @@ module Veltrunode
         return unless active_policies.any?(&:deny_wildcard_actions?)
 
         expander = Model::CapabilityExpander.new(
-          stage: application.stage,
+          stage: 'dev',
           region: application.region,
           account: application.account_constraint
         )
