@@ -20,6 +20,7 @@ require_relative 'model/schedule'
 require_relative 'model/efs_mount'
 require_relative 'model/capability'
 require_relative 'model/capability_expander'
+require_relative 'model/stage_policy'
 
 module Veltrunode
   module Model
@@ -32,4 +33,5 @@ module Veltrunode
   EfsMount = Model::EfsMount
   Capability = Model::Capability
   CapabilityExpander = Model::CapabilityExpander
+  StagePolicy = Model::StagePolicy
 end
