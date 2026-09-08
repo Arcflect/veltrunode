@@ -299,6 +299,161 @@ RSpec.describe Veltrunode::Validation::Engine do
       end
     end
 
+    describe 'StagePolicy validation' do
+      it 'detects wildcard IAM actions when deny_wildcard_actions is enabled (VLT-IAM-001)' do
+        cap = Veltrunode::Model::Capability.new(
+          type: :custom,
+          params: { actions: ['s3:*'], resources: ['arn:aws:s3:::my-bucket/*'] }
+        )
+        fn = Veltrunode::Model::Function.new(
+          logical_name: 'wildcard_fn',
+          handler: 'app.handler',
+          iam_capabilities: [cap]
+        )
+        policy = Veltrunode::Model::StagePolicy.new(
+          :staging,
+          deny_wildcard_actions: true
+        )
+        app = Veltrunode::Model::Application.new(
+          name: 'policy-app',
+          stage: 'staging',
+          policies: [policy],
+          functions: [fn]
+        )
+
+        diagnostics = described_class.run(app)
+        iam_error = diagnostics.find { |d| d.code == 'VLT-IAM-001' }
+
+        expect(iam_error).not_to be_nil
+        expect(iam_error.severity).to eq(:error)
+        expect(iam_error.evidence['policy_violation']).to be(true)
+      end
+
+      it 'detects wildcard IAM actions in production when deny_wildcard_actions is enabled (VLT-IAM-001)' do
+        cap = Veltrunode::Model::Capability.new(
+          type: :custom,
+          params: { actions: ['s3:*'], resources: ['arn:aws:s3:::my-bucket/*'] }
+        )
+        fn = Veltrunode::Model::Function.new(
+          logical_name: 'prod_wildcard_fn',
+          handler: 'app.handler',
+          iam_capabilities: [cap]
+        )
+        policy = Veltrunode::Model::StagePolicy.new(
+          :production,
+          deny_wildcard_actions: true
+        )
+        app = Veltrunode::Model::Application.new(
+          name: 'policy-app',
+          stage: 'production',
+          account_constraint: '123456789012',
+          policies: [policy],
+          functions: [fn]
+        )
+
+        diagnostics = described_class.run(app)
+        iam_error = diagnostics.find { |d| d.code == 'VLT-IAM-001' && d.evidence['policy_violation'] }
+
+        expect(iam_error).not_to be_nil
+        expect(iam_error.severity).to eq(:error)
+        expect(iam_error.evidence['policy_violation']).to be(true)
+        expect(iam_error.evidence['stage']).to eq('production')
+      end
+
+      it 'detects missing DLQ when require_dlq is enabled (VLT-SCHED-002)' do
+        sched = Veltrunode::Model::Schedule.new(
+          name: 'nightly',
+          target_function: 'my_fn',
+          expression_type: :cron,
+          expression: '0 0 * * ? *'
+        )
+        policy = Veltrunode::Model::StagePolicy.new(
+          :production,
+          require_dlq: true
+        )
+        app = Veltrunode::Model::Application.new(
+          name: 'dlq-policy-app',
+          stage: 'production',
+          policies: [policy],
+          schedules: [sched]
+        )
+
+        diagnostics = described_class.run(app)
+        sched_error = diagnostics.find { |d| d.code == 'VLT-SCHED-002' }
+
+        expect(sched_error).not_to be_nil
+        expect(sched_error.severity).to eq(:error)
+        expect(sched_error.evidence['policy_violation']).to be(true)
+      end
+
+      it 'detects missing log retention when require_log_retention is enabled (VLT-LOG-001)' do
+        policy = Veltrunode::Model::StagePolicy.new(
+          :production,
+          require_log_retention: true
+        )
+        app = Veltrunode::Model::Application.new(
+          name: 'logs-policy-app',
+          stage: 'production',
+          policies: [policy],
+          functions: [valid_function]
+        )
+
+        diagnostics = described_class.run(app)
+        log_error = diagnostics.find { |d| d.code == 'VLT-LOG-001' }
+
+        expect(log_error).not_to be_nil
+        expect(log_error.severity).to eq(:error)
+        expect(log_error.evidence['policy_violation']).to be(true)
+      end
+
+      it 'passes log retention check when runtime_defaults has retention_days' do
+        policy = Veltrunode::Model::StagePolicy.new(
+          :production,
+          require_log_retention: true
+        )
+        app = Veltrunode::Model::Application.new(
+          name: 'logs-policy-app',
+          stage: 'production',
+          runtime_defaults: { logs: { retention_days: 14 } },
+          policies: [policy],
+          functions: [valid_function]
+        )
+
+        diagnostics = described_class.run(app)
+        log_error = diagnostics.find { |d| d.code == 'VLT-LOG-001' }
+
+        expect(log_error).to be_nil
+      end
+
+      it 'detects public storage usage when deny_public_storage is enabled (VLT-IAM-002)' do
+        cap = Veltrunode::Model::Capability.new(
+          type: :write_to_s3,
+          params: { bucket: 'my-bucket', public: true }
+        )
+        fn = Veltrunode::Model::Function.new(
+          logical_name: 'public_storage_fn',
+          handler: 'app.handler',
+          iam_capabilities: [cap]
+        )
+        policy = Veltrunode::Model::StagePolicy.new(
+          :production,
+          deny_public_storage: true
+        )
+        app = Veltrunode::Model::Application.new(
+          name: 'storage-policy-app',
+          stage: 'production',
+          policies: [policy],
+          functions: [fn]
+        )
+
+        diagnostics = described_class.run(app)
+        storage_error = diagnostics.find { |d| d.code == 'VLT-IAM-002' && d.evidence['policy_violation'] }
+
+        expect(storage_error).not_to be_nil
+        expect(storage_error.severity).to eq(:error)
+      end
+    end
+
     it 'deduplicates identical diagnostics produced across validation phases' do
       invalid_ref_fn = Veltrunode::Model::Function.new(
         logical_name: 'ref_fn',

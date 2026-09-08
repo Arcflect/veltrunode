@@ -186,6 +186,40 @@ RSpec.describe Veltrunode::CLI::Router do
         expect(json['diagnostics'].first['code']).to eq('VLT-BUILD-HANDLER-NOT-FOUND')
       end
 
+      it 'returns exit code 8 when policy violation error is detected in text format' do
+        policy_diag = Veltrunode::Diagnostics::Diagnostic.new(
+          code: 'VLT-IAM-001',
+          severity: :error,
+          summary: 'Wildcard IAM action is denied by stage policy.',
+          suggested_action: 'Specify explicit IAM actions.',
+          evidence: { 'policy_violation' => true }
+        )
+        allow(Veltrunode::Validation::Engine).to receive(:run).and_return([policy_diag])
+
+        code = run_cli(['validate'])
+        expect(code).to eq(8)
+        expect(stdout.string).to include('[ERROR] [VLT-IAM-001] Wildcard IAM action is denied by stage policy.')
+        expect(stderr.string).to include('Validation failed with 1 error(s).')
+      end
+
+      it 'returns exit code 8 with structured JSON when policy violation error is detected with --format json' do
+        policy_diag = Veltrunode::Diagnostics::Diagnostic.new(
+          code: 'VLT-IAM-001',
+          severity: :error,
+          summary: 'Wildcard IAM action is denied by stage policy.',
+          suggested_action: 'Specify explicit IAM actions.',
+          evidence: { 'policy_violation' => true }
+        )
+        allow(Veltrunode::Validation::Engine).to receive(:run).and_return([policy_diag])
+
+        code = run_cli(['validate', '--format', 'json'])
+        expect(code).to eq(8)
+        json = JSON.parse(stderr.string)
+        expect(json['status']).to eq('error')
+        expect(json['error_code']).to eq(8)
+        expect(json['diagnostics'].first['code']).to eq('VLT-IAM-001')
+      end
+
       describe 'with --aws option' do
         it 'invokes ConnectionInspector and passes when AWS check succeeds' do
           require 'veltrunode/aws/inspectors/connection_inspector'
@@ -241,7 +275,9 @@ RSpec.describe Veltrunode::CLI::Router do
           schedules: [],
           functions: [mock_fn],
           layers: [mock_layer],
-          mounts: []
+          mounts: [],
+          policies: [],
+          runtime_defaults: {}
         )
       end
 

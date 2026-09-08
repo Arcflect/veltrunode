@@ -188,20 +188,149 @@ module Veltrunode
         diagnostics = []
         stage = (application.stage || 'dev').to_s.downcase
         is_prod = %w[prod production].include?(stage)
-
-        if is_prod && (application.account_constraint.nil? || application.account_constraint.to_s.strip.empty?)
-          diagnostics << Diagnostics::Diagnostic.new(
-            code: 'VLT-AWS-ACCOUNT-002',
-            severity: :warning,
-            summary: "Application stage '#{application.stage}' " \
-                     'does not have an explicit account_constraint configured.',
-            suggested_action: "Configure account_constraint for stage '#{application.stage}' " \
-                              'to prevent accidental deployment to the wrong AWS account.',
-            evidence: { 'stage' => application.stage }
-          )
+        policies_list = application.respond_to?(:policies) ? application.policies : []
+        active_policies = Array(policies_list).select do |p|
+          p.respond_to?(:applies_to?) && p.applies_to?(application.stage)
         end
 
+        validate_stage_account_constraint(diagnostics, is_prod)
+        validate_policy_wildcard_actions(diagnostics, active_policies)
+        validate_policy_dlq_requirement(diagnostics, active_policies)
+        validate_policy_log_retention(diagnostics, active_policies)
+        validate_policy_public_storage(diagnostics, active_policies)
+
         diagnostics
+      end
+
+      def validate_stage_account_constraint(diagnostics, is_prod)
+        return unless is_prod
+        return unless application.account_constraint.nil? || application.account_constraint.to_s.strip.empty?
+
+        diagnostics << Diagnostics::Diagnostic.new(
+          code: 'VLT-AWS-ACCOUNT-002',
+          severity: :warning,
+          summary: "Application stage '#{application.stage}' " \
+                   'does not have an explicit account_constraint configured.',
+          suggested_action: "Configure account_constraint for stage '#{application.stage}' " \
+                            'to prevent accidental deployment to the wrong AWS account.',
+          evidence: { 'stage' => application.stage }
+        )
+      end
+
+      def validate_policy_wildcard_actions(diagnostics, active_policies)
+        return unless active_policies.any?(&:deny_wildcard_actions?)
+
+        expander = Model::CapabilityExpander.new(
+          stage: 'dev',
+          region: application.region,
+          account: application.account_constraint
+        )
+
+        Array(application.functions).each do |fn|
+          Array(fn.iam_capabilities).each do |cap|
+            statements = expander.expand(cap)
+            statements.each do |stmt|
+              actions = Array(stmt['Action'])
+              wildcards = actions.select { |a| a.to_s == '*' || a.to_s.end_with?(':*') }
+              next if wildcards.empty?
+
+              diagnostics << Diagnostics::Diagnostic.new(
+                code: 'VLT-IAM-001',
+                severity: :error,
+                summary: "Wildcard IAM action '#{wildcards.first}' is denied by stage policy " \
+                         "for function '#{fn.logical_name}'.",
+                suggested_action: 'Specify explicit IAM actions instead of wildcards.',
+                evidence: {
+                  'function' => fn.logical_name,
+                  'actions' => wildcards,
+                  'stage' => application.stage,
+                  'policy_violation' => true
+                }
+              )
+            end
+          rescue ValidationError => e
+            diagnostics.concat(e.diagnostics)
+          end
+        end
+      end
+
+      def validate_policy_dlq_requirement(diagnostics, active_policies)
+        return unless active_policies.any?(&:require_dlq?)
+
+        Array(application.schedules).each do |sched|
+          dlq_val = sched.respond_to?(:dlq) ? sched.dlq : nil
+          next unless dlq_val.nil? || dlq_val.to_s.strip.empty?
+
+          diagnostics << Diagnostics::Diagnostic.new(
+            code: 'VLT-SCHED-002',
+            severity: :error,
+            summary: "Schedule '#{sched.name}' must have a dead-letter queue (DLQ) configured " \
+                     "under stage policy for '#{application.stage}'.",
+            suggested_action: "Configure a DLQ for schedule '#{sched.name}' to capture failed invocations.",
+            evidence: {
+              'schedule' => sched.name,
+              'stage' => application.stage,
+              'policy_violation' => true
+            }
+          )
+        end
+      end
+
+      def validate_policy_log_retention(diagnostics, active_policies)
+        return unless active_policies.any?(&:require_log_retention?)
+
+        runtime_defs = if application.respond_to?(:runtime_defaults) && application.runtime_defaults
+                         application.runtime_defaults
+                       else
+                         {}
+                       end
+        defaults_logs = runtime_defs[:logs] || runtime_defs['logs']
+        retention = defaults_logs && (defaults_logs[:retention_days] || defaults_logs['retention_days'])
+        return if retention.to_i.positive?
+
+        diagnostics << Diagnostics::Diagnostic.new(
+          code: 'VLT-LOG-001',
+          severity: :error,
+          summary: "Log retention period must be configured under stage policy for stage '#{application.stage}'.",
+          suggested_action: 'Specify retention_days in application defaults (e.g. logs retention_days: 30).',
+          evidence: {
+            'stage' => application.stage,
+            'policy_violation' => true
+          }
+        )
+      end
+
+      def validate_policy_public_storage(diagnostics, active_policies)
+        return unless active_policies.any?(&:deny_public_storage?)
+
+        Array(application.functions).each do |fn|
+          Array(fn.iam_capabilities).each do |cap|
+            params = if cap.respond_to?(:params)
+                       cap.params
+                     elsif cap.is_a?(Hash)
+                       cap[:params] || cap['params'] || {}
+                     else
+                       {}
+                     end
+            next unless params.is_a?(Hash)
+
+            is_public = params[:public] || params['public'] ||
+                        %w[public-read public-read-write].include?(params[:acl] || params['acl'])
+            next unless is_public
+
+            diagnostics << Diagnostics::Diagnostic.new(
+              code: 'VLT-IAM-002',
+              severity: :error,
+              summary: "Public storage access is denied by stage policy for function '#{fn.logical_name}'.",
+              suggested_action: "Disable public access for storage capability in stage '#{application.stage}'.",
+              evidence: {
+                'function' => fn.logical_name,
+                'stage' => application.stage,
+                'policy_violation' => true
+              }
+            )
+          end
+        end
       end
 
       def validate_packaging_preconditions

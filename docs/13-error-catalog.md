@@ -11,6 +11,8 @@
 - **VLT-BUILD-SECRET-WARN**: 機密情報ファイルの検出警告 (possible secret file or high-entropy string detected)
 - **VLT-LAYER-001**: 互換性のないアーキテクチャ (incompatible architecture)
 - **VLT-SCHED-001**: 無効なスケジュール式 (invalid schedule expression)
+- **VLT-SCHED-002**: ステージポリシーによるDLQ未設定の拒否 (missing DLQ required by stage policy)
+- **VLT-LOG-001**: ステージポリシーによるログ保持期間未設定の拒否 (missing log retention required by stage policy)
 - **VLT-EFS-001**: EFSアクセスポイントが見つからない (access point not found)
 - **VLT-EFS-2049-INGRESS**: NFS インバウンド設定不足 (missing NFS ingress)
 - **VLT-EFS-2049-EGRESS**: NFS アウトバウンド設定不足 (missing NFS egress)
@@ -18,6 +20,7 @@
 - **VLT-AWS-ACCOUNT-001**: AWSアカウント情報の不整合 (account mismatch)
 - **VLT-AWS-ACCOUNT-002**: 本番ステージにおけるAWSアカウント制約未設定の警告 (missing account constraint in production stage)
 - **VLT-IAM-001**: ステージポリシーによるワイルドカード指定の拒否 (wildcard denied by stage policy)
+- **VLT-IAM-002**: ステージポリシーによるパブリックストレージ設定の拒否 (public storage denied by stage policy)
 - **VLT-CFN-001**: 変更セット（Change Set）の作成失敗 (change set creation failed)
 
 ## 診断情報の構造
