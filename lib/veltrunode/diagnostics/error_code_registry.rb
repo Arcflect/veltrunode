@@ -3,7 +3,7 @@
 module Veltrunode
   module Diagnostics
     module ErrorCodeRegistry
-      CATEGORY_CODES = %w[DSL REF GRAPH BUILD LAYER SCHED EFS AWS IAM CFN].freeze
+      CATEGORY_CODES = %w[DSL REF GRAPH BUILD LAYER SCHED EFS AWS IAM CFN LOG].freeze
 
       CATEGORY_PREFIXES = CATEGORY_CODES.map { |code| "VLT-#{code}-*".freeze }.freeze
 

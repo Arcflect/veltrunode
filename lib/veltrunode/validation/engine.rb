@@ -289,7 +289,7 @@ module Veltrunode
         return if retention.to_i.positive?
 
         diagnostics << Diagnostics::Diagnostic.new(
-          code: 'VLT-BUILD-001',
+          code: 'VLT-LOG-001',
           severity: :error,
           summary: "Log retention period must be configured under stage policy for stage '#{application.stage}'.",
           suggested_action: 'Specify retention_days in application defaults (e.g. logs retention_days: 30).',

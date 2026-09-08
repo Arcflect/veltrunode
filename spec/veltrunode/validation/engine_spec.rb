@@ -386,7 +386,7 @@ RSpec.describe Veltrunode::Validation::Engine do
         expect(sched_error.evidence['policy_violation']).to be(true)
       end
 
-      it 'detects missing log retention when require_log_retention is enabled (VLT-BUILD-001)' do
+      it 'detects missing log retention when require_log_retention is enabled (VLT-LOG-001)' do
         policy = Veltrunode::Model::StagePolicy.new(
           :production,
           require_log_retention: true
@@ -399,7 +399,7 @@ RSpec.describe Veltrunode::Validation::Engine do
         )
 
         diagnostics = described_class.run(app)
-        log_error = diagnostics.find { |d| d.code == 'VLT-BUILD-001' }
+        log_error = diagnostics.find { |d| d.code == 'VLT-LOG-001' }
 
         expect(log_error).not_to be_nil
         expect(log_error.severity).to eq(:error)
@@ -420,7 +420,7 @@ RSpec.describe Veltrunode::Validation::Engine do
         )
 
         diagnostics = described_class.run(app)
-        log_error = diagnostics.find { |d| d.code == 'VLT-BUILD-001' }
+        log_error = diagnostics.find { |d| d.code == 'VLT-LOG-001' }
 
         expect(log_error).to be_nil
       end
