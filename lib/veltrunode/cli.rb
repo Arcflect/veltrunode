@@ -249,11 +249,15 @@ module Veltrunode
 
       def handle_validation_error(diagnostics)
         errors = diagnostics.select { |d| d.severity == :error }
+        is_policy_violation = errors.any? do |d|
+          d.code == 'VLT-IAM-001' || (d.evidence.is_a?(Hash) && d.evidence['policy_violation'])
+        end
+        exit_code = is_policy_violation ? EXIT_POLICY_VIOLATION : EXIT_VALIDATION_FAILED
 
         if @options[:format] == :json
           output = {
             status: 'error',
-            error_code: EXIT_VALIDATION_FAILED,
+            error_code: exit_code,
             message: "Validation failed with #{errors.size} error(s).",
             errors_count: errors.size,
             warnings_count: diagnostics.count { |d| d.severity == :warning },
@@ -270,7 +274,7 @@ module Veltrunode
           # rubocop:enable Style/StderrPuts
         end
 
-        EXIT_VALIDATION_FAILED
+        exit_code
       end
 
       def output_build_success(result)

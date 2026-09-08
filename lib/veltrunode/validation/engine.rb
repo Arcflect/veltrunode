@@ -188,7 +188,8 @@ module Veltrunode
         diagnostics = []
         stage = (application.stage || 'dev').to_s.downcase
         is_prod = %w[prod production].include?(stage)
-        active_policies = Array(application.policies).select do |p|
+        policies_list = application.respond_to?(:policies) ? application.policies : []
+        active_policies = Array(policies_list).select do |p|
           p.respond_to?(:applies_to?) && p.applies_to?(application.stage)
         end
 
@@ -278,7 +279,12 @@ module Veltrunode
       def validate_policy_log_retention(diagnostics, active_policies)
         return unless active_policies.any?(&:require_log_retention?)
 
-        defaults_logs = application.runtime_defaults[:logs] || application.runtime_defaults['logs']
+        runtime_defs = if application.respond_to?(:runtime_defaults) && application.runtime_defaults
+                         application.runtime_defaults
+                       else
+                         {}
+                       end
+        defaults_logs = runtime_defs[:logs] || runtime_defs['logs']
         retention = defaults_logs && (defaults_logs[:retention_days] || defaults_logs['retention_days'])
         return if retention.to_i.positive?
 
