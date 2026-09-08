@@ -319,7 +319,7 @@ module Veltrunode
             next unless is_public
 
             diagnostics << Diagnostics::Diagnostic.new(
-              code: 'VLT-IAM-001',
+              code: 'VLT-IAM-002',
               severity: :error,
               summary: "Public storage access is denied by stage policy for function '#{fn.logical_name}'.",
               suggested_action: "Disable public access for storage capability in stage '#{application.stage}'.",

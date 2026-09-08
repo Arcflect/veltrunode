@@ -31,6 +31,7 @@ RSpec.describe Veltrunode::Diagnostics::ErrorCodeRegistry do
       expect(described_class.valid?('VLT-BUILD-SECRET-WARN')).to be(true)
       expect(described_class.valid?('VLT-SCHED-002')).to be(true)
       expect(described_class.valid?('VLT-LOG-001')).to be(true)
+      expect(described_class.valid?('VLT-IAM-002')).to be(true)
     end
 
     it 'rejects invalid code formats' do

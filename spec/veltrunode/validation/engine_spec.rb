@@ -425,7 +425,7 @@ RSpec.describe Veltrunode::Validation::Engine do
         expect(log_error).to be_nil
       end
 
-      it 'detects public storage usage when deny_public_storage is enabled (VLT-IAM-001)' do
+      it 'detects public storage usage when deny_public_storage is enabled (VLT-IAM-002)' do
         cap = Veltrunode::Model::Capability.new(
           type: :write_to_s3,
           params: { bucket: 'my-bucket', public: true }
@@ -447,7 +447,7 @@ RSpec.describe Veltrunode::Validation::Engine do
         )
 
         diagnostics = described_class.run(app)
-        storage_error = diagnostics.find { |d| d.code == 'VLT-IAM-001' && d.evidence['policy_violation'] }
+        storage_error = diagnostics.find { |d| d.code == 'VLT-IAM-002' && d.evidence['policy_violation'] }
 
         expect(storage_error).not_to be_nil
         expect(storage_error.severity).to eq(:error)

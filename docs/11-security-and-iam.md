@@ -10,7 +10,7 @@
 
 ## ステージポリシー (Stage Policies)
 
-ステージ（`production`, `staging` 等）に応じて厳格なセキュリティ要件を強制するための `StagePolicy` を定義できます。バリデーションフェーズにおいてポリシー違反が検出された場合、エラー Diagnostic（`VLT-IAM-001`, `VLT-SCHED-002`, `VLT-LOG-001` 等）が出力され、CLI は終了コード `8`（`EXIT_POLICY_VIOLATION`）で停止します。
+ステージ（`production`, `staging` 等）に応じて厳格なセキュリティ要件を強制するための `StagePolicy` を定義できます。バリデーションフェーズにおいてポリシー違反が検出された場合、エラー Diagnostic（`VLT-IAM-001`, `VLT-IAM-002`, `VLT-SCHED-002`, `VLT-LOG-001` 等）が出力され、CLI は終了コード `8`（`EXIT_POLICY_VIOLATION`）で停止します。
 
 ### ポリシールール一覧
 
