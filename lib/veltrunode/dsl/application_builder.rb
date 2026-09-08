@@ -6,6 +6,7 @@ require_relative 'efs_mount_builder'
 require_relative 'function_builder'
 require_relative 'schedule_builder'
 require_relative '../model/application'
+require_relative '../model/stage_policy'
 
 module Veltrunode
   module DSL
@@ -77,6 +78,20 @@ module Veltrunode
         @schedule_builders << builder
       end
 
+      def stage_policy(stage, deny_wildcard_actions: false, require_dlq: false, require_log_retention: false,
+                       deny_public_storage: false, &)
+        builder = StagePolicyBuilder.new(
+          stage,
+          deny_wildcard_actions: deny_wildcard_actions,
+          require_dlq: require_dlq,
+          require_log_retention: require_log_retention,
+          deny_public_storage: deny_public_storage
+        )
+        builder.instance_eval(&) if block_given?
+        @policies << builder.build
+      end
+      alias policy stage_policy
+
       def build
         layers = @layer_builders.map(&:build)
         mounts = @efs_mount_builders.map(&:build)
@@ -103,6 +118,44 @@ module Veltrunode
       def runtime_version_normalized(ver)
         v = ver.to_s
         v.start_with?('ruby') ? v.sub('ruby', '') : v
+      end
+    end
+
+    class StagePolicyBuilder < BaseBuilder
+      def initialize(stage, deny_wildcard_actions: false, require_dlq: false, require_log_retention: false,
+                     deny_public_storage: false)
+        super()
+        @stage = stage
+        @deny_wildcard_actions = deny_wildcard_actions
+        @require_dlq = require_dlq
+        @require_log_retention = require_log_retention
+        @deny_public_storage = deny_public_storage
+      end
+
+      def deny_wildcard_actions(val = true) # rubocop:disable Style/OptionalBooleanParameter
+        @deny_wildcard_actions = val
+      end
+
+      def require_dlq(val = true) # rubocop:disable Style/OptionalBooleanParameter
+        @require_dlq = val
+      end
+
+      def require_log_retention(val = true) # rubocop:disable Style/OptionalBooleanParameter
+        @require_log_retention = val
+      end
+
+      def deny_public_storage(val = true) # rubocop:disable Style/OptionalBooleanParameter
+        @deny_public_storage = val
+      end
+
+      def build
+        Model::StagePolicy.new(
+          @stage,
+          deny_wildcard_actions: @deny_wildcard_actions,
+          require_dlq: @require_dlq,
+          require_log_retention: @require_log_retention,
+          deny_public_storage: @deny_public_storage
+        )
       end
     end
 

@@ -107,6 +107,49 @@ RSpec.describe Veltrunode::DSL do
     end
   end
 
+  describe 'stage_policy DSL' do
+    it 'supports keyword argument definition for stage policies' do
+      code = <<~RUBY
+        Veltrunode.application "policy-app" do
+          stage_policy :production,
+                       deny_wildcard_actions: true,
+                       require_dlq: true,
+                       require_log_retention: true,
+                       deny_public_storage: true
+        end
+      RUBY
+
+      app = Veltrunode.parse(code)
+      expect(app.policies.size).to eq(1)
+      policy = app.policies.first
+      expect(policy.stage).to eq('production')
+      expect(policy.deny_wildcard_actions?).to be(true)
+      expect(policy.require_dlq?).to be(true)
+      expect(policy.require_log_retention?).to be(true)
+      expect(policy.deny_public_storage?).to be(true)
+    end
+
+    it 'supports block definition for stage policies' do
+      code = <<~RUBY
+        Veltrunode.application "block-policy-app" do
+          policy "staging" do
+            deny_wildcard_actions true
+            require_dlq true
+          end
+        end
+      RUBY
+
+      app = Veltrunode.parse(code)
+      expect(app.policies.size).to eq(1)
+      policy = app.policies.first
+      expect(policy.stage).to eq('staging')
+      expect(policy.deny_wildcard_actions?).to be(true)
+      expect(policy.require_dlq?).to be(true)
+      expect(policy.require_log_retention?).to be(false)
+      expect(policy.deny_public_storage?).to be(false)
+    end
+  end
+
   describe 'undefined method handling' do
     it 'raises ValidationError with VLT-DSL-001 diagnostic when an undefined method is called' do
       invalid_code = <<~RUBY
