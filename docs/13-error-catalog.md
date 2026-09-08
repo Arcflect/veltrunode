@@ -11,6 +11,7 @@
 - **VLT-BUILD-SECRET-WARN**: 機密情報ファイルの検出警告 (possible secret file or high-entropy string detected)
 - **VLT-LAYER-001**: 互換性のないアーキテクチャ (incompatible architecture)
 - **VLT-SCHED-001**: 無効なスケジュール式 (invalid schedule expression)
+- **VLT-SCHED-002**: ステージポリシーによるDLQ未設定の拒否 (missing DLQ required by stage policy)
 - **VLT-EFS-001**: EFSアクセスポイントが見つからない (access point not found)
 - **VLT-EFS-2049-INGRESS**: NFS インバウンド設定不足 (missing NFS ingress)
 - **VLT-EFS-2049-EGRESS**: NFS アウトバウンド設定不足 (missing NFS egress)

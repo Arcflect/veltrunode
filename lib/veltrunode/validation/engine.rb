@@ -262,7 +262,7 @@ module Veltrunode
           next unless dlq_val.nil? || dlq_val.to_s.strip.empty?
 
           diagnostics << Diagnostics::Diagnostic.new(
-            code: 'VLT-SCHED-001',
+            code: 'VLT-SCHED-002',
             severity: :error,
             summary: "Schedule '#{sched.name}' must have a dead-letter queue (DLQ) configured " \
                      "under stage policy for '#{application.stage}'.",

@@ -360,7 +360,7 @@ RSpec.describe Veltrunode::Validation::Engine do
         expect(iam_error.evidence['stage']).to eq('production')
       end
 
-      it 'detects missing DLQ when require_dlq is enabled (VLT-SCHED-001)' do
+      it 'detects missing DLQ when require_dlq is enabled (VLT-SCHED-002)' do
         sched = Veltrunode::Model::Schedule.new(
           name: 'nightly',
           target_function: 'my_fn',
@@ -379,7 +379,7 @@ RSpec.describe Veltrunode::Validation::Engine do
         )
 
         diagnostics = described_class.run(app)
-        sched_error = diagnostics.find { |d| d.code == 'VLT-SCHED-001' }
+        sched_error = diagnostics.find { |d| d.code == 'VLT-SCHED-002' }
 
         expect(sched_error).not_to be_nil
         expect(sched_error.severity).to eq(:error)
