@@ -221,7 +221,18 @@ RSpec.describe Veltrunode::Compiler::LogicalId do
     it 'allows individual compiler files to be loaded independently' do
       expect do
         require 'veltrunode/compiler/cloudformation/function_compiler'
-        expect(Veltrunode::Compiler::CloudFormation::FunctionCompiler.logical_id_for(:worker)).to eq('WorkerFunction')
+        require 'veltrunode/compiler/cloudformation/layer_version_compiler'
+        require 'veltrunode/compiler/cloudformation/schedule_compiler'
+        require 'veltrunode/compiler/cloudformation/queue_compiler'
+        require 'veltrunode/compiler/cloudformation/log_group_compiler'
+        require 'veltrunode/compiler/cloudformation/role_compiler'
+        require 'veltrunode/compiler/cloudformation'
+
+        cf = Veltrunode::Compiler::CloudFormation
+        expect(cf::FunctionCompiler.logical_id_for(:worker)).to eq('WorkerFunction')
+        expect(cf::LayerVersionCompiler.logical_id_for(:runtime_gems)).to eq('RuntimeGemsLayerVersion')
+        expect(cf::ScheduleCompiler.logical_id_for(:nightly)).to eq('NightlySchedule')
+        expect(cf::QueueCompiler.logical_id_for(:dlq)).to eq('DlqQueue')
       end.not_to raise_error
     end
   end
