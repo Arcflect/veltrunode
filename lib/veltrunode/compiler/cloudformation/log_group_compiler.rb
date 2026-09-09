@@ -21,11 +21,7 @@ module Veltrunode
           end
 
           def logical_id_for(logical_name)
-            str = logical_name.to_s
-            return str if str.end_with?('LogGroup')
-
-            fn_logical_id = FunctionCompiler.logical_id_for(str)
-            fn_logical_id.end_with?('LogGroup') ? fn_logical_id : "#{fn_logical_id}LogGroup"
+            LogicalId.for_log_group(logical_name)
           end
         end
 

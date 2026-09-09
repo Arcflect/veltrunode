@@ -21,17 +21,11 @@ module Veltrunode
           end
 
           def logical_id_for(schedule_name)
-            base = pascalize(schedule_name)
-            base = 'Schedule' if base.empty?
-            base.end_with?('Schedule') ? base : "#{base}Schedule"
+            LogicalId.for_schedule(schedule_name)
           end
 
           def pascalize(str)
-            return '' if str.nil?
-
-            str.to_s.split(/[^a-zA-Z0-9]+/).reject(&:empty?).map do |part|
-              part[0].upcase + part[1..]
-            end.join
+            LogicalId.pascalize(str)
           end
         end
 

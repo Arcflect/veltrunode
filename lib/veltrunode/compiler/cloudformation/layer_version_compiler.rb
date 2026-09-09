@@ -18,17 +18,11 @@ module Veltrunode
           end
 
           def logical_id_for(layer_name)
-            base = pascalize(layer_name)
-            base = 'LayerVersion' if base.empty?
-            base.end_with?('LayerVersion') ? base : "#{base}LayerVersion"
+            LogicalId.for_layer_version(layer_name)
           end
 
           def pascalize(str)
-            return '' if str.nil?
-
-            str.to_s.split(/[^a-zA-Z0-9]+/).reject(&:empty?).map do |part|
-              part[0].upcase + part[1..]
-            end.join
+            LogicalId.pascalize(str)
           end
         end
 

@@ -18,17 +18,11 @@ module Veltrunode
           end
 
           def logical_id_for(queue_name)
-            base = pascalize(queue_name)
-            base = 'Queue' if base.empty?
-            base.end_with?('Queue') ? base : "#{base}Queue"
+            LogicalId.for_queue(queue_name)
           end
 
           def pascalize(str)
-            return '' if str.nil?
-
-            str.to_s.split(/[^a-zA-Z0-9]+/).reject(&:empty?).map do |part|
-              part[0].upcase + part[1..]
-            end.join
+            LogicalId.pascalize(str)
           end
         end
 
