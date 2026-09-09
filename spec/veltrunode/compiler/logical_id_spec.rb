@@ -233,6 +233,8 @@ RSpec.describe Veltrunode::Compiler::LogicalId do
         expect(cf::LayerVersionCompiler.logical_id_for(:runtime_gems)).to eq('RuntimeGemsLayerVersion')
         expect(cf::ScheduleCompiler.logical_id_for(:nightly)).to eq('NightlySchedule')
         expect(cf::QueueCompiler.logical_id_for(:dlq)).to eq('DlqQueue')
+        expect(cf::LogGroupCompiler.logical_id_for(:worker)).to eq('WorkerFunctionLogGroup')
+        expect(cf::RoleCompiler.logical_id_for_function(:worker)).to eq('WorkerFunctionRole')
       end.not_to raise_error
     end
   end
