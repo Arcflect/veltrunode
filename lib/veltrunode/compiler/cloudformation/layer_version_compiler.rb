@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'yaml'
+require_relative '../logical_id'
 
 module Veltrunode
   module Compiler

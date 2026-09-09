@@ -216,4 +216,13 @@ RSpec.describe Veltrunode::Compiler::LogicalId do
       end
     end
   end
+
+  describe 'standalone loading' do
+    it 'allows individual compiler files to be loaded independently' do
+      expect do
+        require 'veltrunode/compiler/cloudformation/function_compiler'
+        expect(Veltrunode::Compiler::CloudFormation::FunctionCompiler.logical_id_for(:worker)).to eq('WorkerFunction')
+      end.not_to raise_error
+    end
+  end
 end

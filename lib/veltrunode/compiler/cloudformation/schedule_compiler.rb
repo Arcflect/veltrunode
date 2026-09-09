@@ -2,6 +2,7 @@
 
 require 'json'
 require 'yaml'
+require_relative '../logical_id'
 require_relative 'function_compiler'
 require_relative 'role_compiler'
 
