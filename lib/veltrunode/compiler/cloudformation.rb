@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require_relative 'logical_id'
 require_relative 'cloudformation/function_compiler'
 require_relative 'cloudformation/layer_version_compiler'
 require_relative 'cloudformation/log_group_compiler'

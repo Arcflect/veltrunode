@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'yaml'
+require_relative '../logical_id'
 require_relative 'function_compiler'
 require_relative '../../model/capability_expander'
 
@@ -36,23 +37,15 @@ module Veltrunode
           end
 
           def logical_id_for_function(logical_name)
-            fn_id = FunctionCompiler.logical_id_for(logical_name)
-            "#{fn_id}Role"
+            LogicalId.for_lambda_role(logical_name)
           end
 
           def logical_id_for_schedule(schedule_name)
-            base = pascalize(schedule_name)
-            base = 'Schedule' if base.empty?
-            base = "#{base}Schedule" unless base.end_with?('Schedule')
-            "#{base}Role"
+            LogicalId.for_scheduler_role(schedule_name)
           end
 
           def pascalize(str)
-            return '' if str.nil?
-
-            str.to_s.split(/[^a-zA-Z0-9]+/).reject(&:empty?).map do |part|
-              part[0].upcase + part[1..]
-            end.join
+            LogicalId.pascalize(str)
           end
         end
 
