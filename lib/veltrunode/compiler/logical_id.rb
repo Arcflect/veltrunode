@@ -79,8 +79,7 @@ module Veltrunode
         str = name.to_s
         return str if str.end_with?('LogGroup')
 
-        fn_id = for_function(str)
-        fn_id.end_with?('LogGroup') ? fn_id : "#{fn_id}LogGroup"
+        "#{for_function(str)}LogGroup"
       end
 
       # Lambda 実行ロールの論理IDを生成します（サフィックス: FunctionRole または Role）
