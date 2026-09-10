@@ -4,6 +4,7 @@ require 'json'
 require_relative 'build'
 require_relative 'compiler'
 require_relative 'generator'
+require_relative 'runner'
 
 module Veltrunode
   class CLI
@@ -116,6 +117,18 @@ module Veltrunode
         if @argv.include?('--aws')
           @options[:aws] = true
           @argv.delete('--aws')
+        end
+
+        # --event オプションの抽出
+        if (idx = @argv.index('--event'))
+          if (val = @argv[idx + 1])
+            @options[:event] = val
+            @argv.delete_at(idx + 1)
+          end
+          @argv.delete_at(idx)
+        elsif (idx = @argv.find_index { |arg| arg.start_with?('--event=') })
+          @options[:event] = @argv[idx].split('=', 2)[1]
+          @argv.delete_at(idx)
         end
 
         # --runtime オプションの抽出
@@ -346,9 +359,67 @@ module Veltrunode
       end
 
       def execute_invoke_local
-        load_application!
-        name = @argv.first || 'default'
-        output_success("Invoked local function: #{name}.", { message: "Invoked local function: #{name}" })
+        name = @argv.first
+        if name.nil? || name.strip.empty?
+          return handle_error('Function name is required for invoke local.', EXIT_INVALID_INPUT)
+        end
+
+        application = load_application!
+        function = application.functions[name]
+        unless function
+          return handle_error("Function '#{name}' not found in application '#{application.name}'.",
+                              EXIT_INVALID_INPUT)
+        end
+
+        event_data = load_event_data
+        return event_data if event_data.is_a?(Integer)
+
+        source_dir = @options[:file] ? File.dirname(File.expand_path(@options[:file])) : Dir.pwd
+        source_dir = Dir.pwd if source_dir.empty? || source_dir == '.'
+
+        begin
+          result = Veltrunode::Runner.run(
+            function,
+            event_data,
+            application: application,
+            source_dir: source_dir
+          )
+        rescue Veltrunode::Runner::TimeoutError, StandardError => e
+          return handle_error(e.message, EXIT_INVALID_INPUT)
+        end
+
+        output_invoke_local_success(result)
+      end
+
+      def load_event_data
+        event_file = @options[:event]
+        return {} if event_file.nil? || event_file.strip.empty?
+
+        return handle_error("Event file not found: #{event_file}", EXIT_INVALID_INPUT) unless File.exist?(event_file)
+
+        content = File.read(event_file)
+        begin
+          JSON.parse(content)
+        rescue JSON::ParserError => e
+          handle_error("Invalid JSON in event file '#{event_file}': #{e.message}", EXIT_INVALID_INPUT)
+        end
+      end
+
+      def output_invoke_local_success(result)
+        if @options[:format] == :json
+          $stdout.puts JSON.generate(result.to_h)
+        else
+          result.warnings.each do |warning|
+            $stdout.puts "[WARN] #{warning}"
+          end
+          if result.result.is_a?(Hash) || result.result.is_a?(Array)
+            $stdout.puts JSON.pretty_generate(result.result)
+          else
+            $stdout.puts result.result.to_s
+          end
+        end
+
+        EXIT_SUCCESS
       end
 
       def execute_destroy
@@ -407,6 +478,7 @@ module Veltrunode
             --no-cache               Disable packaging cache
             --aws                    Run AWS connection and account constraint validation
             --runtime <name>         Set function runtime (default: ruby)
+            --event <path>           Path to JSON event file for invoke local
 
           Commands:
             init                       # Initialize a new Veltrunode project
