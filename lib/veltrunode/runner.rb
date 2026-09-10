@@ -114,17 +114,18 @@ module Veltrunode
       call_handler_method(target_method, @event_data, context)
     end
 
-    def resolve_ruby_method(method_name, rb_file)
-      sym = method_name.to_sym
-      if Kernel.respond_to?(sym, true)
-        Kernel.method(sym)
-      elsif Object.respond_to?(sym, true)
-        Object.method(sym)
-      elsif respond_to?(sym, true)
-        method(sym)
-      else
-        raise Veltrunode::Error, "Handler method '#{method_name}' not defined in #{rb_file}"
-      end
+def resolve_ruby_method(method_name, rb_file)
+  sym = method_name.to_sym
+  unless respond_to?(sym, true)
+    raise Veltrunode::Error, "Handler method '#{method_name}' not defined in #{rb_file}"
+  end
+
+  m = method(sym)
+  loc = m.source_location
+  return m if loc && File.expand_path(loc[0]) == File.expand_path(rb_file)
+
+  raise Veltrunode::Error, "Handler method '#{method_name}' not defined in #{rb_file}"
+end
     end
 
     def call_handler_method(method_obj, event, context)
