@@ -30,6 +30,18 @@ module Veltrunode
         true
       end
 
+      def [](key)
+        to_h[key.to_sym] || to_h[key.to_s]
+      end
+
+      def ==(other)
+        if other.is_a?(ExecutionResult)
+          to_h == other.to_h
+        else
+          result == other
+        end
+      end
+
       def to_h
         data = {
           status: 'success',
