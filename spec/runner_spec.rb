@@ -319,13 +319,15 @@ RSpec.describe Veltrunode::Runner do
       end
     end
 
-    it 'raises Veltrunode::Error on invalid handler format' do
-      func = Veltrunode::Function.new(:bad_format)
-      func.handler = 'invalid_format'
+    it 'raises Veltrunode::Error on invalid handler format edge cases' do
+      ['', '  ', 'invalid_format', '.', '.method', 'file.', '   .method'].each do |bad_handler|
+        func = Veltrunode::Function.new(:bad_format)
+        func.handler = bad_handler
 
-      expect do
-        described_class.run(func, {})
-      end.to raise_error(Veltrunode::Error, /Invalid handler format/)
+        expect do
+          described_class.run(func, {})
+        end.to raise_error(Veltrunode::Error, /Invalid handler format/)
+      end
     end
 
     it 'executes a Python handler method passing module and method via argv' do
@@ -346,8 +348,12 @@ RSpec.describe Veltrunode::Runner do
     end
 
     it 'passes module, method, event, and context via argv to Node subprocess without code interpolation' do
-      status = instance_double(Process::Status, success?: true)
-      allow(Open3).to receive(:capture3).and_return(['{"status":"ok"}', '', status])
+      proc_status = instance_double(Process::Status, success?: true)
+      wait_thr = double('Process::Waiter', value: proc_status, alive?: false, pid: 12_345)
+      stdin = instance_double(IO, close: nil)
+      stdout = StringIO.new('{"status":"ok"}')
+      stderr = StringIO.new('')
+      allow(Open3).to receive(:popen3).and_yield(stdin, stdout, stderr, wait_thr)
 
       func = Veltrunode::Function.new(:node_fn)
       func.handler = 'index.handler'
@@ -355,7 +361,7 @@ RSpec.describe Veltrunode::Runner do
 
       res = described_class.run(func, { 'foo' => 'bar' })
       expect(res.result).to eq({ 'status' => 'ok' })
-      expect(Open3).to have_received(:capture3).with(
+      expect(Open3).to have_received(:popen3).with(
         anything,
         'node',
         '-e',
@@ -366,6 +372,28 @@ RSpec.describe Veltrunode::Runner do
         include('aws_request_id'),
         hash_including(chdir: Dir.pwd)
       )
+    end
+
+    it 'kills the subprocess if execution times out' do
+      func = Veltrunode::Function.new(
+        :slow_py_fn,
+        handler: 'slow.handler',
+        runtime: 'python3.11',
+        timeout: 1
+      )
+
+      Dir.mktmpdir do |dir|
+        File.write(File.join(dir, 'slow.py'), <<~PYTHON)
+          import time
+          def handler(event, context):
+              time.sleep(10)
+              return {"status": "ok"}
+        PYTHON
+
+        expect do
+          described_class.run(func, {}, source_dir: dir)
+        end.to raise_error(Veltrunode::Runner::TimeoutError, /timed out after 1 seconds/)
+      end
     end
   end
 end

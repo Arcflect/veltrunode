@@ -115,6 +115,37 @@ RSpec.describe 'veltrunode invoke local CLI' do
       end
     end
 
+    it 'resolves relative --event path relative to Veltrunodefile directory when --file is provided' do
+      Dir.mktmpdir do |dir|
+        sub_dir = File.join(dir, 'sub')
+        FileUtils.mkdir_p(sub_dir)
+        veltrunodefile = File.join(sub_dir, 'Veltrunodefile')
+        event_file = File.join(sub_dir, 'custom_event.json')
+        File.write(veltrunodefile, <<~RUBY)
+          application 'sub_app' do
+            function :sub_fn do
+              handler 'sub_handler.process'
+              runtime 'ruby3.2'
+            end
+          end
+        RUBY
+        File.write(File.join(sub_dir, 'sub_handler.rb'), <<~RUBY)
+          def process(event:, context:)
+            { echoed: event['message'] }
+          end
+        RUBY
+        File.write(event_file, JSON.generate({ message: 'from_sub_dir' }))
+
+        fn = Veltrunode::Model::Function.new(:sub_fn, handler: 'sub_handler.process')
+        app = Veltrunode::Model::Application.new(name: 'sub_app', functions: [fn])
+        allow(Veltrunode::SettingsLoader).to receive(:load).and_return(app)
+
+        code = run_cli(['invoke', 'local', 'sub_fn', '--file', veltrunodefile, '--event', 'custom_event.json'])
+        expect(code).to eq(0)
+        expect(stdout.string).to include('"echoed": "from_sub_dir"')
+      end
+    end
+
     it 'displays EFS warning in text mode and includes warning in JSON mode when mounts exist' do
       Dir.mktmpdir do |dir|
         File.write(File.join(dir, 'handler.rb'), <<~RUBY)

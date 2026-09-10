@@ -24,7 +24,7 @@ module Veltrunode
     def execute
       validate_handler_format!
 
-      file_part, method_name = @function.handler.split('.', 2)
+      file_part, _sep, method_name = @function.handler.to_s.strip.rpartition('.')
       runtime = @function.runtime || @application&.runtime || 'ruby'
       timeout_sec = (@function.timeout || 3).to_i
       memory_size = (@function.memory || 128).to_i
@@ -48,10 +48,15 @@ module Veltrunode
     private
 
     def validate_handler_format!
-      handler_str = @function.handler
-      return if handler_str&.include?('.')
+      handler_str = @function.handler&.to_s&.strip
+      if handler_str.nil? || handler_str.empty?
+        raise Veltrunode::Error, "Invalid handler format: '#{@function.handler}'. Expected 'file.method'"
+      end
 
-      raise Veltrunode::Error, "Invalid handler format: '#{handler_str}'. Expected 'file.method'"
+      file_part, sep, method_name = handler_str.rpartition('.')
+      return unless sep.empty? || file_part.strip.empty? || method_name.strip.empty?
+
+      raise Veltrunode::Error, "Invalid handler format: '#{@function.handler}'. Expected 'file.method'"
     end
 
     def collect_warnings
@@ -194,7 +199,7 @@ module Veltrunode
             sys.exit(1)
       PYTHON
 
-      stdout, stderr, status = Open3.capture3(
+      stdout, stderr, status = run_subprocess(
         env_vars,
         'python3',
         '-c',
@@ -240,7 +245,7 @@ module Veltrunode
         }
       JS
 
-      stdout, stderr, status = Open3.capture3(
+      stdout, stderr, status = run_subprocess(
         env_vars,
         'node',
         '-e',
@@ -254,6 +259,46 @@ module Veltrunode
       raise Veltrunode::Error, "Node.js execution failed: #{stderr.strip}" unless status.success?
 
       parse_subprocess_output(stdout)
+    end
+
+    def run_subprocess(env_vars, *cmd, chdir: nil)
+      opts = chdir ? { chdir: chdir } : {}
+      Open3.popen3(env_vars, *cmd, **opts) do |stdin, stdout, stderr, wait_thr|
+        stdin.close
+        out_reader = Thread.new { stdout.read }
+        err_reader = Thread.new { stderr.read }
+        begin
+          status = wait_thr.value
+          [out_reader.value, err_reader.value, status]
+        ensure
+          cleanup_subprocess(wait_thr, out_reader, err_reader)
+        end
+      end
+    end
+
+    def cleanup_subprocess(wait_thr, out_reader, err_reader)
+      kill_subprocess_if_alive(wait_thr)
+      out_reader.kill if out_reader.alive?
+      err_reader.kill if err_reader.alive?
+    end
+
+    def kill_subprocess_if_alive(wait_thr)
+      return unless wait_thr.alive?
+
+      begin
+        Process.kill('TERM', wait_thr.pid)
+        sleep 0.05 if wait_thr.alive?
+        Process.kill('KILL', wait_thr.pid) if wait_thr.alive?
+      rescue Errno::ESRCH, Errno::ECHILD
+        # Process already terminated
+      end
+      reap_process(wait_thr)
+    end
+
+    def reap_process(wait_thr)
+      wait_thr.join(1)
+    rescue StandardError
+      nil
     end
 
     def parse_subprocess_output(stdout)
@@ -280,9 +325,11 @@ module Veltrunode
         'VELTRUNODE_APP' => app_name.to_s
       }
 
-      if @function.environment.is_a?(Hash)
+      if @function.respond_to?(:environment) && @function.environment.is_a?(Hash)
         @function.environment.each do |k, v|
-          env[k.to_s] = v.to_s
+          next if k.nil?
+
+          env[k.to_s] = v.nil? ? '' : v.to_s
         end
       end
 

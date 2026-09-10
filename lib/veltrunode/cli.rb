@@ -371,11 +371,11 @@ module Veltrunode
                               EXIT_INVALID_INPUT)
         end
 
-        event_data = load_event_data
-        return event_data if event_data.is_a?(Integer)
-
         source_dir = @options[:file] ? File.dirname(File.expand_path(@options[:file])) : Dir.pwd
         source_dir = Dir.pwd if source_dir.empty? || source_dir == '.'
+
+        event_data = load_event_data(source_dir)
+        return event_data if event_data.is_a?(Integer)
 
         begin
           result = Veltrunode::Runner.run(
@@ -391,13 +391,14 @@ module Veltrunode
         output_invoke_local_success(result)
       end
 
-      def load_event_data
+      def load_event_data(source_dir = Dir.pwd)
         event_file = @options[:event]
         return {} if event_file.nil? || event_file.strip.empty?
 
-        return handle_error("Event file not found: #{event_file}", EXIT_INVALID_INPUT) unless File.exist?(event_file)
+        resolved_file = File.expand_path(event_file, source_dir)
+        return handle_error("Event file not found: #{event_file}", EXIT_INVALID_INPUT) unless File.exist?(resolved_file)
 
-        content = File.read(event_file)
+        content = File.read(resolved_file)
         begin
           JSON.parse(content)
         rescue JSON::ParserError => e
