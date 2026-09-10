@@ -373,7 +373,7 @@ module Veltrunode
           raise ValidationError, "Failed to parse package.json: #{e.message}"
         end
 
-        deps = (data['dependencies'] || {}).merge(data['devDependencies'] || {})
+        deps = data['dependencies'] || {}
         deps.each_key do |mod_name|
           stage_single_node_module(mod_name, node_modules_dir)
         end
