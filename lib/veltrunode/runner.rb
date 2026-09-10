@@ -168,14 +168,8 @@ module Veltrunode
     end
 
     def invoke_positional_handler(method_obj, event, context)
-      arity = method_obj.arity
-      if arity == 1
-        method_obj.call(event)
-      elsif arity.zero?
-        method_obj.call
-      else
-        method_obj.call(event, context)
-      end
+      args = build_positional_args(method_obj.parameters, event, context)
+      method_obj.call(*args)
     end
 
     def execute_python(file_part, method_name, context, env_vars)

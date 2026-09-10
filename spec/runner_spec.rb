@@ -125,6 +125,40 @@ RSpec.describe Veltrunode::Runner do
       end
     end
 
+    it 'executes a Ruby handler method accepting positional arguments with optional second argument' do
+      Dir.mktmpdir do |dir|
+        File.write(File.join(dir, 'opt_positional.rb'), <<~RUBY)
+          def my_handler(event, context = nil)
+            { count: event['count'], has_ctx: !context.nil? }
+          end
+        RUBY
+
+        func = Veltrunode::Function.new(:opt_pos_fn)
+        func.handler = 'opt_positional.my_handler'
+        func.runtime = 'ruby3.2'
+
+        res = described_class.run(func, { 'count' => 99 }, source_dir: dir)
+        expect(res.result).to eq({ count: 99, has_ctx: true })
+      end
+    end
+
+    it 'executes a Ruby handler method accepting no arguments' do
+      Dir.mktmpdir do |dir|
+        File.write(File.join(dir, 'zero_args.rb'), <<~RUBY)
+          def my_handler
+            { status: 'no_args' }
+          end
+        RUBY
+
+        func = Veltrunode::Function.new(:zero_fn)
+        func.handler = 'zero_args.my_handler'
+        func.runtime = 'ruby3.2'
+
+        res = described_class.run(func, {}, source_dir: dir)
+        expect(res.result).to eq({ status: 'no_args' })
+      end
+    end
+
     it 'executes a Ruby handler method accepting only event: keyword argument' do
       Dir.mktmpdir do |dir|
         File.write(File.join(dir, 'event_only.rb'), <<~RUBY)
