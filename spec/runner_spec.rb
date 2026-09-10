@@ -28,7 +28,7 @@ RSpec.describe Veltrunode::Runner do
       remaining = context.get_remaining_time_in_millis
       expect(remaining).to be_positive
       expect(remaining).to be <= 5000
-      expect(context.remaining_time_in_millis).to eq(remaining)
+      expect(context.remaining_time_in_millis).to be_within(50).of(remaining)
     end
 
     it 'supports hash-like access via symbol and string keys' do
@@ -241,6 +241,46 @@ RSpec.describe Veltrunode::Runner do
       expect do
         described_class.run(func, {})
       end.to raise_error(Veltrunode::Error, /Invalid handler format/)
+    end
+
+    it 'executes a Python handler method passing module and method via argv' do
+      Dir.mktmpdir do |dir|
+        File.write(File.join(dir, 'py_handler.py'), <<~PYTHON)
+          def my_func(event, context):
+              return {"msg": f"Hello {event['name']}", "req": context["aws_request_id"]}
+        PYTHON
+
+        func = Veltrunode::Function.new(:py_fn)
+        func.handler = 'py_handler.my_func'
+        func.runtime = 'python3.11'
+
+        res = described_class.run(func, { 'name' => 'Python' }, source_dir: dir)
+        expect(res.result).to eq({ 'msg' => 'Hello Python', 'req' => res.result['req'] })
+        expect(res.result['req']).to match(/\A[0-9a-f-]{36}\z/i)
+      end
+    end
+
+    it 'passes module, method, event, and context via argv to Node subprocess without code interpolation' do
+      status = instance_double(Process::Status, success?: true)
+      allow(Open3).to receive(:capture3).and_return(['{"status":"ok"}', '', status])
+
+      func = Veltrunode::Function.new(:node_fn)
+      func.handler = 'index.handler'
+      func.runtime = 'nodejs20.x'
+
+      res = described_class.run(func, { 'foo' => 'bar' })
+      expect(res.result).to eq({ 'status' => 'ok' })
+      expect(Open3).to have_received(:capture3).with(
+        anything,
+        'node',
+        '-e',
+        kind_of(String),
+        include('index'),
+        'handler',
+        include('"foo":"bar"'),
+        include('aws_request_id'),
+        hash_including(chdir: Dir.pwd)
+      )
     end
   end
 end

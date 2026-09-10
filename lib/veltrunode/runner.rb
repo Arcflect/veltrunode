@@ -161,13 +161,15 @@ module Veltrunode
       context_json = JSON.generate(context.to_h)
 
       py_code = <<~PYTHON
-        import json, sys
-        sys.path.append('.')
+        import importlib, json, sys
+        sys.path.insert(0, '.')
         try:
-            import #{module_name} as handler_module
-            method = getattr(handler_module, '#{method_name}')
-            event = json.loads(sys.argv[1])
-            context = json.loads(sys.argv[2])
+            module_name = sys.argv[1]
+            method_name = sys.argv[2]
+            event = json.loads(sys.argv[3])
+            context = json.loads(sys.argv[4])
+            handler_module = importlib.import_module(module_name)
+            method = getattr(handler_module, method_name)
             res = method(event, context)
             print(json.dumps(res))
         except Exception as e:
@@ -175,7 +177,17 @@ module Veltrunode
             sys.exit(1)
       PYTHON
 
-      stdout, stderr, status = Open3.capture3(env_vars, 'python3', '-c', py_code, event_json, context_json)
+      stdout, stderr, status = Open3.capture3(
+        env_vars,
+        'python3',
+        '-c',
+        py_code,
+        module_name,
+        method_name,
+        event_json,
+        context_json,
+        chdir: @source_dir
+      )
       raise Veltrunode::Error, "Python execution failed: #{stderr.strip}" unless status.success?
 
       parse_subprocess_output(stdout)
@@ -184,19 +196,21 @@ module Veltrunode
     def execute_node(file_part, method_name, context, env_vars)
       event_json = JSON.generate(@event_data)
       context_json = JSON.generate(context.to_h)
-      node_file = File.expand_path("./#{file_part}", @source_dir)
+      node_file = File.expand_path(file_part, @source_dir)
 
       node_code = <<~JS
         const path = require('path');
         try {
-          const handlerModule = require('#{node_file}');
-          const method = handlerModule['#{method_name}'];
+          const filePath = path.resolve(process.argv[2]);
+          const methodName = process.argv[3];
+          const event = JSON.parse(process.argv[4]);
+          const context = JSON.parse(process.argv[5]);
+          const handlerModule = require(filePath);
+          const method = handlerModule[methodName];
           if (!method) {
-            console.error("Method '#{method_name}' not found on module.");
+            console.error("Method '" + methodName + "' not found on module.");
             process.exit(1);
           }
-          const event = JSON.parse(process.argv[2]);
-          const context = JSON.parse(process.argv[3]);
           Promise.resolve(method(event, context)).then(res => {
             console.log(JSON.stringify(res));
           }).catch(err => {
@@ -209,7 +223,17 @@ module Veltrunode
         }
       JS
 
-      stdout, stderr, status = Open3.capture3(env_vars, 'node', '-e', node_code, event_json, context_json)
+      stdout, stderr, status = Open3.capture3(
+        env_vars,
+        'node',
+        '-e',
+        node_code,
+        node_file,
+        method_name,
+        event_json,
+        context_json,
+        chdir: @source_dir
+      )
       raise Veltrunode::Error, "Node.js execution failed: #{stderr.strip}" unless status.success?
 
       parse_subprocess_output(stdout)
