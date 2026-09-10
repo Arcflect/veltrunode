@@ -17,6 +17,22 @@ module Veltrunode
                             '23456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01',
         'ruby3.2-arm64' => 'public.ecr.aws/sam/build-ruby3.2:latest-arm64@sha256:' \
                            '3456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012',
+        'python3.12-x86_64' => 'public.ecr.aws/sam/build-python3.12:latest-x86_64@sha256:' \
+                               '6789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345',
+        'python3.12-arm64' => 'public.ecr.aws/sam/build-python3.12:latest-arm64@sha256:' \
+                              '789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456',
+        'python3.11-x86_64' => 'public.ecr.aws/sam/build-python3.11:latest-x86_64@sha256:' \
+                               '89abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567',
+        'python3.11-arm64' => 'public.ecr.aws/sam/build-python3.11:latest-arm64@sha256:' \
+                              '9abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345678',
+        'nodejs20.x-x86_64' => 'public.ecr.aws/sam/build-nodejs20.x:latest-x86_64@sha256:' \
+                               'abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789',
+        'nodejs20.x-arm64' => 'public.ecr.aws/sam/build-nodejs20.x:latest-arm64@sha256:' \
+                              'bcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789a',
+        'nodejs18.x-x86_64' => 'public.ecr.aws/sam/build-nodejs18.x:latest-x86_64@sha256:' \
+                               'cdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789ab',
+        'nodejs18.x-arm64' => 'public.ecr.aws/sam/build-nodejs18.x:latest-arm64@sha256:' \
+                              'def0123456789abcdef0123456789abcdef0123456789abcdef0123456789abc',
         'amazonlinux2023-x86_64' => 'public.ecr.aws/amazonlinux/amazonlinux:2023@sha256:' \
                                     '456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123',
         'amazonlinux2023-arm64' => 'public.ecr.aws/amazonlinux/amazonlinux:2023@sha256:' \
@@ -61,12 +77,6 @@ module Veltrunode
       )
         @source_dir = File.expand_path(source_dir.to_s)
         @output_dir = File.expand_path(output_dir.to_s)
-        expected_output_dir = File.join(@source_dir, 'vendor', 'bundle')
-        unless @output_dir == expected_output_dir
-          raise ValidationError,
-                "output_dir must be '#{expected_output_dir}' when using NativeBuilder (got: '#{@output_dir}')"
-        end
-
         @runtime = runtime.to_s.freeze
         @architecture = architecture.to_s.freeze
         @build_on = build_on
@@ -75,25 +85,19 @@ module Veltrunode
         @image = resolve_image(custom_image)
         @image_digest = extract_digest(@image)
 
+        validate_output_dir!
+
         freeze
       end
 
       def build
         FileUtils.mkdir_p(@output_dir)
 
-        # Command to run inside container: bundle install into mounted volume
-        container_command = [
-          'sh', '-c',
-          'cd /var/task && bundle config set --local path vendor/bundle && bundle install'
-        ]
-
+        container_command = resolve_container_command
         volume_mounts = {
           @source_dir => '/var/task'
         }
-
-        environment = {
-          'BUNDLE_SILENCE_ROOT_WARNING' => '1'
-        }
+        environment = resolve_environment
 
         result = @container_runner.run(
           image: @image,
@@ -114,6 +118,60 @@ module Veltrunode
       end
 
       private
+
+      def resolve_expected_output_dir
+        if @runtime.start_with?('python')
+          File.join(@source_dir, 'vendor', 'python')
+        elsif @runtime.start_with?('node')
+          File.join(@source_dir, 'node_modules')
+        else
+          File.join(@source_dir, 'vendor', 'bundle')
+        end
+      end
+
+      def validate_output_dir!
+        expected_output_dir = resolve_expected_output_dir
+        return if @output_dir == expected_output_dir
+
+        raise ValidationError,
+              "output_dir must be '#{expected_output_dir}' when using NativeBuilder (got: '#{@output_dir}')"
+      end
+
+      def resolve_container_command
+        if @runtime.start_with?('python')
+          [
+            'sh', '-c',
+            'cd /var/task && pip install -r requirements.txt -t vendor/python'
+          ]
+        elsif @runtime.start_with?('node')
+          [
+            'sh', '-c',
+            'cd /var/task && npm install --production'
+          ]
+        else
+          [
+            'sh', '-c',
+            'cd /var/task && bundle config set --local path vendor/bundle && bundle install'
+          ]
+        end
+      end
+
+      def resolve_environment
+        if @runtime.start_with?('python')
+          {
+            'PIP_DISABLE_PIP_VERSION_CHECK' => '1',
+            'PIP_NO_CACHE_DIR' => '1'
+          }
+        elsif @runtime.start_with?('node')
+          {
+            'NODE_ENV' => 'production'
+          }
+        else
+          {
+            'BUNDLE_SILENCE_ROOT_WARNING' => '1'
+          }
+        end
+      end
 
       def resolve_image(custom_image)
         return custom_image.to_s.freeze if custom_image && !custom_image.to_s.strip.empty?

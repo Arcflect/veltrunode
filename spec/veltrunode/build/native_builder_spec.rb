@@ -112,5 +112,94 @@ RSpec.describe Veltrunode::Build::NativeBuilder do
         expect(digest).to match(/\A[a-f0-9]{64}\z/), "Expected #{key} digest to be 64 hex chars, got: #{digest.inspect}"
       end
     end
+    it 'configures container command and output_dir for Python runtime' do
+      expect(mock_container_runner).to receive(:run).with(
+        hash_including(
+          image: match(/build-python3.12:latest-x86_64@sha256:/),
+          architecture: 'x86_64',
+          command: ['sh', '-c', 'cd /var/task && pip install -r requirements.txt -t vendor/python'],
+          environment: hash_including('PIP_DISABLE_PIP_VERSION_CHECK' => '1')
+        )
+      ).and_return(
+        executable: 'docker',
+        command: %w[docker run],
+        stdout: 'Pip success',
+        stderr: '',
+        status: 0
+      )
+
+      Dir.mktmpdir do |dir|
+        result = described_class.build(
+          source_dir: dir,
+          output_dir: File.join(dir, 'vendor', 'python'),
+          runtime: 'python3.12',
+          architecture: 'x86_64',
+          build_on: nil,
+          container_runner: mock_container_runner
+        )
+
+        expect(result[:output_dir]).to eq(File.join(dir, 'vendor', 'python'))
+        expect(result[:image]).to include('build-python3.12:latest-x86_64')
+      end
+    end
+
+    it 'raises ValidationError when output_dir for Python is not vendor/python' do
+      Dir.mktmpdir do |dir|
+        expect do
+          described_class.build(
+            source_dir: dir,
+            output_dir: File.join(dir, 'vendor', 'bundle'),
+            runtime: 'python3.12',
+            architecture: 'x86_64',
+            container_runner: mock_container_runner
+          )
+        end.to raise_error(Veltrunode::ValidationError, %r{vendor/python})
+      end
+    end
+
+    it 'configures container command and output_dir for Node.js runtime' do
+      expect(mock_container_runner).to receive(:run).with(
+        hash_including(
+          image: match(/build-nodejs20.x:latest-arm64@sha256:/),
+          architecture: 'arm64',
+          command: ['sh', '-c', 'cd /var/task && npm install --production'],
+          environment: hash_including('NODE_ENV' => 'production')
+        )
+      ).and_return(
+        executable: 'docker',
+        command: %w[docker run],
+        stdout: 'Npm success',
+        stderr: '',
+        status: 0
+      )
+
+      Dir.mktmpdir do |dir|
+        result = described_class.build(
+          source_dir: dir,
+          output_dir: File.join(dir, 'node_modules'),
+          runtime: 'nodejs20.x',
+          architecture: 'arm64',
+          build_on: nil,
+          container_runner: mock_container_runner
+        )
+
+        expect(result[:output_dir]).to eq(File.join(dir, 'node_modules'))
+        expect(result[:image]).to include('build-nodejs20.x:latest-arm64')
+      end
+    end
+
+    it 'raises ValidationError when output_dir for Node.js is not node_modules' do
+      Dir.mktmpdir do |dir|
+        expect do
+          described_class.build(
+            source_dir: dir,
+            output_dir: File.join(dir, 'vendor', 'node'),
+            runtime: 'nodejs20.x',
+            architecture: 'arm64',
+            container_runner: mock_container_runner
+          )
+        end.to raise_error(Veltrunode::ValidationError, /node_modules/)
+      end
+    end
   end
 end
