@@ -119,6 +119,53 @@ RSpec.describe Veltrunode::Validation::Engine do
       expect(compat_error.severity).to eq(:error)
     end
 
+    it 'detects runtime compatibility correctly for Python and Node.js Functions and Layers' do
+      py_layer = Veltrunode::Model::Layer.new(name: 'py_layer', compatible_runtimes: ['python3.12'])
+      node_layer = Veltrunode::Model::Layer.new(name: 'node_layer', compatible_runtimes: ['nodejs20.x'])
+
+      py_fn_ok = Veltrunode::Model::Function.new(
+        logical_name: 'py_fn_ok',
+        handler: 'app.handler',
+        runtime: 'python3.12',
+        layers: ['py_layer']
+      )
+      node_fn_ok = Veltrunode::Model::Function.new(
+        logical_name: 'node_fn_ok',
+        handler: 'index.handler',
+        runtime: 'nodejs20.x',
+        layers: ['node_layer']
+      )
+
+      py_fn_bad = Veltrunode::Model::Function.new(
+        logical_name: 'py_fn_bad',
+        handler: 'app.handler',
+        runtime: 'python3.12',
+        layers: ['node_layer']
+      )
+      node_fn_bad = Veltrunode::Model::Function.new(
+        logical_name: 'node_fn_bad',
+        handler: 'index.handler',
+        runtime: 'nodejs20.x',
+        layers: ['py_layer']
+      )
+
+      valid_app = Veltrunode::Model::Application.new(
+        name: 'valid_app',
+        layers: [py_layer, node_layer],
+        functions: [py_fn_ok, node_fn_ok]
+      )
+      expect(described_class.run(valid_app).select { |d| d.code == 'VLT-LAYER-001' }).to be_empty
+
+      invalid_app = Veltrunode::Model::Application.new(
+        name: 'invalid_app',
+        layers: [py_layer, node_layer],
+        functions: [py_fn_bad, node_fn_bad]
+      )
+      errors = described_class.run(invalid_app).select { |d| d.code == 'VLT-LAYER-001' }
+      expect(errors.size).to eq(2)
+      expect(errors.map { |e| e.evidence['function'] }).to contain_exactly('py_fn_bad', 'node_fn_bad')
+    end
+
     it 'detects architecture incompatibility between Function and Layer (VLT-LAYER-001)' do
       arm_layer = Veltrunode::Model::Layer.new(
         name: 'arm-layer',

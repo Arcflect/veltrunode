@@ -134,11 +134,40 @@ module Veltrunode
       end
 
       def runtime_matches?(fn_runtime, compat_runtimes)
-        compat_runtimes.any? do |cr|
-          cr == fn_runtime ||
-            "ruby#{cr}" == fn_runtime ||
-            fn_runtime.sub('ruby', '') == cr
+        compat_runtimes.any? { |cr| single_runtime_matches?(fn_runtime, cr) }
+      end
+
+      def single_runtime_matches?(fn_runtime, cr)
+        return true if fn_runtime == cr
+
+        if fn_runtime.start_with?('ruby')
+          ruby_runtime_matches?(fn_runtime, cr)
+        elsif fn_runtime.start_with?('python')
+          python_runtime_matches?(fn_runtime, cr)
+        elsif fn_runtime.start_with?('nodejs', 'node')
+          node_runtime_matches?(fn_runtime, cr)
+        else
+          false
         end
+      end
+
+      def ruby_runtime_matches?(fn_runtime, cr)
+        return false if cr.start_with?('python', 'node')
+
+        "ruby#{cr}" == fn_runtime || fn_runtime.delete_prefix('ruby') == cr
+      end
+
+      def python_runtime_matches?(fn_runtime, cr)
+        return false if cr.start_with?('ruby', 'node')
+
+        cr == 'python3' || "python#{cr}" == fn_runtime || fn_runtime.delete_prefix('python') == cr
+      end
+
+      def node_runtime_matches?(fn_runtime, cr)
+        return false if cr.start_with?('ruby', 'python')
+
+        "nodejs#{cr}" == fn_runtime || fn_runtime.delete_prefix('nodejs') == cr ||
+          fn_runtime.delete_prefix('nodejs').delete_suffix('.x') == cr.delete_prefix('nodejs').delete_suffix('.x')
       end
 
       def validate_model_invariants
