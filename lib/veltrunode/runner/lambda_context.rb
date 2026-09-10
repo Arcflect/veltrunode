@@ -50,10 +50,10 @@ module Veltrunode
 
       alias remaining_time_in_millis get_remaining_time_in_millis
 
-def [](key)
-  h = to_h
-  h[key.to_s.to_sym]
-end
+      def [](key)
+        h = to_h
+        h[key.to_s.to_sym]
+      end
 
       def to_h
         {
