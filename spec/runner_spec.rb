@@ -125,6 +125,57 @@ RSpec.describe Veltrunode::Runner do
       end
     end
 
+    it 'executes a Ruby handler method accepting only event: keyword argument' do
+      Dir.mktmpdir do |dir|
+        File.write(File.join(dir, 'event_only.rb'), <<~RUBY)
+          def handle_event(event:)
+            { echoed: event[:val] }
+          end
+        RUBY
+
+        func = Veltrunode::Function.new(:event_only_fn)
+        func.handler = 'event_only.handle_event'
+        func.runtime = 'ruby3.2'
+
+        res = described_class.run(func, { val: 'test' }, source_dir: dir)
+        expect(res.result).to eq({ echoed: 'test' })
+      end
+    end
+
+    it 'executes a Ruby handler method accepting only context: keyword argument' do
+      Dir.mktmpdir do |dir|
+        File.write(File.join(dir, 'context_only.rb'), <<~RUBY)
+          def handle_ctx(context:)
+            { fn: context.function_name }
+          end
+        RUBY
+
+        func = Veltrunode::Function.new(:ctx_only_fn)
+        func.handler = 'context_only.handle_ctx'
+        func.runtime = 'ruby3.2'
+
+        res = described_class.run(func, {}, source_dir: dir)
+        expect(res.result).to eq({ fn: 'ctx_only_fn' })
+      end
+    end
+
+    it 'executes a Ruby handler method accepting positional event and keyword context' do
+      Dir.mktmpdir do |dir|
+        File.write(File.join(dir, 'mixed.rb'), <<~RUBY)
+          def handle_mixed(event, context: nil)
+            { e: event['k'], has_ctx: !context.nil? }
+          end
+        RUBY
+
+        func = Veltrunode::Function.new(:mixed_fn)
+        func.handler = 'mixed.handle_mixed'
+        func.runtime = 'ruby3.2'
+
+        res = described_class.run(func, { 'k' => 'v' }, source_dir: dir)
+        expect(res.result).to eq({ e: 'v', has_ctx: true })
+      end
+    end
+
     it 'sets standard AWS Lambda and custom function environment variables, then restores ENV' do
       Dir.mktmpdir do |dir|
         File.write(File.join(dir, 'env_check.rb'), <<~RUBY)

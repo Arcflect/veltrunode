@@ -127,14 +127,8 @@ module Veltrunode
 
     def call_handler_method(method_obj, event, context)
       params = method_obj.parameters
-      accepts_keywords = params.any? { |type, _| %i[key keyreq keyrest].include?(type) }
-
-      if accepts_keywords
-        begin
-          method_obj.call(event: event, context: context)
-        rescue ArgumentError
-          invoke_positional_handler(method_obj, event, context)
-        end
+      if params.any? { |type, _| %i[key keyreq keyrest].include?(type) }
+        invoke_keyword_handler(method_obj, params, event, context)
       else
         invoke_positional_handler(method_obj, event, context)
       end
@@ -142,6 +136,35 @@ module Veltrunode
       raise
     rescue StandardError => e
       raise Veltrunode::Error, "Failed to execute Ruby handler: #{e.message}"
+    end
+
+    def invoke_keyword_handler(method_obj, params, event, context)
+      has_keyrest = params.any? { |param| param[0] == :keyrest }
+      key_names = params.filter_map { |type, name| name if %i[key keyreq].include?(type) }
+
+      kwargs = {}
+      kwargs[:event] = event if has_keyrest || key_names.include?(:event)
+      kwargs[:context] = context if has_keyrest || key_names.include?(:context)
+
+      args = build_positional_args(params, event, context)
+      if kwargs.empty?
+        method_obj.call(*args)
+      else
+        method_obj.call(*args, **kwargs)
+      end
+    end
+
+    def build_positional_args(params, event, context)
+      positional_count = params.count { |param| %i[req opt].include?(param[0]) }
+      has_rest = params.any? { |param| param[0] == :rest }
+
+      if has_rest || positional_count >= 2
+        [event, context]
+      elsif positional_count == 1
+        [event]
+      else
+        []
+      end
     end
 
     def invoke_positional_handler(method_obj, event, context)
