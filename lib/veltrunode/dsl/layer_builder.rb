@@ -25,6 +25,14 @@ module Veltrunode
         @bundle ||= 'bundle'
       end
 
+      def pip(requirements: 'requirements.txt')
+        @build_environment['requirements'] = requirements.to_s
+      end
+
+      def npm(package_json: 'package.json')
+        @build_environment['package_json'] = package_json.to_s
+      end
+
       def include_gems(gems)
         @build_environment['include_gems'] = Array(gems).map(&:to_s)
       end
