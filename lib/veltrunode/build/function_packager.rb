@@ -17,6 +17,7 @@ module Veltrunode
         spec/* test/* spec/**/* test/**/* *.tmp
         .git/* .git/**/* .DS_Store tmp/* tmp/**/* *.log
         build/* build/**/* .veltrunode/* .veltrunode/**/*
+        *.pyc __pycache__/* __pycache__/**/*
       ].freeze
 
       class << self
