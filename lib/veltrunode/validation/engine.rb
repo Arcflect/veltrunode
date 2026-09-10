@@ -166,8 +166,10 @@ module Veltrunode
       def node_runtime_matches?(fn_runtime, cr)
         return false if cr.start_with?('ruby', 'python')
 
-        "nodejs#{cr}" == fn_runtime || fn_runtime.delete_prefix('nodejs') == cr ||
-          fn_runtime.delete_prefix('nodejs').delete_suffix('.x') == cr.delete_prefix('nodejs').delete_suffix('.x')
+        fn_ver = fn_runtime.sub(/^node(js)?/, '')
+        cr_ver = cr.sub(/^node(js)?/, '')
+
+        fn_ver == cr_ver || fn_ver.delete_suffix('.x') == cr_ver.delete_suffix('.x')
       end
 
       def validate_model_invariants
