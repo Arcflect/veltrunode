@@ -462,10 +462,21 @@ RSpec.describe Veltrunode::CLI::Router do
       expect(stdout.string.strip).to eq('Deployment successful.')
     end
 
-    it 'runs invoke local command stub' do
+    it 'runs invoke local command' do
+      mock_fn = Veltrunode::Model::Function.new(logical_name: 'my-func', handler: 'my_func.handler')
+      mock_app = Veltrunode::Model::Application.new(name: 'test-app', functions: [mock_fn])
+      allow(Veltrunode::SettingsLoader).to receive(:load).and_return(mock_app)
+      mock_result = Veltrunode::Runner::ExecutionResult.new(
+        result: { 'message' => 'hello' },
+        duration_ms: 12.34,
+        memory_size_mb: 128,
+        function_name: 'my-func'
+      )
+      allow(Veltrunode::Runner).to receive(:run).and_return(mock_result)
+
       code = run_cli(%w[invoke local my-func])
       expect(code).to eq(0)
-      expect(stdout.string.strip).to eq('Invoked local function: my-func.')
+      expect(stdout.string).to include('"message": "hello"')
     end
 
     it 'runs destroy command stub' do

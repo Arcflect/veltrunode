@@ -18,7 +18,30 @@
 検証（validate）、ビルド（build）、計画（plan）を実行し、設定されたステージポリシーに従って明示的な承認を取得した後に、変更セットを実行します。
 
 ### `veltrunode invoke local NAME`
-ローカルPC上（コンテナ環境等）でLambda関数を疑似的に実行し、動作テストやデバッグを行います。`--event` オプションでモックイベントのJSONファイルを渡すことができます。
+ローカルPC上（コンテナ環境等）でLambda関数を疑似的に実行し、動作テストやデバッグを行います。
+
+- **オプション**:
+  - `--event <file>`: モックイベントのJSONファイルパス（未指定時は空のオブジェクト `{}`）
+  - `--format <text|json>`: 出力形式（デフォルト: `text`）
+  - `--file <path>`: カスタム `Veltrunodefile` のパス
+- **模擬されるランタイム環境変数**:
+  - `AWS_LAMBDA_FUNCTION_NAME`: 関数論理名
+  - `AWS_LAMBDA_FUNCTION_VERSION`: `$LATEST`
+  - `AWS_LAMBDA_FUNCTION_MEMORY_SIZE`: 設定メモリサイズ（MB）
+  - `AWS_REGION` / `AWS_DEFAULT_REGION`: 設定リージョン
+  - `LAMBDA_TASK_ROOT`: プロジェクトソースディレクトリ
+  - `_HANDLER`: ハンドラー文字列
+  - `STAGE`: アプリケーションのステージ
+  - `VELTRUNODE_APP`: アプリケーション名
+  - および関数固有の `environment` 設定値（実行完了後に確実に元の環境変数へ復元）
+- **模擬される Lambda Context オブジェクト**:
+  - `aws_request_id` (UUID), `function_name`, `function_version`, `invoked_function_arn`, `memory_limit_in_mb`
+  - `log_group_name`, `log_stream_name`, `deadline_ms`
+  - `get_remaining_time_in_millis` / `remaining_time_in_millis`（残り実行時間ミリ秒）
+- **タイムアウト制御**:
+  - 関数の `timeout` 設定値（秒）に基づきローカル実行時間を監視し、超過時はタイムアウトエラーを通知します。
+- **制限事項 (Limitations)**:
+  - **EFSマウントのシミュレーション**: ローカル実行環境ではEFSマウントのシミュレーションはスキップされます（実行時に警告 `[WARN]` が出力されます）。
 
 ### `veltrunode destroy`
 スタックを削除する前に、削除計画を作成してプレビューを表示します。保護対象ステージでの実行時には、意図的な確認入力を要求します。
@@ -35,7 +58,7 @@
 ## 終了コード (Exit Codes)
 
 - 0: 成功
-- 2: 無効な入力
+- 2: 無効な入力（不正な引数、イベントファイル不在・不正JSON、タイムアウト、ハンドラー実行エラー等）
 - 3: バリデーション失敗
 - 4: AWS認証失敗 / アカウント情報の不整合
 - 5: ビルド失敗
