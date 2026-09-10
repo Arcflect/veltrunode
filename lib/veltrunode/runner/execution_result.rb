@@ -30,9 +30,10 @@ module Veltrunode
         true
       end
 
-      def [](key)
-        to_h[key.to_sym] || to_h[key.to_s]
-      end
+def [](key)
+  h = to_h
+  h[key.to_s.to_sym]
+end
 
       def ==(other)
         if other.is_a?(ExecutionResult)
