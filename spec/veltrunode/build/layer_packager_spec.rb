@@ -510,5 +510,77 @@ RSpec.describe Veltrunode::Build::LayerPackager do
         expect(res2.sha256).to eq(res1.sha256)
       end
     end
+
+    it 'packages Python packages into python/lib/python3.x/site-packages/ structure' do
+      with_tmpdir do |tmpdir|
+        req_file = File.join(tmpdir, 'requirements.txt')
+        File.write(req_file, "requests==2.31.0\nurllib3>=1.26.0\n")
+
+        py_layer = Veltrunode::Model::Layer.new(
+          name: 'python_deps',
+          compatible_runtimes: ['python3.12'],
+          architectures: [:x86_64]
+        )
+
+        output_dir = File.join(tmpdir, 'out_py')
+        res = described_class.package(
+          layer: py_layer,
+          requirements_path: req_file,
+          source_dir: tmpdir,
+          output_dir: output_dir,
+          allow_missing_gems: true
+        )
+
+        expect(res.layer_name).to eq('python_deps')
+        expect(File.exist?(res.zip_path)).to be true
+
+        entries = []
+        Zip::File.open(res.zip_path) do |zip|
+          entries = zip.map(&:name)
+        end
+
+        expect(entries).to include('python/lib/python3.12/site-packages/requests/__init__.py')
+        expect(entries).to include('python/lib/python3.12/site-packages/urllib3/__init__.py')
+      end
+    end
+
+    it 'packages Node.js modules into nodejs/node_modules/ structure' do
+      with_tmpdir do |tmpdir|
+        pkg_file = File.join(tmpdir, 'package.json')
+        pkg_data = {
+          dependencies: {
+            'lodash' => '^4.17.21',
+            'axios' => '^1.6.0'
+          }
+        }
+        File.write(pkg_file, JSON.generate(pkg_data))
+
+        node_layer = Veltrunode::Model::Layer.new(
+          name: 'node_deps',
+          compatible_runtimes: ['nodejs20.x'],
+          architectures: [:x86_64]
+        )
+
+        output_dir = File.join(tmpdir, 'out_node')
+        res = described_class.package(
+          layer: node_layer,
+          package_json_path: pkg_file,
+          source_dir: tmpdir,
+          output_dir: output_dir,
+          allow_missing_gems: true
+        )
+
+        expect(res.layer_name).to eq('node_deps')
+        expect(File.exist?(res.zip_path)).to be true
+
+        entries = []
+        Zip::File.open(res.zip_path) do |zip|
+          entries = zip.map(&:name)
+        end
+
+        expect(entries).to include('nodejs/node_modules/lodash/package.json')
+        expect(entries).to include('nodejs/node_modules/axios/package.json')
+      end
+    end
   end
 end
