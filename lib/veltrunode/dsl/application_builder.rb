@@ -35,8 +35,12 @@ module Veltrunode
         @stage = st.to_s
       end
 
-      def runtime(ruby: nil, architecture: nil)
-        @runtime_defaults[:ruby] = ruby.to_s if ruby
+      def runtime(arg = nil, ruby: nil, python: nil, nodejs: nil, node: nil, architecture: nil)
+        apply_positional_runtime(arg.to_s) if arg
+        @runtime_defaults[:ruby] = normalize_version(ruby, 'ruby') if ruby
+        @runtime_defaults[:python] = normalize_version(python, 'python') if python
+        node_val = nodejs || node
+        @runtime_defaults[:nodejs] = normalize_version(node_val, 'node') if node_val
         @runtime_defaults[:architecture] = architecture.to_sym if architecture
       end
 
@@ -50,7 +54,7 @@ module Veltrunode
       end
 
       def layer(name, &)
-        builder = LayerBuilder.new(name, runtime_default: @runtime_defaults[:ruby] || 'ruby3.3')
+        builder = LayerBuilder.new(name, runtime_default: resolve_default_runtime || 'ruby3.3')
         builder.instance_eval(&) if block_given?
         @layer_builders << builder
       end
@@ -62,10 +66,9 @@ module Veltrunode
       end
 
       def function(name, &)
-        ruby_default = @runtime_defaults[:ruby] ? "ruby#{runtime_version_normalized(@runtime_defaults[:ruby])}" : nil
         builder = FunctionBuilder.new(
           name,
-          runtime_default: ruby_default,
+          runtime_default: resolve_default_runtime,
           architecture_default: @runtime_defaults[:architecture] || :x86_64
         )
         builder.instance_eval(&) if block_given?
@@ -115,9 +118,33 @@ module Veltrunode
 
       private
 
-      def runtime_version_normalized(ver)
+      def apply_positional_runtime(str)
+        if str.start_with?('python')
+          @runtime_defaults[:python] = normalize_version(str.sub('python', ''), 'python')
+        elsif str.start_with?('nodejs') || str.start_with?('node')
+          @runtime_defaults[:nodejs] = normalize_version(str.sub(/^node(js)?/, ''), 'node')
+        elsif str.start_with?('ruby')
+          @runtime_defaults[:ruby] = normalize_version(str.sub('ruby', ''), 'ruby')
+        end
+      end
+
+      def normalize_version(ver, prefix)
         v = ver.to_s
-        v.start_with?('ruby') ? v.sub('ruby', '') : v
+        if prefix == 'node'
+          v.sub(/^node(js)?/, '')
+        else
+          v.start_with?(prefix) ? v.sub(prefix, '') : v
+        end
+      end
+
+      def resolve_default_runtime
+        if @runtime_defaults[:python]
+          "python#{@runtime_defaults[:python]}"
+        elsif @runtime_defaults[:nodejs]
+          "nodejs#{@runtime_defaults[:nodejs]}"
+        elsif @runtime_defaults[:ruby]
+          "ruby#{@runtime_defaults[:ruby]}"
+        end
       end
     end
 

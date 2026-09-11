@@ -53,7 +53,16 @@ module Veltrunode
 
       def runtime
         ruby_ver = runtime_defaults[:ruby] || runtime_defaults['ruby']
-        ruby_ver ? "ruby#{ruby_ver.to_s.sub('ruby', '')}" : nil
+        return "ruby#{ruby_ver.to_s.sub(/^ruby/, '')}" if ruby_ver
+
+        py_ver = runtime_defaults[:python] || runtime_defaults['python']
+        return "python#{py_ver.to_s.sub(/^python/, '')}" if py_ver
+
+        node_ver = runtime_defaults[:nodejs] || runtime_defaults['nodejs'] ||
+                   runtime_defaults[:node] || runtime_defaults['node']
+        return "nodejs#{node_ver.to_s.sub(/^node(js)?/, '')}" if node_ver
+
+        nil
       end
 
       def architecture

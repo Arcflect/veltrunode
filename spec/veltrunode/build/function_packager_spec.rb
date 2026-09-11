@@ -289,5 +289,119 @@ RSpec.describe Veltrunode::Build::FunctionPackager do
         expect(res2.sha256).to eq(res1.sha256)
       end
     end
+    it 'packages Python function source including pip dependencies and excludes __pycache__' do
+      with_tmpdir do |tmpdir|
+        source_dir = File.join(tmpdir, 'src')
+        FileUtils.mkdir_p(File.join(source_dir, 'requests'))
+        FileUtils.mkdir_p(File.join(source_dir, '__pycache__'))
+
+        File.write(File.join(source_dir, 'main.py'), 'def handler(event, context): return {}')
+        File.write(File.join(source_dir, 'requirements.txt'), 'requests>=2.31.0')
+        File.write(File.join(source_dir, 'requests', '__init__.py'), '# requests')
+        File.write(File.join(source_dir, 'requests', 'api.py'), 'def get(): pass')
+        File.write(File.join(source_dir, '__pycache__', 'main.cpython-312.pyc'), 'bytecode')
+        File.write(File.join(source_dir, 'main.pyc'), 'bytecode')
+
+        py_fn = Veltrunode::Model::Function.new(
+          logical_name: 'api_handler',
+          handler: 'main.handler',
+          runtime: 'python3.12'
+        )
+
+        output_dir = File.join(tmpdir, 'build', 'artifacts', 'functions')
+        result = described_class.package(
+          function: py_fn,
+          source_dir: source_dir,
+          output_dir: output_dir
+        )
+
+        expect(result).to be_a(Veltrunode::Build::PackageResult)
+        expect(result.function_name).to eq('api_handler')
+        expect(File.exist?(result.zip_path)).to be true
+
+        Zip::File.open(result.zip_path) do |zipfile|
+          names = zipfile.map(&:name)
+          expect(names).to include(
+            'main.py', 'requirements.txt', 'requests/', 'requests/__init__.py', 'requests/api.py'
+          )
+          expect(names).not_to include(match(/__pycache__/))
+          expect(names).not_to include(match(/\.pyc\z/))
+        end
+      end
+    end
+
+    it 'packages Node.js function source including npm dependencies in node_modules' do
+      with_tmpdir do |tmpdir|
+        source_dir = File.join(tmpdir, 'src')
+        FileUtils.mkdir_p(File.join(source_dir, 'node_modules', 'lodash'))
+
+        File.write(File.join(source_dir, 'index.js'), 'exports.handler = async (event) => ({});')
+        File.write(File.join(source_dir, 'package.json'), '{"name": "fn", "dependencies": {"lodash": "^4.17.21"}}')
+        File.write(File.join(source_dir, 'node_modules', 'lodash', 'index.js'), 'module.exports = {};')
+        File.write(File.join(source_dir, 'node_modules', 'lodash', 'package.json'), '{"name": "lodash"}')
+
+        node_fn = Veltrunode::Model::Function.new(
+          logical_name: 'web_handler',
+          handler: 'index.handler',
+          runtime: 'nodejs20.x'
+        )
+
+        output_dir = File.join(tmpdir, 'build', 'artifacts', 'functions')
+        result = described_class.package(
+          function: node_fn,
+          source_dir: source_dir,
+          output_dir: output_dir
+        )
+
+        expect(result).to be_a(Veltrunode::Build::PackageResult)
+        expect(result.function_name).to eq('web_handler')
+        expect(File.exist?(result.zip_path)).to be true
+
+        Zip::File.open(result.zip_path) do |zipfile|
+          names = zipfile.map(&:name)
+          expect(names).to include(
+            'index.js',
+            'package.json',
+            'node_modules/',
+            'node_modules/lodash/',
+            'node_modules/lodash/index.js',
+            'node_modules/lodash/package.json'
+          )
+        end
+      end
+    end
+
+    it 'validates handler file exists for Python and Node.js runtimes' do
+      with_tmpdir do |tmpdir|
+        source_dir = File.join(tmpdir, 'src')
+        FileUtils.mkdir_p(source_dir)
+
+        missing_py = Veltrunode::Model::Function.new(
+          logical_name: 'missing_py',
+          handler: 'app.handler',
+          runtime: 'python3.12'
+        )
+
+        expect do
+          described_class.package(function: missing_py, source_dir: source_dir, output_dir: File.join(tmpdir, 'out'))
+        end.to raise_error(Veltrunode::ValidationError) { |err|
+          expect(err.diagnostics.first.code).to eq('VLT-BUILD-HANDLER-NOT-FOUND')
+          expect(err.diagnostics.first.evidence['expected_files']).to include('app.py')
+        }
+
+        missing_node = Veltrunode::Model::Function.new(
+          logical_name: 'missing_node',
+          handler: 'server.handler',
+          runtime: 'nodejs20.x'
+        )
+
+        expect do
+          described_class.package(function: missing_node, source_dir: source_dir, output_dir: File.join(tmpdir, 'out'))
+        end.to raise_error(Veltrunode::ValidationError) { |err|
+          expect(err.diagnostics.first.code).to eq('VLT-BUILD-HANDLER-NOT-FOUND')
+          expect(err.diagnostics.first.evidence['expected_files']).to include('server.js', 'server.mjs', 'server.cjs')
+        }
+      end
+    end
   end
 end

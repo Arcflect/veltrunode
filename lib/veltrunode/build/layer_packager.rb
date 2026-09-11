@@ -25,10 +25,16 @@ module Veltrunode
         'ruby3.0' => '3.0.0'
       }.freeze
 
+      PYTHON_PACKAGE_NAME_REGEX = /\A[a-zA-Z0-9](?:[a-zA-Z0-9._-]*[a-zA-Z0-9])?\z/
+      NODE_MODULE_NAME_REGEX = %r{\A(?:@[a-zA-Z0-9_.-]+/)?[a-zA-Z0-9_.-]+\z}
+
       class << self
         def package(
           layer:,
           gemfile_lock_path: nil,
+          requirements_path: nil,
+          package_json_path: nil,
+          package_lock_path: nil,
           source_dir: nil,
           output_dir: DEFAULT_OUTPUT_DIR,
           without_groups: %w[development test],
@@ -36,6 +42,7 @@ module Veltrunode
           include_gems: nil,
           build_image_id: nil,
           allow_missing_gems: false,
+          allow_missing_packages: nil,
           build_on: nil,
           native_builder: NativeBuilder,
           container_runner: ContainerRunner,
@@ -47,6 +54,9 @@ module Veltrunode
           new(
             layer: layer,
             gemfile_lock_path: gemfile_lock_path,
+            requirements_path: requirements_path,
+            package_json_path: package_json_path,
+            package_lock_path: package_lock_path,
             source_dir: source_dir,
             output_dir: output_dir,
             without_groups: without_groups,
@@ -54,6 +64,7 @@ module Veltrunode
             include_gems: include_gems,
             build_image_id: build_image_id,
             allow_missing_gems: allow_missing_gems,
+            allow_missing_packages: allow_missing_packages,
             build_on: build_on,
             native_builder: native_builder,
             container_runner: container_runner,
@@ -68,6 +79,9 @@ module Veltrunode
       def initialize(
         layer:,
         gemfile_lock_path: nil,
+        requirements_path: nil,
+        package_json_path: nil,
+        package_lock_path: nil,
         source_dir: nil,
         output_dir: DEFAULT_OUTPUT_DIR,
         without_groups: %w[development test],
@@ -75,6 +89,7 @@ module Veltrunode
         include_gems: nil,
         build_image_id: nil,
         allow_missing_gems: false,
+        allow_missing_packages: nil,
         build_on: nil,
         native_builder: NativeBuilder,
         container_runner: ContainerRunner,
@@ -86,12 +101,16 @@ module Veltrunode
         @layer = layer
         @source_dir = source_dir ? File.expand_path(source_dir.to_s) : Dir.pwd
         @gemfile_lock_path = resolve_gemfile_lock_path(gemfile_lock_path)
+        @requirements_path = resolve_requirements_path(requirements_path)
+        @package_json_path = resolve_package_json_path(package_json_path)
+        @package_lock_path = resolve_package_lock_path(package_lock_path)
         @output_dir = File.expand_path(output_dir.to_s)
         @without_groups = Array(without_groups).map(&:to_s)
         @groups = groups ? Array(groups).map(&:to_s) : []
         @include_gems = include_gems ? Array(include_gems).map(&:to_s) : []
         @build_image_id = build_image_id ? build_image_id.to_s : 'amazonlinux:default'
         @allow_missing_gems = allow_missing_gems
+        @allow_missing_packages = allow_missing_packages.nil? ? allow_missing_gems : allow_missing_packages
         @build_on = build_on
         @native_builder = native_builder
         @container_runner = container_runner
@@ -103,52 +122,137 @@ module Veltrunode
 
       def package
         layer_name = extract_layer_name
+        case layer_runtime_family
+        when :python
+          package_python_layer(layer_name)
+        when :nodejs
+          package_nodejs_layer(layer_name)
+        else
+          package_ruby_layer(layer_name)
+        end
+      end
+
+      def package_ruby_layer(layer_name)
         lock_content = read_gemfile_lock
         image_digest = resolve_container_build_if_needed
         content_hash = calculate_content_hash(lock_content, image_digest: image_digest)
 
-        zip_path = File.join(@output_dir, "#{layer_name}.zip")
+        cached = fetch_from_cache(content_hash, layer_name)
+        return cached if cached
 
-        unless @no_cache
-          require_relative 'cache' unless defined?(Veltrunode::Build::Cache)
-          cached_result = Cache.fetch(content_hash, zip_path, cache_dir: @cache_dir)
-          return cached_result if cached_result
-        end
-
-        ruby_abi_version = resolve_ruby_abi_version
-
+        ruby_abi_versions = resolve_ruby_abi_versions
         result = Dir.mktmpdir('veltrunode_layer_') do |tmp_dir|
-          layer_gems_dir = File.join(tmp_dir, 'ruby', 'gems', ruby_abi_version)
-          stage_gems_into_structure(lock_content, layer_gems_dir)
+          first_abi = ruby_abi_versions.first
+          first_abi_dir = File.join(tmp_dir, 'ruby', 'gems', first_abi)
+          stage_gems_into_structure(lock_content, first_abi_dir)
 
-          validate_symlinks!(tmp_dir)
+          if ruby_abi_versions.size > 1
+            if native_extensions_present?(first_abi_dir, lock_content)
+              raise ValidationError,
+                    "Layer '#{layer_name}' contains native extensions and cannot target multiple Ruby ABI versions " \
+                    "(#{ruby_abi_versions.join(', ')}). Compile each ABI independently or use pure-Ruby gems."
+            end
 
-          archive_result = DeterministicArchiver.archive(
-            source_dir: tmp_dir,
-            output_path: zip_path,
-            includes: @user_includes.empty? ? nil : @user_includes,
-            excludes: @user_excludes.empty? ? nil : @user_excludes
-          )
+            ruby_abi_versions[1..].each do |ruby_abi_version|
+              layer_gems_dir = File.join(tmp_dir, 'ruby', 'gems', ruby_abi_version)
+              FileUtils.mkdir_p(layer_gems_dir)
+              FileUtils.cp_r(File.join(first_abi_dir, '.'), layer_gems_dir)
+            end
+          end
 
-          size_diag = calculate_size_diagnostics(archive_result.output_path)
-
-          LayerPackageResult.new(
-            layer_name: layer_name,
-            zip_path: archive_result.output_path,
-            content_hash: content_hash,
-            sha256: archive_result.sha256,
-            compressed_size: archive_result.bytesize,
-            uncompressed_size: size_diag[:uncompressed_size],
-            size_diagnostics: size_diag,
-            entries: archive_result.entries,
-            diagnostics: [],
-            cached: false
-          )
+          archive_layer_directory(tmp_dir, layer_name, content_hash)
         end
 
         Cache.store(content_hash, result, cache_dir: @cache_dir) unless @no_cache
-
         result
+      end
+
+      def package_python_layer(layer_name)
+        req_content = read_requirements_file
+        image_digest = resolve_container_build_if_needed
+        content_hash = calculate_python_content_hash(req_content, image_digest: image_digest)
+
+        cached = fetch_from_cache(content_hash, layer_name)
+        return cached if cached
+
+        py_versions = resolve_python_versions
+        result = Dir.mktmpdir('veltrunode_py_layer_') do |tmp_dir|
+          first_ver = py_versions.first
+          first_site_packages_dir = File.join(tmp_dir, 'python', 'lib', first_ver, 'site-packages')
+          stage_python_packages_into_structure(req_content, first_site_packages_dir)
+
+          if py_versions.size > 1
+            if python_abi_specific_files_present?(first_site_packages_dir)
+              raise ValidationError,
+                    "Layer '#{layer_name}' contains ABI-specific compiled extensions and cannot target multiple " \
+                    "Python runtime versions (#{py_versions.join(', ')}). Package each Python version independently " \
+                    'or use pure-Python packages.'
+            end
+
+            py_versions[1..].each do |py_ver|
+              site_packages_dir = File.join(tmp_dir, 'python', 'lib', py_ver, 'site-packages')
+              FileUtils.mkdir_p(site_packages_dir)
+              FileUtils.cp_r(File.join(first_site_packages_dir, '.'), site_packages_dir)
+            end
+          end
+
+          archive_layer_directory(tmp_dir, layer_name, content_hash)
+        end
+
+        Cache.store(content_hash, result, cache_dir: @cache_dir) unless @no_cache
+        result
+      end
+
+      def package_nodejs_layer(layer_name)
+        pkg_content = read_package_json_file
+        image_digest = resolve_container_build_if_needed
+        content_hash = calculate_nodejs_content_hash(pkg_content, image_digest: image_digest)
+
+        cached = fetch_from_cache(content_hash, layer_name)
+        return cached if cached
+
+        result = Dir.mktmpdir('veltrunode_node_layer_') do |tmp_dir|
+          node_modules_dir = File.join(tmp_dir, 'nodejs', 'node_modules')
+          stage_node_modules_into_structure(pkg_content, node_modules_dir)
+          archive_layer_directory(tmp_dir, layer_name, content_hash)
+        end
+
+        Cache.store(content_hash, result, cache_dir: @cache_dir) unless @no_cache
+        result
+      end
+
+      def fetch_from_cache(content_hash, layer_name)
+        return nil if @no_cache
+
+        require_relative 'cache' unless defined?(Veltrunode::Build::Cache)
+        zip_path = File.join(@output_dir, "#{layer_name}.zip")
+        Cache.fetch(content_hash, zip_path, cache_dir: @cache_dir)
+      end
+
+      def archive_layer_directory(tmp_dir, layer_name, content_hash)
+        validate_symlinks!(tmp_dir)
+
+        zip_path = File.join(@output_dir, "#{layer_name}.zip")
+        archive_result = DeterministicArchiver.archive(
+          source_dir: tmp_dir,
+          output_path: zip_path,
+          includes: @user_includes.empty? ? nil : @user_includes,
+          excludes: @user_excludes.empty? ? nil : @user_excludes
+        )
+
+        size_diag = calculate_size_diagnostics(archive_result.output_path)
+        LayerPackageResult.new(
+          layer_name: layer_name,
+          zip_path: archive_result.output_path,
+          content_hash: content_hash,
+          sha256: archive_result.sha256,
+          compressed_size: archive_result.bytesize,
+          uncompressed_size: size_diag[:uncompressed_size],
+          size_diagnostics: size_diag,
+          entries: archive_result.entries,
+          diagnostics: [],
+          cached: false
+        )
       end
 
       private
@@ -159,6 +263,437 @@ module Veltrunode
         else
           candidate = File.join(@source_dir, 'Gemfile.lock')
           File.exist?(candidate) ? candidate : nil
+        end
+      end
+
+      def layer_runtime_family
+        runtimes = extract_runtimes
+        families = runtimes.map { |r| runtime_family_for(r) }.uniq
+        if families.size > 1
+          family_list = families.sort.join(', ')
+          raise ValidationError,
+                "Layer '#{extract_layer_name}' specifies compatible runtimes across multiple runtime families " \
+                "(#{family_list}). Layers must belong to a single runtime family."
+        end
+
+        families.first || :ruby
+      end
+
+      def runtime_family_for(runtime)
+        r = runtime.to_s
+        if r.start_with?('python')
+          :python
+        elsif r.start_with?('node')
+          :nodejs
+        elsif r.start_with?('ruby')
+          :ruby
+        else
+          :unknown
+        end
+      end
+
+      def resolve_python_versions
+        py_rts = extract_runtimes.select { |r| r.start_with?('python') }
+        return ['python3.12'] if py_rts.empty?
+
+        versions = py_rts.map do |py_rt|
+          m = py_rt.match(/python(\d+\.\d+)/)
+          m ? "python#{m[1]}" : py_rt
+        end
+        versions.uniq
+      end
+
+      def resolve_python_version
+        resolve_python_versions.first
+      end
+
+      def python_abi_specific_files_present?(dir)
+        return false unless dir && File.directory?(dir)
+
+        return true if Dir.glob(File.join(dir, '**', '*.{so,pyd,dylib}')).any?
+
+        wheel_files = Dir.glob(File.join(dir, '**', '*.dist-info', 'WHEEL'))
+        wheel_files.any? do |wf|
+          File.read(wf).match?(/^Tag:\s*(?:cp|cpython)\d+/i)
+        rescue StandardError
+          false
+        end
+      end
+
+      def resolve_container_output_dir(runtime)
+        if runtime.start_with?('python')
+          File.join(@source_dir, 'vendor', 'python')
+        elsif runtime.start_with?('node')
+          if @package_json_path && File.exist?(@package_json_path)
+            pkg_dir = File.dirname(@package_json_path)
+            pkg_dir == @source_dir ? File.join(@source_dir, 'node_modules') : File.join(pkg_dir, 'node_modules')
+          else
+            File.join(@source_dir, 'node_modules')
+          end
+        else
+          File.join(@source_dir, 'vendor', 'bundle')
+        end
+      end
+
+      def resolve_requirements_path(path)
+        if path
+          File.expand_path(path.to_s)
+        elsif @layer.respond_to?(:build_environment) && @layer.build_environment['requirements']
+          File.expand_path(@layer.build_environment['requirements'].to_s, @source_dir)
+        else
+          candidate = File.join(@source_dir, 'requirements.txt')
+          File.exist?(candidate) ? candidate : nil
+        end
+      end
+
+      def read_requirements_file
+        return '' unless @requirements_path
+
+        unless File.file?(@requirements_path)
+          raise ValidationError, "requirements file not found: #{@requirements_path}"
+        end
+
+        File.read(@requirements_path)
+      end
+
+      def resolve_package_json_path(path)
+        if path
+          File.expand_path(path.to_s)
+        elsif @layer.respond_to?(:build_environment) && @layer.build_environment['package_json']
+          File.expand_path(@layer.build_environment['package_json'].to_s, @source_dir)
+        else
+          candidate = File.join(@source_dir, 'package.json')
+          File.exist?(candidate) ? candidate : nil
+        end
+      end
+
+      def resolve_package_lock_path(path)
+        if path
+          resolved = File.expand_path(path.to_s, @source_dir)
+          return resolved if File.exist?(resolved)
+
+          raise ValidationError, "Configured package-lock.json not found at '#{resolved}'"
+        end
+
+        if @layer.respond_to?(:build_environment) && @layer.build_environment.is_a?(Hash)
+          custom_lock = @layer.build_environment['package_lock'] ||
+                        @layer.build_environment[:package_lock]
+          if custom_lock
+            resolved = File.expand_path(custom_lock.to_s, @source_dir)
+            return resolved if File.exist?(resolved)
+
+            raise ValidationError, "Configured package-lock.json not found at '#{resolved}'"
+          end
+        end
+
+        candidate_paths = []
+        if @package_json_path
+          pkg_dir = File.dirname(@package_json_path)
+          base_name = File.basename(@package_json_path, '.*')
+          candidate_paths << File.join(pkg_dir, "#{base_name}-lock.json") unless base_name == 'package'
+          candidate_paths << File.join(pkg_dir, 'package-lock.json')
+          candidate_paths << File.join(pkg_dir, 'npm-shrinkwrap.json')
+        end
+
+        if @package_json_path.nil? || File.dirname(@package_json_path) == @source_dir
+          candidate_paths << File.join(@source_dir, 'package-lock.json')
+          candidate_paths << File.join(@source_dir, 'npm-shrinkwrap.json')
+        end
+
+        candidate_paths.uniq.find { |p| File.file?(p) }
+      end
+
+      def read_package_lock_file
+        return '' unless @package_lock_path
+
+        unless File.file?(@package_lock_path)
+          raise ValidationError, "package-lock.json file not found: #{@package_lock_path}"
+        end
+
+        File.read(@package_lock_path)
+      end
+
+      def read_package_json_file
+        return '' unless @package_json_path
+
+        unless File.file?(@package_json_path)
+          raise ValidationError, "package.json file not found: #{@package_json_path}"
+        end
+
+        File.read(@package_json_path)
+      end
+
+      def calculate_python_content_hash(req_content, image_digest: nil)
+        raw = [
+          "schema_version:#{BUILD_SCHEMA_VERSION}",
+          'runtime_family:python',
+          "requirements:#{req_content}",
+          "runtimes:#{extract_runtimes.sort.join(',')}",
+          "architectures:#{extract_architectures.sort.join(',')}",
+          "build_image_id:#{@build_image_id}",
+          "image_digest:#{image_digest}",
+          "includes:#{@user_includes.sort.join(',')}",
+          "excludes:#{@user_excludes.sort.join(',')}",
+          "allow_missing_packages:#{@allow_missing_packages}",
+          "installed_digest:#{calculate_python_installed_digest(req_content)}"
+        ].join("\n")
+
+        Digest::SHA256.hexdigest(raw)
+      end
+
+      def calculate_nodejs_content_hash(pkg_content, image_digest: nil)
+        lock_content = read_package_lock_file
+        raw = [
+          "schema_version:#{BUILD_SCHEMA_VERSION}",
+          'runtime_family:nodejs',
+          "package_json:#{pkg_content}",
+          "package_lock:#{lock_content}",
+          "runtimes:#{extract_runtimes.sort.join(',')}",
+          "architectures:#{extract_architectures.sort.join(',')}",
+          "build_image_id:#{@build_image_id}",
+          "image_digest:#{image_digest}",
+          "includes:#{@user_includes.sort.join(',')}",
+          "excludes:#{@user_excludes.sort.join(',')}",
+          "allow_missing_packages:#{@allow_missing_packages}",
+          "installed_digest:#{calculate_nodejs_installed_digest(pkg_content)}"
+        ].join("\n")
+
+        Digest::SHA256.hexdigest(raw)
+      end
+
+      def calculate_python_installed_digest(req_content)
+        installed_dir = File.join(@source_dir, 'vendor', 'python')
+        if File.directory?(installed_dir) && Dir.glob(File.join(installed_dir, '*')).any?
+          return "vendor_python:#{digest_directory_tree(installed_dir)}"
+        end
+
+        return 'empty' if req_content.nil? || req_content.strip.empty?
+
+        lines = []
+        req_content.each_line do |line|
+          stripped = line.strip
+          next if stripped.empty? || stripped.start_with?('#')
+
+          pkg_name = stripped.split(/==|>=|<=|~=|>|<|!=|;/).first.to_s.strip
+          pkg_name = pkg_name.split('[').first.to_s.strip if pkg_name.include?('[')
+          next if pkg_name.empty?
+
+          source_pkg = valid_python_package_name?(pkg_name) ? find_local_python_package(pkg_name) : nil
+          lines << if source_pkg && File.directory?(source_pkg)
+                     "pkg_dir:#{pkg_name}:#{digest_directory_tree(source_pkg)}"
+                   elsif source_pkg && File.file?(source_pkg)
+                     "pkg_file:#{pkg_name}:#{Digest::SHA256.file(source_pkg).hexdigest}"
+                   else
+                     "pkg_missing:#{pkg_name}"
+                   end
+        end
+
+        Digest::SHA256.hexdigest(lines.join("\n"))
+      end
+
+      def calculate_nodejs_installed_digest(pkg_content)
+        candidate_dirs = [File.join(@source_dir, 'node_modules')]
+        if @package_json_path && File.exist?(@package_json_path)
+          pkg_dir = File.dirname(@package_json_path)
+          candidate_dirs.unshift(File.join(pkg_dir, 'node_modules'))
+        end
+
+        installed_dir = candidate_dirs.uniq.find { |dir| File.directory?(dir) && Dir.glob(File.join(dir, '*')).any? }
+        return "node_modules:#{digest_directory_tree(installed_dir)}" if installed_dir
+
+        return 'empty' if pkg_content.nil? || pkg_content.strip.empty?
+
+        begin
+          data = JSON.parse(pkg_content)
+        rescue JSON::ParserError
+          return 'invalid_json'
+        end
+
+        deps = data['dependencies'] || {}
+        lines = []
+        deps.each_key do |mod_name|
+          source_mod = valid_node_module_name?(mod_name) ? find_local_node_module(mod_name) : nil
+          lines << if source_mod && File.directory?(source_mod)
+                     "mod_dir:#{mod_name}:#{digest_directory_tree(source_mod)}"
+                   else
+                     "mod_missing:#{mod_name}"
+                   end
+        end
+
+        Digest::SHA256.hexdigest(lines.join("\n"))
+      end
+
+      def digest_directory_tree(dir)
+        return '' unless dir && File.directory?(dir)
+
+        entries = Dir.glob(File.join(dir, '**', '*'), File::FNM_DOTMATCH).sort
+        lines = []
+        entries.each do |path|
+          next if ['.', '..'].include?(File.basename(path))
+
+          rel_path = path.sub(%r{^#{Regexp.escape(dir)}/?}, '')
+          if File.symlink?(path)
+            lines << "symlink:#{rel_path}:#{File.readlink(path)}"
+          elsif File.directory?(path)
+            lines << "dir:#{rel_path}"
+          elsif File.file?(path)
+            sha = Digest::SHA256.file(path).hexdigest
+            lines << "file:#{rel_path}:#{sha}"
+          end
+        end
+        Digest::SHA256.hexdigest(lines.join("\n"))
+      end
+
+      def valid_python_package_name?(name)
+        return false if name.nil? || name.empty?
+        return false if name.include?('..') || name.include?('/') || name.include?('\\')
+
+        PYTHON_PACKAGE_NAME_REGEX.match?(name)
+      end
+
+      def valid_node_module_name?(name)
+        return false if name.nil? || name.empty?
+        return false if name.include?('..') || name.include?('\\')
+        return false if name.count('/') > 1
+
+        NODE_MODULE_NAME_REGEX.match?(name)
+      end
+
+      def stage_python_packages_into_structure(req_content, site_packages_dir)
+        FileUtils.mkdir_p(site_packages_dir)
+
+        installed_dir = File.join(@source_dir, 'vendor', 'python')
+        if File.directory?(installed_dir) && Dir.glob(File.join(installed_dir, '*')).any?
+          FileUtils.cp_r(File.join(installed_dir, '.'), site_packages_dir)
+          return
+        end
+
+        return if req_content.nil? || req_content.strip.empty?
+
+        req_content.each_line do |line|
+          stripped = line.strip
+          next if stripped.empty? || stripped.start_with?('#')
+
+          pkg_name = stripped.split(/==|>=|<=|~=|>|<|!=|;/).first.to_s.strip
+          pkg_name = pkg_name.split('[').first.to_s.strip if pkg_name.include?('[')
+          next if pkg_name.empty?
+
+          stage_single_python_package(pkg_name, site_packages_dir)
+        end
+      end
+
+      def stage_single_python_package(pkg_name, site_packages_dir)
+        unless valid_python_package_name?(pkg_name)
+          raise ValidationError, "Invalid Python package name '#{pkg_name}'. " \
+                                 'Package names must be valid identifiers without path traversal.'
+        end
+
+        base_site_packages = File.expand_path(site_packages_dir)
+        target_dir = File.expand_path(File.join(base_site_packages, pkg_name))
+        unless target_dir.start_with?(base_site_packages + File::SEPARATOR)
+          raise ValidationError, "Target directory '#{target_dir}' escapes site-packages directory."
+        end
+
+        source_pkg_dir = find_local_python_package(pkg_name)
+        if source_pkg_dir && File.directory?(source_pkg_dir)
+          FileUtils.mkdir_p(target_dir)
+          FileUtils.cp_r(File.join(source_pkg_dir, '.'), target_dir)
+        elsif source_pkg_dir && File.file?(source_pkg_dir)
+          FileUtils.cp(source_pkg_dir, File.join(site_packages_dir, File.basename(source_pkg_dir)))
+        elsif @allow_missing_packages
+          FileUtils.mkdir_p(target_dir)
+          File.write(File.join(target_dir, '__init__.py'), "# #{pkg_name}\n")
+        else
+          raise ValidationError, "Python package content not found for '#{pkg_name}'. " \
+                                 "Ensure packages are installed in '#{@source_dir}'."
+        end
+      end
+
+      def find_local_python_package(pkg_name)
+        base_source = File.expand_path(@source_dir)
+        candidates = [
+          File.expand_path(File.join(base_source, 'site-packages', pkg_name)),
+          File.expand_path(File.join(base_source, 'vendor', 'python', pkg_name)),
+          File.expand_path(File.join(base_source, 'python', pkg_name)),
+          File.expand_path(File.join(base_source, pkg_name)),
+          File.expand_path(File.join(base_source, "#{pkg_name}.py"))
+        ]
+        candidates.select { |path| path.start_with?(base_source + File::SEPARATOR) }
+                  .find { |path| File.exist?(path) }
+      end
+
+      def stage_node_modules_into_structure(pkg_content, node_modules_dir)
+        FileUtils.mkdir_p(node_modules_dir)
+
+        candidate_dirs = [File.join(@source_dir, 'node_modules')]
+        if @package_json_path && File.exist?(@package_json_path)
+          pkg_dir = File.dirname(@package_json_path)
+          candidate_dirs.unshift(File.join(pkg_dir, 'node_modules'))
+        end
+
+        installed_dir = candidate_dirs.uniq.find { |dir| File.directory?(dir) && Dir.glob(File.join(dir, '*')).any? }
+        if installed_dir
+          FileUtils.cp_r(File.join(installed_dir, '.'), node_modules_dir)
+          return
+        end
+
+        return if pkg_content.nil? || pkg_content.strip.empty?
+
+        begin
+          data = JSON.parse(pkg_content)
+        rescue JSON::ParserError => e
+          raise ValidationError, "Failed to parse package.json: #{e.message}"
+        end
+
+        deps = data['dependencies'] || {}
+        deps.each_key do |mod_name|
+          stage_single_node_module(mod_name, node_modules_dir)
+        end
+      end
+
+      def stage_single_node_module(mod_name, node_modules_dir)
+        unless valid_node_module_name?(mod_name)
+          raise ValidationError, "Invalid Node.js module name '#{mod_name}'. " \
+                                 'Module names must be valid identifiers without path traversal.'
+        end
+
+        base_node_modules = File.expand_path(node_modules_dir)
+        target_dir = File.expand_path(File.join(base_node_modules, mod_name))
+        unless target_dir.start_with?(base_node_modules + File::SEPARATOR)
+          raise ValidationError, "Target directory '#{target_dir}' escapes node_modules directory."
+        end
+
+        source_mod_dir = find_local_node_module(mod_name)
+        if source_mod_dir && File.directory?(source_mod_dir)
+          FileUtils.mkdir_p(target_dir)
+          FileUtils.cp_r(File.join(source_mod_dir, '.'), target_dir)
+        elsif @allow_missing_packages
+          FileUtils.mkdir_p(target_dir)
+          File.write(File.join(target_dir, 'package.json'), JSON.generate({ name: mod_name }))
+        else
+          raise ValidationError, "Node.js module content not found for '#{mod_name}'. " \
+                                 "Ensure modules are installed in '#{@source_dir}'."
+        end
+      end
+
+      def find_local_node_module(mod_name)
+        base_source = File.expand_path(@source_dir)
+        candidates = [
+          File.expand_path(File.join(base_source, 'node_modules', mod_name)),
+          File.expand_path(File.join(base_source, mod_name))
+        ]
+        if @package_json_path && File.exist?(@package_json_path)
+          pkg_dir = File.dirname(File.expand_path(@package_json_path))
+          candidates.unshift(File.expand_path(File.join(pkg_dir, 'node_modules', mod_name)))
+        end
+        allowed_prefixes = [base_source + File::SEPARATOR]
+        if @package_json_path
+          pkg_dir = File.dirname(File.expand_path(@package_json_path))
+          allowed_prefixes << (pkg_dir + File::SEPARATOR)
+        end
+
+        candidates.uniq.find do |path|
+          allowed_prefixes.any? { |prefix| path.start_with?(prefix) } && File.directory?(path)
         end
       end
 
@@ -186,12 +721,30 @@ module Veltrunode
         end
       end
 
-      def resolve_ruby_abi_version
+      def resolve_ruby_abi_versions
         runtimes = extract_runtimes
-        runtimes.each do |r|
-          return RUNTIME_ABI_MAP[r] if RUNTIME_ABI_MAP.key?(r)
+        abis = runtimes.map { |r| RUNTIME_ABI_MAP[r] }.compact
+        abis.empty? ? ['3.3.0'] : abis.uniq
+      end
+
+      def resolve_ruby_abi_version
+        resolve_ruby_abi_versions.first
+      end
+
+      def native_extensions_present?(dir, lock_content)
+        return false unless dir && File.directory?(dir)
+
+        return true if Dir.glob(File.join(dir, '**', '*.{so,bundle,dll}')).any?
+        return true if Dir.glob(File.join(dir, '**', '{extconf.rb,mkmf.log}')).any?
+        return true if Dir.glob(File.join(dir, 'gems', '*', 'ext')).any?
+
+        specs = parse_lockfile_specs(lock_content)
+        specs.any? do |s|
+          installed_spec = Gem::Specification.find_all_by_name(s.name, s.version).first
+          installed_spec&.extensions&.any?
+        rescue StandardError
+          false
         end
-        '3.3.0'
       end
 
       def read_gemfile_lock
@@ -219,14 +772,19 @@ module Veltrunode
         arch = archs.first
         runtime = runtimes.first
 
+        output_dir = resolve_container_output_dir(runtime)
         builder_result = @native_builder.build(
           source_dir: @source_dir,
-          output_dir: File.join(@source_dir, 'vendor', 'bundle'),
+          output_dir: output_dir,
           runtime: runtime,
           architecture: arch,
           build_on: build_on_setting,
           custom_image: @build_image_id == 'amazonlinux:default' ? nil : @build_image_id,
-          container_runner: @container_runner
+          container_runner: @container_runner,
+          requirements_path: @requirements_path,
+          package_json_path: @package_json_path,
+          package_lock_path: @package_lock_path,
+          layer: @layer
         )
 
         builder_result[:image_digest]
@@ -250,7 +808,8 @@ module Veltrunode
           "image_digest:#{image_digest}",
           "include_gems:#{@include_gems.sort.join(',')}",
           "includes:#{@user_includes.sort.join(',')}",
-          "excludes:#{@user_excludes.sort.join(',')}"
+          "excludes:#{@user_excludes.sort.join(',')}",
+          "allow_missing_gems:#{@allow_missing_gems}"
         ].join("\n")
 
         Digest::SHA256.hexdigest(raw)

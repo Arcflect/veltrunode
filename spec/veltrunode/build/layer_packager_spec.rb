@@ -510,5 +510,751 @@ RSpec.describe Veltrunode::Build::LayerPackager do
         expect(res2.sha256).to eq(res1.sha256)
       end
     end
+
+    it 'packages Python packages into python/lib/python3.x/site-packages/ structure' do
+      with_tmpdir do |tmpdir|
+        req_file = File.join(tmpdir, 'requirements.txt')
+        File.write(req_file, "requests==2.31.0\nurllib3>=1.26.0\n")
+
+        py_layer = Veltrunode::Model::Layer.new(
+          name: 'python_deps',
+          compatible_runtimes: ['python3.12'],
+          architectures: [:x86_64]
+        )
+
+        output_dir = File.join(tmpdir, 'out_py')
+        res = described_class.package(
+          layer: py_layer,
+          requirements_path: req_file,
+          source_dir: tmpdir,
+          output_dir: output_dir,
+          allow_missing_gems: true
+        )
+
+        expect(res.layer_name).to eq('python_deps')
+        expect(File.exist?(res.zip_path)).to be true
+
+        entries = []
+        Zip::File.open(res.zip_path) do |zip|
+          entries = zip.map(&:name)
+        end
+
+        expect(entries).to include('python/lib/python3.12/site-packages/requests/__init__.py')
+        expect(entries).to include('python/lib/python3.12/site-packages/urllib3/__init__.py')
+      end
+    end
+
+    it 'packages Node.js modules into nodejs/node_modules/ structure' do
+      with_tmpdir do |tmpdir|
+        pkg_file = File.join(tmpdir, 'package.json')
+        pkg_data = {
+          dependencies: {
+            'lodash' => '^4.17.21',
+            'axios' => '^1.6.0'
+          }
+        }
+        File.write(pkg_file, JSON.generate(pkg_data))
+
+        node_layer = Veltrunode::Model::Layer.new(
+          name: 'node_deps',
+          compatible_runtimes: ['nodejs20.x'],
+          architectures: [:x86_64]
+        )
+
+        output_dir = File.join(tmpdir, 'out_node')
+        res = described_class.package(
+          layer: node_layer,
+          package_json_path: pkg_file,
+          source_dir: tmpdir,
+          output_dir: output_dir,
+          allow_missing_gems: true
+        )
+
+        expect(res.layer_name).to eq('node_deps')
+        expect(File.exist?(res.zip_path)).to be true
+
+        entries = []
+        Zip::File.open(res.zip_path) do |zip|
+          entries = zip.map(&:name)
+        end
+
+        expect(entries).to include('nodejs/node_modules/lodash/package.json')
+        expect(entries).to include('nodejs/node_modules/axios/package.json')
+      end
+    end
+    it 'passes resolved requirements_path to native_builder when layer specifies custom requirements' do
+      with_tmpdir do |tmpdir|
+        req_path = File.join(tmpdir, 'requirements-custom.txt')
+        File.write(req_path, 'urllib3>=2.0.0')
+
+        py_layer = Veltrunode::Model::Layer.new(
+          name: 'python_custom_req_layer',
+          compatible_runtimes: ['python3.12'],
+          build_environment: {
+            'build_on' => 'amazon_linux_2023',
+            'requirements' => 'requirements-custom.txt'
+          }
+        )
+
+        mock_builder = class_double(Veltrunode::Build::NativeBuilder)
+        expect(mock_builder).to receive(:build).with(
+          hash_including(
+            requirements_path: req_path,
+            runtime: 'python3.12'
+          )
+        ).and_return(image_digest: 'sha256:1111222233334444555566667777888811112222333344445555666677778888')
+
+        res = described_class.package(
+          layer: py_layer,
+          source_dir: tmpdir,
+          output_dir: File.join(tmpdir, 'out'),
+          build_on: :amazon_linux_2023, # rubocop:disable Naming/VariableNumber
+          native_builder: mock_builder,
+          allow_missing_packages: true
+        )
+
+        expect(res.layer_name).to eq('python_custom_req_layer')
+      end
+    end
+    it 'passes resolved package_json_path to native_builder when layer specifies custom package_json' do
+      with_tmpdir do |tmpdir|
+        frontend_dir = File.join(tmpdir, 'frontend')
+        FileUtils.mkdir_p(frontend_dir)
+        pkg_path = File.join(frontend_dir, 'package.json')
+        File.write(pkg_path, '{"dependencies": {"axios": "^1.0.0"}}')
+
+        node_layer = Veltrunode::Model::Layer.new(
+          name: 'node_custom_pkg_layer',
+          compatible_runtimes: ['nodejs20.x'],
+          build_environment: {
+            'build_on' => 'amazon_linux_2023',
+            'package_json' => 'frontend/package.json'
+          }
+        )
+
+        mock_builder = class_double(Veltrunode::Build::NativeBuilder)
+        expect(mock_builder).to receive(:build).with(
+          hash_including(
+            package_json_path: pkg_path,
+            runtime: 'nodejs20.x'
+          )
+        ).and_return(image_digest: 'sha256:2222333344445555666677778888999922223333444455556666777788889999')
+
+        res = described_class.package(
+          layer: node_layer,
+          source_dir: tmpdir,
+          output_dir: File.join(tmpdir, 'out'),
+          build_on: :amazon_linux_2023, # rubocop:disable Naming/VariableNumber
+          native_builder: mock_builder,
+          allow_missing_packages: true
+        )
+
+        expect(res.layer_name).to eq('node_custom_pkg_layer')
+      end
+    end
+    it 'copies full installed tree from vendor/python including transitive dependencies' do
+      with_tmpdir do |tmpdir|
+        req_file = File.join(tmpdir, 'requirements.txt')
+        File.write(req_file, "PyYAML==6.0.1\n")
+
+        vendor_py = File.join(tmpdir, 'vendor', 'python')
+        FileUtils.mkdir_p(File.join(vendor_py, 'yaml'))
+        File.write(File.join(vendor_py, 'yaml', '__init__.py'), '# yaml module')
+        FileUtils.mkdir_p(File.join(vendor_py, 'transitive_dep'))
+        File.write(File.join(vendor_py, 'transitive_dep', '__init__.py'), '# transitive')
+
+        py_layer = Veltrunode::Model::Layer.new(
+          name: 'py_yaml_layer',
+          compatible_runtimes: ['python3.12'],
+          architectures: [:x86_64]
+        )
+
+        res = described_class.package(
+          layer: py_layer,
+          requirements_path: req_file,
+          source_dir: tmpdir,
+          output_dir: File.join(tmpdir, 'out')
+        )
+
+        entries = []
+        Zip::File.open(res.zip_path) do |zip|
+          entries = zip.map(&:name)
+        end
+
+        expect(entries).to include('python/lib/python3.12/site-packages/yaml/__init__.py')
+        expect(entries).to include('python/lib/python3.12/site-packages/transitive_dep/__init__.py')
+      end
+    end
+    it 'copies full installed tree from node_modules including transitive dependencies' do
+      with_tmpdir do |tmpdir|
+        pkg_file = File.join(tmpdir, 'package.json')
+        pkg_data = {
+          dependencies: {
+            'axios' => '^1.6.0'
+          }
+        }
+        File.write(pkg_file, JSON.generate(pkg_data))
+
+        node_modules_dir = File.join(tmpdir, 'node_modules')
+        FileUtils.mkdir_p(File.join(node_modules_dir, 'axios'))
+        File.write(File.join(node_modules_dir, 'axios', 'index.js'), 'module.exports = {};')
+        FileUtils.mkdir_p(File.join(node_modules_dir, 'follow-redirects'))
+        File.write(File.join(node_modules_dir, 'follow-redirects', 'index.js'), 'module.exports = {};')
+
+        node_layer = Veltrunode::Model::Layer.new(
+          name: 'node_axios_layer',
+          compatible_runtimes: ['nodejs20.x'],
+          architectures: [:x86_64]
+        )
+
+        res = described_class.package(
+          layer: node_layer,
+          package_json_path: pkg_file,
+          source_dir: tmpdir,
+          output_dir: File.join(tmpdir, 'out_node')
+        )
+
+        entries = []
+        Zip::File.open(res.zip_path) do |zip|
+          entries = zip.map(&:name)
+        end
+
+        expect(entries).to include('nodejs/node_modules/axios/index.js')
+        expect(entries).to include('nodejs/node_modules/follow-redirects/index.js')
+      end
+    end
+
+    it 'raises ValidationError when configured requirements file does not exist' do
+      with_tmpdir do |tmpdir|
+        py_layer = Veltrunode::Model::Layer.new(
+          name: 'py_missing_layer',
+          compatible_runtimes: ['python3.12']
+        )
+
+        nonexistent = File.join(tmpdir, 'nonexistent-requirements.txt')
+        expect do
+          described_class.package(
+            layer: py_layer,
+            requirements_path: nonexistent,
+            source_dir: tmpdir,
+            output_dir: File.join(tmpdir, 'out')
+          )
+        end.to raise_error(Veltrunode::ValidationError, /requirements file not found:/)
+      end
+    end
+
+    it 'raises ValidationError when configured package.json file does not exist' do
+      with_tmpdir do |tmpdir|
+        node_layer = Veltrunode::Model::Layer.new(
+          name: 'node_missing_layer',
+          compatible_runtimes: ['nodejs20.x']
+        )
+
+        nonexistent = File.join(tmpdir, 'nonexistent-package.json')
+        expect do
+          described_class.package(
+            layer: node_layer,
+            package_json_path: nonexistent,
+            source_dir: tmpdir,
+            output_dir: File.join(tmpdir, 'out')
+          )
+        end.to raise_error(Veltrunode::ValidationError, /package.json file not found:/)
+      end
+    end
+
+    it 'raises ValidationError when requirements.txt contains a package name with path traversal' do
+      with_tmpdir do |tmpdir|
+        req_file = File.join(tmpdir, 'requirements.txt')
+        File.write(req_file, "../../secret\n")
+
+        py_layer = Veltrunode::Model::Layer.new(
+          name: 'py_traversal_layer',
+          compatible_runtimes: ['python3.12']
+        )
+
+        expect do
+          described_class.package(
+            layer: py_layer,
+            requirements_path: req_file,
+            source_dir: tmpdir,
+            output_dir: File.join(tmpdir, 'out'),
+            allow_missing_packages: true
+          )
+        end.to raise_error(Veltrunode::ValidationError, /Invalid Python package name/)
+      end
+    end
+
+    it 'raises ValidationError when package.json contains a module name with path traversal' do
+      with_tmpdir do |tmpdir|
+        pkg_file = File.join(tmpdir, 'package.json')
+        File.write(pkg_file, JSON.generate({ dependencies: { '../../secret' => '^1.0.0' } }))
+
+        node_layer = Veltrunode::Model::Layer.new(
+          name: 'node_traversal_layer',
+          compatible_runtimes: ['nodejs20.x']
+        )
+
+        expect do
+          described_class.package(
+            layer: node_layer,
+            package_json_path: pkg_file,
+            source_dir: tmpdir,
+            output_dir: File.join(tmpdir, 'out'),
+            allow_missing_packages: true
+          )
+        end.to raise_error(Veltrunode::ValidationError, /Invalid Node.js module name/)
+      end
+    end
+
+    it 'allows valid scoped Node.js package names when staging dependencies' do
+      with_tmpdir do |tmpdir|
+        pkg_file = File.join(tmpdir, 'package.json')
+        File.write(pkg_file, JSON.generate({ dependencies: { '@aws-sdk/client-s3' => '^3.0.0' } }))
+
+        node_layer = Veltrunode::Model::Layer.new(
+          name: 'node_scoped_layer',
+          compatible_runtimes: ['nodejs20.x']
+        )
+
+        res = described_class.package(
+          layer: node_layer,
+          package_json_path: pkg_file,
+          source_dir: tmpdir,
+          output_dir: File.join(tmpdir, 'out'),
+          allow_missing_packages: true
+        )
+
+        entries = []
+        Zip::File.open(res.zip_path) do |zip|
+          entries = zip.map(&:name)
+        end
+
+        expect(entries).to include('nodejs/node_modules/@aws-sdk/client-s3/package.json')
+      end
+    end
+
+    it 'raises ValidationError when layer specifies compatible runtimes across multiple families' do
+      with_tmpdir do |tmpdir|
+        mixed_layer = double(
+          name: 'mixed_layer',
+          compatible_runtimes: ['python3.12', 'ruby3.3'],
+          architectures: ['x86_64'],
+          respond_to?: true
+        )
+        allow(mixed_layer).to receive(:respond_to?).with(:compatible_runtimes).and_return(true)
+        allow(mixed_layer).to receive(:respond_to?).with(:name).and_return(true)
+        allow(mixed_layer).to receive(:respond_to?).with(:architectures).and_return(true)
+        allow(mixed_layer).to receive(:respond_to?).with(:build_environment).and_return(false)
+
+        expect do
+          described_class.package(
+            layer: mixed_layer,
+            source_dir: tmpdir,
+            output_dir: File.join(tmpdir, 'out')
+          )
+        end.to raise_error(Veltrunode::ValidationError, /multiple runtime families/)
+      end
+    end
+
+    it 'packages Python packages into each version directory when multiple runtimes are specified' do
+      with_tmpdir do |tmpdir|
+        req_file = File.join(tmpdir, 'requirements.txt')
+        File.write(req_file, "requests==2.31.0\n")
+
+        vendor_py = File.join(tmpdir, 'vendor', 'python')
+        FileUtils.mkdir_p(File.join(vendor_py, 'requests'))
+        File.write(File.join(vendor_py, 'requests', '__init__.py'), '# req')
+
+        multi_py_layer = Veltrunode::Model::Layer.new(
+          name: 'multi_py_layer',
+          compatible_runtimes: ['python3.11', 'python3.12'],
+          architectures: [:x86_64]
+        )
+
+        res = described_class.package(
+          layer: multi_py_layer,
+          requirements_path: req_file,
+          source_dir: tmpdir,
+          output_dir: File.join(tmpdir, 'out')
+        )
+
+        entries = []
+        Zip::File.open(res.zip_path) do |zip|
+          entries = zip.map(&:name)
+        end
+
+        expect(entries).to include('python/lib/python3.11/site-packages/requests/__init__.py')
+        expect(entries).to include('python/lib/python3.12/site-packages/requests/__init__.py')
+      end
+    end
+
+    it 'raises ValidationError when layer specifies multiple Python runtimes and contains ABI-specific files' do
+      with_tmpdir do |tmpdir|
+        req_file = File.join(tmpdir, 'requirements.txt')
+        File.write(req_file, "requests==2.31.0\n")
+
+        vendor_py = File.join(tmpdir, 'vendor', 'python')
+        FileUtils.mkdir_p(File.join(vendor_py, 'requests'))
+        File.write(File.join(vendor_py, 'requests', '__init__.py'), '# req')
+        File.write(File.join(vendor_py, 'requests', 'speedup.cpython-312-x86_64-linux-gnu.so'), 'ELF binary')
+
+        multi_py_layer = Veltrunode::Model::Layer.new(
+          name: 'multi_py_so_layer',
+          compatible_runtimes: ['python3.11', 'python3.12'],
+          architectures: [:x86_64]
+        )
+
+        expect do
+          described_class.package(
+            layer: multi_py_layer,
+            requirements_path: req_file,
+            source_dir: tmpdir,
+            output_dir: File.join(tmpdir, 'out')
+          )
+        end.to raise_error(Veltrunode::ValidationError, /contains ABI-specific compiled extensions/)
+      end
+    end
+
+    it 'raises ValidationError when layer specifies multiple Ruby ABIs and contains native extensions' do
+      with_tmpdir do |tmpdir|
+        lockfile_path = File.join(tmpdir, 'Gemfile.lock')
+        File.write(lockfile_path, sample_lockfile_content)
+
+        gem_dir = File.join(tmpdir, 'vendor', 'bundle', 'ruby', '3.2.0', 'gems', 'faraday-2.9.0')
+        FileUtils.mkdir_p(File.join(gem_dir, 'lib'))
+        File.write(File.join(gem_dir, 'lib', 'faraday_ext.so'), 'ELF binary')
+
+        multi_ruby_layer = Veltrunode::Model::Layer.new(
+          name: 'multi_ruby_native_layer',
+          compatible_runtimes: ['ruby3.2', 'ruby3.3'],
+          architectures: [:x86_64]
+        )
+
+        expect do
+          described_class.package(
+            layer: multi_ruby_layer,
+            gemfile_lock_path: lockfile_path,
+            source_dir: tmpdir,
+            output_dir: File.join(tmpdir, 'out'),
+            allow_missing_gems: true
+          )
+        end.to raise_error(Veltrunode::ValidationError, /contains native extensions/)
+      end
+    end
+
+    it 'packages pure-Ruby gems into each declared Ruby ABI directory when multiple Ruby runtimes are specified' do
+      with_tmpdir do |tmpdir|
+        lockfile_path = File.join(tmpdir, 'Gemfile.lock')
+        File.write(lockfile_path, sample_lockfile_content)
+
+        multi_ruby_layer = Veltrunode::Model::Layer.new(
+          name: 'multi_ruby_pure_layer',
+          compatible_runtimes: ['ruby3.2', 'ruby3.3'],
+          architectures: [:x86_64]
+        )
+
+        res = described_class.package(
+          layer: multi_ruby_layer,
+          gemfile_lock_path: lockfile_path,
+          source_dir: tmpdir,
+          output_dir: File.join(tmpdir, 'out'),
+          allow_missing_gems: true
+        )
+
+        entries = []
+        Zip::File.open(res.zip_path) do |zip|
+          entries = zip.map(&:name)
+        end
+
+        expect(entries).to include('ruby/gems/3.2.0/specifications/faraday-2.9.0.gemspec')
+        expect(entries).to include('ruby/gems/3.3.0/specifications/faraday-2.9.0.gemspec')
+      end
+    end
+
+    it 'changes Python content_hash when vendor/python installed tree changes without changing requirements' do
+      with_tmpdir do |tmpdir|
+        req_file = File.join(tmpdir, 'requirements.txt')
+        File.write(req_file, "requests==2.31.0\n")
+
+        vendor_py = File.join(tmpdir, 'vendor', 'python')
+        FileUtils.mkdir_p(File.join(vendor_py, 'requests'))
+        File.write(File.join(vendor_py, 'requests', '__init__.py'), '# v1')
+
+        py_layer = Veltrunode::Model::Layer.new(
+          name: 'py_cache_layer',
+          compatible_runtimes: ['python3.12'],
+          architectures: [:x86_64]
+        )
+
+        res1 = described_class.package(
+          layer: py_layer,
+          requirements_path: req_file,
+          source_dir: tmpdir,
+          output_dir: File.join(tmpdir, 'out1')
+        )
+
+        File.write(File.join(vendor_py, 'requests', '__init__.py'), '# v2 updated content')
+
+        res2 = described_class.package(
+          layer: py_layer,
+          requirements_path: req_file,
+          source_dir: tmpdir,
+          output_dir: File.join(tmpdir, 'out2')
+        )
+
+        expect(res1.content_hash).not_to eq(res2.content_hash)
+      end
+    end
+
+    it 'changes Python content_hash when allow_missing_packages changes' do
+      with_tmpdir do |tmpdir|
+        req_file = File.join(tmpdir, 'requirements.txt')
+        File.write(req_file, "requests==2.31.0\n")
+
+        vendor_py = File.join(tmpdir, 'vendor', 'python')
+        FileUtils.mkdir_p(File.join(vendor_py, 'requests'))
+        File.write(File.join(vendor_py, 'requests', '__init__.py'), '# req')
+
+        py_layer = Veltrunode::Model::Layer.new(
+          name: 'py_mode_layer',
+          compatible_runtimes: ['python3.12'],
+          architectures: [:x86_64]
+        )
+
+        res_strict = described_class.package(
+          layer: py_layer,
+          requirements_path: req_file,
+          source_dir: tmpdir,
+          output_dir: File.join(tmpdir, 'out1'),
+          allow_missing_packages: false
+        )
+
+        res_permissive = described_class.package(
+          layer: py_layer,
+          requirements_path: req_file,
+          source_dir: tmpdir,
+          output_dir: File.join(tmpdir, 'out2'),
+          allow_missing_packages: true
+        )
+
+        expect(res_strict.content_hash).not_to eq(res_permissive.content_hash)
+      end
+    end
+
+    it 'changes Node.js content_hash when node_modules installed tree changes without changing package.json' do
+      with_tmpdir do |tmpdir|
+        pkg_file = File.join(tmpdir, 'package.json')
+        File.write(pkg_file, JSON.generate(dependencies: { 'lodash' => '^4.17.21' }))
+
+        nm_dir = File.join(tmpdir, 'node_modules', 'lodash')
+        FileUtils.mkdir_p(nm_dir)
+        File.write(File.join(nm_dir, 'index.js'), 'module.exports = { version: 1 };')
+
+        node_layer = Veltrunode::Model::Layer.new(
+          name: 'node_cache_layer',
+          compatible_runtimes: ['nodejs20.x'],
+          architectures: [:x86_64]
+        )
+
+        res1 = described_class.package(
+          layer: node_layer,
+          package_json_path: pkg_file,
+          source_dir: tmpdir,
+          output_dir: File.join(tmpdir, 'out1')
+        )
+
+        File.write(File.join(nm_dir, 'index.js'), 'module.exports = { version: 2 };')
+
+        res2 = described_class.package(
+          layer: node_layer,
+          package_json_path: pkg_file,
+          source_dir: tmpdir,
+          output_dir: File.join(tmpdir, 'out2')
+        )
+
+        expect(res1.content_hash).not_to eq(res2.content_hash)
+      end
+    end
+
+    it 'changes Node.js content_hash when allow_missing_packages changes' do
+      with_tmpdir do |tmpdir|
+        pkg_file = File.join(tmpdir, 'package.json')
+        File.write(pkg_file, JSON.generate(dependencies: { 'lodash' => '^4.17.21' }))
+
+        nm_dir = File.join(tmpdir, 'node_modules', 'lodash')
+        FileUtils.mkdir_p(nm_dir)
+        File.write(File.join(nm_dir, 'index.js'), 'module.exports = {};')
+
+        node_layer = Veltrunode::Model::Layer.new(
+          name: 'node_mode_layer',
+          compatible_runtimes: ['nodejs20.x'],
+          architectures: [:x86_64]
+        )
+
+        res_strict = described_class.package(
+          layer: node_layer,
+          package_json_path: pkg_file,
+          source_dir: tmpdir,
+          output_dir: File.join(tmpdir, 'out1'),
+          allow_missing_packages: false
+        )
+
+        res_permissive = described_class.package(
+          layer: node_layer,
+          package_json_path: pkg_file,
+          source_dir: tmpdir,
+          output_dir: File.join(tmpdir, 'out2'),
+          allow_missing_packages: true
+        )
+
+        expect(res_strict.content_hash).not_to eq(res_permissive.content_hash)
+      end
+    end
+
+    it 'changes Ruby content_hash when allow_missing_gems changes' do
+      with_tmpdir do |tmpdir|
+        lockfile_path = File.join(tmpdir, 'Gemfile.lock')
+        File.write(lockfile_path, sample_lockfile_content)
+
+        packager_strict = described_class.new(
+          layer: layer,
+          gemfile_lock_path: lockfile_path,
+          source_dir: tmpdir,
+          allow_missing_gems: false
+        )
+        packager_permissive = described_class.new(
+          layer: layer,
+          gemfile_lock_path: lockfile_path,
+          source_dir: tmpdir,
+          allow_missing_gems: true
+        )
+
+        hash_strict = packager_strict.send(:calculate_content_hash, sample_lockfile_content)
+        hash_permissive = packager_permissive.send(:calculate_content_hash, sample_lockfile_content)
+
+        expect(hash_strict).not_to eq(hash_permissive)
+      end
+    end
+
+    it 'changes Node.js content_hash when package-lock.json changes without changing package.json' do
+      with_tmpdir do |tmpdir|
+        pkg_file = File.join(tmpdir, 'package.json')
+        File.write(pkg_file, JSON.generate(dependencies: { 'lodash' => '^4.17.21' }))
+
+        lock_file = File.join(tmpdir, 'package-lock.json')
+        File.write(lock_file,
+                   JSON.generate(lockfileVersion: 2, packages: { 'node_modules/lodash' => { version: '4.17.20' } }))
+
+        nm_dir = File.join(tmpdir, 'node_modules', 'lodash')
+        FileUtils.mkdir_p(nm_dir)
+        File.write(File.join(nm_dir, 'index.js'), 'module.exports = {};')
+
+        node_layer = Veltrunode::Model::Layer.new(
+          name: 'node_lock_layer',
+          compatible_runtimes: ['nodejs20.x'],
+          architectures: [:x86_64]
+        )
+
+        res1 = described_class.package(
+          layer: node_layer,
+          package_json_path: pkg_file,
+          package_lock_path: lock_file,
+          source_dir: tmpdir,
+          output_dir: File.join(tmpdir, 'out1')
+        )
+
+        File.write(lock_file,
+                   JSON.generate(lockfileVersion: 2, packages: { 'node_modules/lodash' => { version: '4.17.21' } }))
+
+        res2 = described_class.package(
+          layer: node_layer,
+          package_json_path: pkg_file,
+          package_lock_path: lock_file,
+          source_dir: tmpdir,
+          output_dir: File.join(tmpdir, 'out2')
+        )
+
+        expect(res1.content_hash).not_to eq(res2.content_hash)
+      end
+    end
+
+    it 'raises ValidationError when explicit package_lock_path does not exist' do
+      with_tmpdir do |tmpdir|
+        pkg_file = File.join(tmpdir, 'package.json')
+        File.write(pkg_file, '{}')
+
+        node_layer = Veltrunode::Model::Layer.new(
+          name: 'node_missing_lock_layer',
+          compatible_runtimes: ['nodejs20.x'],
+          architectures: [:x86_64]
+        )
+
+        expect do
+          described_class.package(
+            layer: node_layer,
+            package_json_path: pkg_file,
+            package_lock_path: File.join(tmpdir, 'nonexistent-lock.json'),
+            source_dir: tmpdir,
+            output_dir: File.join(tmpdir, 'out')
+          )
+        end.to raise_error(Veltrunode::ValidationError, /package-lock\.json not found/)
+      end
+    end
+
+    it 'does not fall back to root package-lock.json when package.json is in a subdirectory' do
+      with_tmpdir do |tmpdir|
+        sub_dir = File.join(tmpdir, 'packages', 'api')
+        FileUtils.mkdir_p(sub_dir)
+        sub_pkg = File.join(sub_dir, 'package.json')
+        File.write(sub_pkg, '{"dependencies": {"lodash": "4.17.21"}}')
+
+        # Create root lockfile
+        File.write(File.join(tmpdir, 'package-lock.json'), '{"name": "root-lock"}')
+
+        node_layer = Veltrunode::Model::Layer.new(
+          name: 'node_sub_layer',
+          compatible_runtimes: ['nodejs20.x'],
+          architectures: [:x86_64]
+        )
+
+        packager = described_class.new(
+          layer: node_layer,
+          package_json_path: sub_pkg,
+          source_dir: tmpdir,
+          output_dir: File.join(tmpdir, 'out')
+        )
+
+        expect(packager.instance_variable_get(:@package_lock_path)).to be_nil
+      end
+    end
+
+    it 'selects subdirectory package-lock.json when package.json is in a subdirectory and has its own lockfile' do
+      with_tmpdir do |tmpdir|
+        sub_dir = File.join(tmpdir, 'packages', 'api')
+        FileUtils.mkdir_p(sub_dir)
+        sub_pkg = File.join(sub_dir, 'package.json')
+        sub_lock = File.join(sub_dir, 'package-lock.json')
+        File.write(sub_pkg, '{"dependencies": {"lodash": "4.17.21"}}')
+        File.write(sub_lock, '{"name": "sub-lock"}')
+
+        # Also create root lockfile
+        File.write(File.join(tmpdir, 'package-lock.json'), '{"name": "root-lock"}')
+
+        node_layer = Veltrunode::Model::Layer.new(
+          name: 'node_sub_layer',
+          compatible_runtimes: ['nodejs20.x'],
+          architectures: [:x86_64]
+        )
+
+        packager = described_class.new(
+          layer: node_layer,
+          package_json_path: sub_pkg,
+          source_dir: tmpdir,
+          output_dir: File.join(tmpdir, 'out')
+        )
+
+        expect(packager.instance_variable_get(:@package_lock_path)).to eq(sub_lock)
+      end
+    end
   end
 end

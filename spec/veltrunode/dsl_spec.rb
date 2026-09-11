@@ -195,6 +195,82 @@ RSpec.describe Veltrunode::DSL do
       expect(secret_val.to_s).to eq('my_secret_token')
       expect(secret_val.inspect).to eq('[FILTERED]')
     end
+
+    it 'supports Python runtime DSL at application and function level' do
+      code = <<~RUBY
+        Veltrunode.application "python-app" do
+          aws region: "ap-northeast-1"
+          runtime python: "3.12", architecture: :x86_64
+
+          layer :py_deps do
+            pip requirements: "requirements.txt"
+            compatible_runtimes ["python3.12"]
+          end
+
+          function :default_py_fn do
+            handler "app.handler"
+          end
+
+          function :explicit_py_fn do
+            handler "worker.handler"
+            runtime python: "3.11"
+          end
+        end
+      RUBY
+
+      app = Veltrunode.parse(code)
+      expect(app.runtime).to eq('python3.12')
+      expect(app.runtime_defaults[:python]).to eq('3.12')
+
+      layer = app.layers.first
+      expect(layer.name).to eq('py_deps')
+      expect(layer.build_environment['requirements']).to eq('requirements.txt')
+      expect(layer.compatible_runtimes).to eq(['python3.12'])
+
+      fn1 = app.functions.find { |f| f.logical_name == 'default_py_fn' }
+      expect(fn1.runtime).to eq('python3.12')
+
+      fn2 = app.functions.find { |f| f.logical_name == 'explicit_py_fn' }
+      expect(fn2.runtime).to eq('python3.11')
+    end
+
+    it 'supports Node.js runtime DSL at application and function level' do
+      code = <<~RUBY
+        Veltrunode.application "node-app" do
+          aws region: "ap-northeast-1"
+          runtime nodejs: "20.x", architecture: :arm64
+
+          layer :node_deps do
+            npm package_json: "package.json"
+            compatible_runtimes ["nodejs20.x"]
+          end
+
+          function :default_node_fn do
+            handler "index.handler"
+          end
+
+          function :explicit_node_fn do
+            handler "server.handler"
+            runtime nodejs: "18.x"
+          end
+        end
+      RUBY
+
+      app = Veltrunode.parse(code)
+      expect(app.runtime).to eq('nodejs20.x')
+      expect(app.runtime_defaults[:nodejs]).to eq('20.x')
+
+      layer = app.layers.first
+      expect(layer.name).to eq('node_deps')
+      expect(layer.build_environment['package_json']).to eq('package.json')
+      expect(layer.compatible_runtimes).to eq(['nodejs20.x'])
+
+      fn1 = app.functions.find { |f| f.logical_name == 'default_node_fn' }
+      expect(fn1.runtime).to eq('nodejs20.x')
+
+      fn2 = app.functions.find { |f| f.logical_name == 'explicit_node_fn' }
+      expect(fn2.runtime).to eq('nodejs18.x')
+    end
   end
 
   describe 'ref helper' do
@@ -202,6 +278,38 @@ RSpec.describe Veltrunode::DSL do
       ref_obj = Veltrunode::DSL::Reference.new(:input_bucket)
       expect(ref_obj.name).to eq(:input_bucket)
       expect(ref_obj.inspect).to eq('ref(:input_bucket)')
+    end
+  end
+
+  describe 'runtime normalization' do
+    it 'normalizes node runtime when node prefix is provided in DSL' do
+      code = <<~RUBY
+        Veltrunode.application "node-prefix-app" do
+          aws region: "ap-northeast-1"
+          runtime node: "node20.x"
+
+          function :handler_fn1 do
+            handler "index.handler"
+            runtime node: "node18.x"
+          end
+
+          function :handler_fn2 do
+            handler "index.handler"
+            runtime nodejs: "node18.x"
+          end
+
+          function :handler_fn3 do
+            handler "index.handler"
+            runtime "node18.x"
+          end
+        end
+      RUBY
+
+      app = Veltrunode.parse(code)
+      expect(app.runtime).to eq('nodejs20.x')
+      expect(app.functions.find { |f| f.logical_name == 'handler_fn1' }.runtime).to eq('nodejs18.x')
+      expect(app.functions.find { |f| f.logical_name == 'handler_fn2' }.runtime).to eq('nodejs18.x')
+      expect(app.functions.find { |f| f.logical_name == 'handler_fn3' }.runtime).to eq('nodejs18.x')
     end
   end
 end

@@ -29,8 +29,20 @@ module Veltrunode
         @handler = h.to_s
       end
 
-      def runtime(r)
-        @runtime = r.to_s
+      def runtime(r = nil, ruby: nil, python: nil, nodejs: nil, node: nil)
+        if r
+          str = r.to_s
+          @runtime = str.start_with?('node') ? "nodejs#{str.sub(/^node(js)?/, '')}" : str
+        elsif python
+          py_str = python.to_s
+          @runtime = "python#{py_str.sub(/^python/, '')}"
+        elsif nodejs || node
+          node_str = (nodejs || node).to_s
+          @runtime = "nodejs#{node_str.sub(/^node(js)?/, '')}"
+        elsif ruby
+          ruby_str = ruby.to_s
+          @runtime = "ruby#{ruby_str.sub(/^ruby/, '')}"
+        end
       end
 
       def architecture(a)
