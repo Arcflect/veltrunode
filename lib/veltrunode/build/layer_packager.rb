@@ -329,7 +329,9 @@ module Veltrunode
           "build_image_id:#{@build_image_id}",
           "image_digest:#{image_digest}",
           "includes:#{@user_includes.sort.join(',')}",
-          "excludes:#{@user_excludes.sort.join(',')}"
+          "excludes:#{@user_excludes.sort.join(',')}",
+          "allow_missing_packages:#{@allow_missing_packages}",
+          "installed_digest:#{calculate_python_installed_digest(req_content)}"
         ].join("\n")
 
         Digest::SHA256.hexdigest(raw)
@@ -345,10 +347,95 @@ module Veltrunode
           "build_image_id:#{@build_image_id}",
           "image_digest:#{image_digest}",
           "includes:#{@user_includes.sort.join(',')}",
-          "excludes:#{@user_excludes.sort.join(',')}"
+          "excludes:#{@user_excludes.sort.join(',')}",
+          "allow_missing_packages:#{@allow_missing_packages}",
+          "installed_digest:#{calculate_nodejs_installed_digest(pkg_content)}"
         ].join("\n")
 
         Digest::SHA256.hexdigest(raw)
+      end
+
+      def calculate_python_installed_digest(req_content)
+        installed_dir = File.join(@source_dir, 'vendor', 'python')
+        if File.directory?(installed_dir) && Dir.glob(File.join(installed_dir, '*')).any?
+          return "vendor_python:#{digest_directory_tree(installed_dir)}"
+        end
+
+        return 'empty' if req_content.nil? || req_content.strip.empty?
+
+        lines = []
+        req_content.each_line do |line|
+          stripped = line.strip
+          next if stripped.empty? || stripped.start_with?('#')
+
+          pkg_name = stripped.split(/==|>=|<=|~=|>|<|!=|;/).first.to_s.strip
+          pkg_name = pkg_name.split('[').first.to_s.strip if pkg_name.include?('[')
+          next if pkg_name.empty?
+
+          source_pkg = valid_python_package_name?(pkg_name) ? find_local_python_package(pkg_name) : nil
+          lines << if source_pkg && File.directory?(source_pkg)
+                     "pkg_dir:#{pkg_name}:#{digest_directory_tree(source_pkg)}"
+                   elsif source_pkg && File.file?(source_pkg)
+                     "pkg_file:#{pkg_name}:#{Digest::SHA256.file(source_pkg).hexdigest}"
+                   else
+                     "pkg_missing:#{pkg_name}"
+                   end
+        end
+
+        Digest::SHA256.hexdigest(lines.join("\n"))
+      end
+
+      def calculate_nodejs_installed_digest(pkg_content)
+        candidate_dirs = [File.join(@source_dir, 'node_modules')]
+        if @package_json_path && File.exist?(@package_json_path)
+          pkg_dir = File.dirname(@package_json_path)
+          candidate_dirs.unshift(File.join(pkg_dir, 'node_modules'))
+        end
+
+        installed_dir = candidate_dirs.uniq.find { |dir| File.directory?(dir) && Dir.glob(File.join(dir, '*')).any? }
+        return "node_modules:#{digest_directory_tree(installed_dir)}" if installed_dir
+
+        return 'empty' if pkg_content.nil? || pkg_content.strip.empty?
+
+        begin
+          data = JSON.parse(pkg_content)
+        rescue JSON::ParserError
+          return 'invalid_json'
+        end
+
+        deps = data['dependencies'] || {}
+        lines = []
+        deps.each_key do |mod_name|
+          source_mod = valid_node_module_name?(mod_name) ? find_local_node_module(mod_name) : nil
+          lines << if source_mod && File.directory?(source_mod)
+                     "mod_dir:#{mod_name}:#{digest_directory_tree(source_mod)}"
+                   else
+                     "mod_missing:#{mod_name}"
+                   end
+        end
+
+        Digest::SHA256.hexdigest(lines.join("\n"))
+      end
+
+      def digest_directory_tree(dir)
+        return '' unless dir && File.directory?(dir)
+
+        entries = Dir.glob(File.join(dir, '**', '*'), File::FNM_DOTMATCH).sort
+        lines = []
+        entries.each do |path|
+          next if ['.', '..'].include?(File.basename(path))
+
+          rel_path = path.sub(%r{^#{Regexp.escape(dir)}/?}, '')
+          if File.symlink?(path)
+            lines << "symlink:#{rel_path}:#{File.readlink(path)}"
+          elsif File.directory?(path)
+            lines << "dir:#{rel_path}"
+          elsif File.file?(path)
+            sha = Digest::SHA256.file(path).hexdigest
+            lines << "file:#{rel_path}:#{sha}"
+          end
+        end
+        Digest::SHA256.hexdigest(lines.join("\n"))
       end
 
       def valid_python_package_name?(name)
@@ -596,7 +683,8 @@ module Veltrunode
           "image_digest:#{image_digest}",
           "include_gems:#{@include_gems.sort.join(',')}",
           "includes:#{@user_includes.sort.join(',')}",
-          "excludes:#{@user_excludes.sort.join(',')}"
+          "excludes:#{@user_excludes.sort.join(',')}",
+          "allow_missing_gems:#{@allow_missing_gems}"
         ].join("\n")
 
         Digest::SHA256.hexdigest(raw)

@@ -855,5 +855,170 @@ RSpec.describe Veltrunode::Build::LayerPackager do
         end.to raise_error(Veltrunode::ValidationError, /multiple runtime families/)
       end
     end
+
+    it 'changes Python content_hash when vendor/python installed tree changes without changing requirements' do
+      with_tmpdir do |tmpdir|
+        req_file = File.join(tmpdir, 'requirements.txt')
+        File.write(req_file, "requests==2.31.0\n")
+
+        vendor_py = File.join(tmpdir, 'vendor', 'python')
+        FileUtils.mkdir_p(File.join(vendor_py, 'requests'))
+        File.write(File.join(vendor_py, 'requests', '__init__.py'), '# v1')
+
+        py_layer = Veltrunode::Model::Layer.new(
+          name: 'py_cache_layer',
+          compatible_runtimes: ['python3.12'],
+          architectures: [:x86_64]
+        )
+
+        res1 = described_class.package(
+          layer: py_layer,
+          requirements_path: req_file,
+          source_dir: tmpdir,
+          output_dir: File.join(tmpdir, 'out1')
+        )
+
+        File.write(File.join(vendor_py, 'requests', '__init__.py'), '# v2 updated content')
+
+        res2 = described_class.package(
+          layer: py_layer,
+          requirements_path: req_file,
+          source_dir: tmpdir,
+          output_dir: File.join(tmpdir, 'out2')
+        )
+
+        expect(res1.content_hash).not_to eq(res2.content_hash)
+      end
+    end
+
+    it 'changes Python content_hash when allow_missing_packages changes' do
+      with_tmpdir do |tmpdir|
+        req_file = File.join(tmpdir, 'requirements.txt')
+        File.write(req_file, "requests==2.31.0\n")
+
+        vendor_py = File.join(tmpdir, 'vendor', 'python')
+        FileUtils.mkdir_p(File.join(vendor_py, 'requests'))
+        File.write(File.join(vendor_py, 'requests', '__init__.py'), '# req')
+
+        py_layer = Veltrunode::Model::Layer.new(
+          name: 'py_mode_layer',
+          compatible_runtimes: ['python3.12'],
+          architectures: [:x86_64]
+        )
+
+        res_strict = described_class.package(
+          layer: py_layer,
+          requirements_path: req_file,
+          source_dir: tmpdir,
+          output_dir: File.join(tmpdir, 'out1'),
+          allow_missing_packages: false
+        )
+
+        res_permissive = described_class.package(
+          layer: py_layer,
+          requirements_path: req_file,
+          source_dir: tmpdir,
+          output_dir: File.join(tmpdir, 'out2'),
+          allow_missing_packages: true
+        )
+
+        expect(res_strict.content_hash).not_to eq(res_permissive.content_hash)
+      end
+    end
+
+    it 'changes Node.js content_hash when node_modules installed tree changes without changing package.json' do
+      with_tmpdir do |tmpdir|
+        pkg_file = File.join(tmpdir, 'package.json')
+        File.write(pkg_file, JSON.generate(dependencies: { 'lodash' => '^4.17.21' }))
+
+        nm_dir = File.join(tmpdir, 'node_modules', 'lodash')
+        FileUtils.mkdir_p(nm_dir)
+        File.write(File.join(nm_dir, 'index.js'), 'module.exports = { version: 1 };')
+
+        node_layer = Veltrunode::Model::Layer.new(
+          name: 'node_cache_layer',
+          compatible_runtimes: ['nodejs20.x'],
+          architectures: [:x86_64]
+        )
+
+        res1 = described_class.package(
+          layer: node_layer,
+          package_json_path: pkg_file,
+          source_dir: tmpdir,
+          output_dir: File.join(tmpdir, 'out1')
+        )
+
+        File.write(File.join(nm_dir, 'index.js'), 'module.exports = { version: 2 };')
+
+        res2 = described_class.package(
+          layer: node_layer,
+          package_json_path: pkg_file,
+          source_dir: tmpdir,
+          output_dir: File.join(tmpdir, 'out2')
+        )
+
+        expect(res1.content_hash).not_to eq(res2.content_hash)
+      end
+    end
+
+    it 'changes Node.js content_hash when allow_missing_packages changes' do
+      with_tmpdir do |tmpdir|
+        pkg_file = File.join(tmpdir, 'package.json')
+        File.write(pkg_file, JSON.generate(dependencies: { 'lodash' => '^4.17.21' }))
+
+        nm_dir = File.join(tmpdir, 'node_modules', 'lodash')
+        FileUtils.mkdir_p(nm_dir)
+        File.write(File.join(nm_dir, 'index.js'), 'module.exports = {};')
+
+        node_layer = Veltrunode::Model::Layer.new(
+          name: 'node_mode_layer',
+          compatible_runtimes: ['nodejs20.x'],
+          architectures: [:x86_64]
+        )
+
+        res_strict = described_class.package(
+          layer: node_layer,
+          package_json_path: pkg_file,
+          source_dir: tmpdir,
+          output_dir: File.join(tmpdir, 'out1'),
+          allow_missing_packages: false
+        )
+
+        res_permissive = described_class.package(
+          layer: node_layer,
+          package_json_path: pkg_file,
+          source_dir: tmpdir,
+          output_dir: File.join(tmpdir, 'out2'),
+          allow_missing_packages: true
+        )
+
+        expect(res_strict.content_hash).not_to eq(res_permissive.content_hash)
+      end
+    end
+
+    it 'changes Ruby content_hash when allow_missing_gems changes' do
+      with_tmpdir do |tmpdir|
+        lockfile_path = File.join(tmpdir, 'Gemfile.lock')
+        File.write(lockfile_path, sample_lockfile_content)
+
+        packager_strict = described_class.new(
+          layer: layer,
+          gemfile_lock_path: lockfile_path,
+          source_dir: tmpdir,
+          allow_missing_gems: false
+        )
+        packager_permissive = described_class.new(
+          layer: layer,
+          gemfile_lock_path: lockfile_path,
+          source_dir: tmpdir,
+          allow_missing_gems: true
+        )
+
+        hash_strict = packager_strict.send(:calculate_content_hash, sample_lockfile_content)
+        hash_permissive = packager_permissive.send(:calculate_content_hash, sample_lockfile_content)
+
+        expect(hash_strict).not_to eq(hash_permissive)
+      end
+    end
   end
 end
