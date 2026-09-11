@@ -134,22 +134,25 @@ module Veltrunode
 
       private
 
-      def resolve_expected_output_dir
+      def resolve_expected_output_dirs
         if @runtime.start_with?('python')
-          File.join(@source_dir, 'vendor', 'python')
+          [File.join(@source_dir, 'vendor', 'python')]
         elsif @runtime.start_with?('node')
-          File.join(@source_dir, 'node_modules')
+          working_dir = resolve_node_working_dir
+          dirs = [File.join(@source_dir, 'node_modules')]
+          dirs.unshift(File.join(@source_dir, working_dir, 'node_modules')) if working_dir && working_dir != '.'
+          dirs.uniq
         else
-          File.join(@source_dir, 'vendor', 'bundle')
+          [File.join(@source_dir, 'vendor', 'bundle')]
         end
       end
 
       def validate_output_dir!
-        expected_output_dir = resolve_expected_output_dir
-        return if @output_dir == expected_output_dir
+        expected_dirs = resolve_expected_output_dirs
+        return if expected_dirs.include?(@output_dir)
 
         raise ValidationError,
-              "output_dir must be '#{expected_output_dir}' when using NativeBuilder (got: '#{@output_dir}')"
+              "output_dir must be '#{expected_dirs.first}' when using NativeBuilder (got: '#{@output_dir}')"
       end
 
       def resolve_requirements_path(explicit_path)
@@ -187,6 +190,33 @@ module Veltrunode
         req_str
       end
 
+      def resolve_node_working_dir
+        return '.' if @package_json_path.nil? || @package_json_path.to_s.strip.empty?
+
+        pkg_str = @package_json_path.to_s.strip
+        abs_path = File.expand_path(pkg_str, @source_dir)
+        dir_path = File.directory?(abs_path) ? abs_path : File.dirname(abs_path)
+
+        if dir_path.start_with?(@source_dir)
+          begin
+            rel = Pathname.new(dir_path).relative_path_from(Pathname.new(@source_dir)).cleanpath.to_s
+            return rel unless rel.empty?
+          rescue ArgumentError
+            # Fallback
+          end
+        end
+
+        '.'
+      end
+
+      def resolve_node_package_file
+        return 'package.json' if @package_json_path.nil? || @package_json_path.to_s.strip.empty?
+
+        pkg_str = @package_json_path.to_s.strip
+        abs_path = File.expand_path(pkg_str, @source_dir)
+        File.directory?(abs_path) ? 'package.json' : File.basename(abs_path)
+      end
+
       def resolve_container_command
         if @runtime.start_with?('python')
           req_file = resolve_python_requirements_file
@@ -195,10 +225,16 @@ module Veltrunode
             "cd /var/task && pip install -r #{Shellwords.shellescape(req_file)} -t vendor/python"
           ]
         elsif @runtime.start_with?('node')
-          [
-            'sh', '-c',
-            'cd /var/task && npm install --production'
-          ]
+          working_dir = resolve_node_working_dir
+          pkg_file = resolve_node_package_file
+          cd_target = working_dir == '.' ? '/var/task' : "/var/task/#{working_dir}"
+          cmd = if pkg_file == 'package.json'
+                  "cd #{Shellwords.shellescape(cd_target)} && npm install --production"
+                else
+                  "cd #{Shellwords.shellescape(cd_target)} && cp #{Shellwords.shellescape(pkg_file)} package.json " \
+                    '&& npm install --production'
+                end
+          ['sh', '-c', cmd]
         else
           [
             'sh', '-c',

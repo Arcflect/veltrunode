@@ -260,5 +260,99 @@ RSpec.describe Veltrunode::Build::NativeBuilder do
         expect(result[:output_dir]).to eq(File.join(dir, 'vendor', 'python'))
       end
     end
+    it 'uses custom package_json_path in subdirectory for Node.js container command' do
+      expect(mock_container_runner).to receive(:run).with(
+        hash_including(
+          command: ['sh', '-c', 'cd /var/task/frontend && npm install --production']
+        )
+      ).and_return(
+        executable: 'docker',
+        command: %w[docker run],
+        stdout: 'Npm success',
+        stderr: '',
+        status: 0
+      )
+
+      Dir.mktmpdir do |dir|
+        frontend_dir = File.join(dir, 'frontend')
+        FileUtils.mkdir_p(frontend_dir)
+        pkg_path = File.join(frontend_dir, 'package.json')
+        File.write(pkg_path, '{}')
+
+        result = described_class.build(
+          source_dir: dir,
+          output_dir: File.join(frontend_dir, 'node_modules'),
+          runtime: 'nodejs20.x',
+          architecture: 'arm64',
+          package_json_path: pkg_path,
+          container_runner: mock_container_runner
+        )
+
+        expect(result[:output_dir]).to eq(File.join(frontend_dir, 'node_modules'))
+      end
+    end
+
+    it 'uses custom package_json filename for Node.js container command' do
+      expect(mock_container_runner).to receive(:run).with(
+        hash_including(
+          command: ['sh', '-c', 'cd /var/task && cp package-prod.json package.json && npm install --production']
+        )
+      ).and_return(
+        executable: 'docker',
+        command: %w[docker run],
+        stdout: 'Npm success',
+        stderr: '',
+        status: 0
+      )
+
+      Dir.mktmpdir do |dir|
+        pkg_path = File.join(dir, 'package-prod.json')
+        File.write(pkg_path, '{}')
+
+        result = described_class.build(
+          source_dir: dir,
+          output_dir: File.join(dir, 'node_modules'),
+          runtime: 'nodejs20.x',
+          architecture: 'arm64',
+          package_json_path: pkg_path,
+          container_runner: mock_container_runner
+        )
+
+        expect(result[:output_dir]).to eq(File.join(dir, 'node_modules'))
+      end
+    end
+
+    it 'falls back to layer.build_environment package_json setting for Node.js container command' do
+      layer = Veltrunode::Model::Layer.new(
+        name: 'custom_node_layer',
+        compatible_runtimes: ['nodejs20.x'],
+        build_environment: { 'package_json' => 'packages/api/package.json' }
+      )
+
+      expect(mock_container_runner).to receive(:run).with(
+        hash_including(
+          command: ['sh', '-c', 'cd /var/task/packages/api && npm install --production']
+        )
+      ).and_return(
+        executable: 'docker',
+        command: %w[docker run],
+        stdout: 'Npm success',
+        stderr: '',
+        status: 0
+      )
+
+      Dir.mktmpdir do |dir|
+        result = described_class.build(
+          source_dir: dir,
+          output_dir: File.join(dir, 'node_modules'),
+          runtime: 'nodejs20.x',
+          architecture: 'arm64',
+          layer: layer,
+          container_runner: mock_container_runner
+        )
+
+        expect(result[:output_dir]).to eq(File.join(dir, 'node_modules'))
+      end
+    end
   end
 end

@@ -248,7 +248,12 @@ module Veltrunode
         if runtime.start_with?('python')
           File.join(@source_dir, 'vendor', 'python')
         elsif runtime.start_with?('node')
-          File.join(@source_dir, 'node_modules')
+          if @package_json_path && File.exist?(@package_json_path)
+            pkg_dir = File.dirname(@package_json_path)
+            pkg_dir == @source_dir ? File.join(@source_dir, 'node_modules') : File.join(pkg_dir, 'node_modules')
+          else
+            File.join(@source_dir, 'node_modules')
+          end
         else
           File.join(@source_dir, 'vendor', 'bundle')
         end
@@ -399,7 +404,11 @@ module Veltrunode
           File.join(@source_dir, 'node_modules', mod_name),
           File.join(@source_dir, mod_name)
         ]
-        candidates.find { |path| File.directory?(path) }
+        if @package_json_path && File.exist?(@package_json_path)
+          pkg_dir = File.dirname(@package_json_path)
+          candidates.unshift(File.join(pkg_dir, 'node_modules', mod_name))
+        end
+        candidates.uniq.find { |path| File.directory?(path) }
       end
 
       def extract_layer_name

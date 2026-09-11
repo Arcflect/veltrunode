@@ -616,5 +616,41 @@ RSpec.describe Veltrunode::Build::LayerPackager do
         expect(res.layer_name).to eq('python_custom_req_layer')
       end
     end
+    it 'passes resolved package_json_path to native_builder when layer specifies custom package_json' do
+      with_tmpdir do |tmpdir|
+        frontend_dir = File.join(tmpdir, 'frontend')
+        FileUtils.mkdir_p(frontend_dir)
+        pkg_path = File.join(frontend_dir, 'package.json')
+        File.write(pkg_path, '{"dependencies": {"axios": "^1.0.0"}}')
+
+        node_layer = Veltrunode::Model::Layer.new(
+          name: 'node_custom_pkg_layer',
+          compatible_runtimes: ['nodejs20.x'],
+          build_environment: {
+            'build_on' => 'amazon_linux_2023',
+            'package_json' => 'frontend/package.json'
+          }
+        )
+
+        mock_builder = class_double(Veltrunode::Build::NativeBuilder)
+        expect(mock_builder).to receive(:build).with(
+          hash_including(
+            package_json_path: pkg_path,
+            runtime: 'nodejs20.x'
+          )
+        ).and_return(image_digest: 'sha256:2222333344445555666677778888999922223333444455556666777788889999')
+
+        res = described_class.package(
+          layer: node_layer,
+          source_dir: tmpdir,
+          output_dir: File.join(tmpdir, 'out'),
+          build_on: :amazon_linux_2023, # rubocop:disable Naming/VariableNumber
+          native_builder: mock_builder,
+          allow_missing_packages: true
+        )
+
+        expect(res.layer_name).to eq('node_custom_pkg_layer')
+      end
+    end
   end
 end
