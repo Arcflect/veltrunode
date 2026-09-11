@@ -190,9 +190,13 @@ module Veltrunode
         if @package_lock_path && !@package_lock_path.to_s.strip.empty?
           abs_lock = File.expand_path(@package_lock_path.to_s.strip, @source_dir)
           source_prefix = @source_dir.end_with?(File::SEPARATOR) ? @source_dir : "#{@source_dir}#{File::SEPARATOR}"
-          if (abs_lock == @source_dir || abs_lock.start_with?(source_prefix)) && File.file?(abs_lock) &&
-             File.dirname(abs_lock) == target_dir
-            return File.basename(abs_lock)
+          if (abs_lock == @source_dir || abs_lock.start_with?(source_prefix)) && File.file?(abs_lock)
+            begin
+              rel = Pathname.new(abs_lock).relative_path_from(Pathname.new(target_dir)).cleanpath.to_s
+              return rel unless rel.empty? || rel == '.'
+            rescue ArgumentError
+              # Fallback
+            end
           end
         end
 
@@ -264,49 +268,56 @@ module Veltrunode
             "cd /var/task && pip install -r #{Shellwords.shellescape(req_file)} -t vendor/python"
           ]
         elsif @runtime.start_with?('node')
-          working_dir = resolve_node_working_dir
-          pkg_file = resolve_node_package_file
-          target_dir = working_dir == '.' ? @source_dir : File.join(@source_dir, working_dir)
-          cd_target = working_dir == '.' ? '/var/task' : "/var/task/#{working_dir}"
-          lock_file = resolve_node_lock_file(target_dir, pkg_file)
-          install_cmd = lock_file ? 'npm ci --production' : 'npm install --production'
-
-          cmd = if pkg_file == 'package.json'
-                  "cd #{Shellwords.shellescape(cd_target)} && #{install_cmd}"
-                else
-                  escaped_cd = Shellwords.shellescape(cd_target)
-                  escaped_pkg = Shellwords.shellescape(pkg_file)
-                  if lock_file
-                    escaped_lock = Shellwords.shellescape(lock_file)
-                    restore_pkg = 'if [ -f .package.json.veltrunode.bak ]; then ' \
-                                  'mv -f .package.json.veltrunode.bak package.json; else rm -f package.json; fi'
-                    restore_lock = 'if [ -f .package-lock.json.veltrunode.bak ]; then ' \
-                                   'mv -f .package-lock.json.veltrunode.bak package-lock.json; ' \
-                                   'else rm -f package-lock.json; fi'
-                    "cd #{escaped_cd} && " \
-                      'if [ -e package.json ]; then cp -p package.json .package.json.veltrunode.bak; fi && ' \
-                      'if [ -e package-lock.json ]; then ' \
-                      'cp -p package-lock.json .package-lock.json.veltrunode.bak; fi && ' \
-                      "trap '#{restore_pkg}; #{restore_lock}' EXIT && " \
-                      "cp #{escaped_pkg} package.json && cp #{escaped_lock} package-lock.json && #{install_cmd}"
-                  else
-                    "cd #{escaped_cd} && " \
-                      'if [ -e package.json ]; then ' \
-                      'cp -p package.json .package.json.veltrunode.bak && ' \
-                      "trap 'mv -f .package.json.veltrunode.bak package.json' EXIT; " \
-                      'else ' \
-                      "trap 'rm -f package.json' EXIT; " \
-                      'fi && ' \
-                      "cp #{escaped_pkg} package.json && #{install_cmd}"
-                  end
-                end
-          ['sh', '-c', cmd]
+          ['sh', '-c', resolve_node_container_command]
         else
           [
             'sh', '-c',
             'cd /var/task && bundle config set --local path vendor/bundle && bundle install'
           ]
         end
+      end
+
+      def resolve_node_container_command
+        working_dir = resolve_node_working_dir
+        pkg_file = resolve_node_package_file
+        target_dir = working_dir == '.' ? @source_dir : File.join(@source_dir, working_dir)
+        cd_target = working_dir == '.' ? '/var/task' : "/var/task/#{working_dir}"
+        lock_file = resolve_node_lock_file(target_dir, pkg_file)
+        install_cmd = lock_file ? 'npm ci --production' : 'npm install --production'
+
+        needs_pkg = pkg_file != 'package.json'
+        needs_lock = lock_file && lock_file != 'package-lock.json' && lock_file != 'npm-shrinkwrap.json'
+
+        return "cd #{Shellwords.shellescape(cd_target)} && #{install_cmd}" unless needs_pkg || needs_lock
+
+        build_staged_node_command(cd_target, pkg_file, lock_file, install_cmd, needs_pkg: needs_pkg,
+                                                                               needs_lock: needs_lock)
+      end
+
+      def build_staged_node_command(cd_target, pkg_file, lock_file, install_cmd, needs_pkg:, needs_lock:)
+        escaped_cd = Shellwords.shellescape(cd_target)
+        pre_cmds = ["cd #{escaped_cd}"]
+        traps = []
+        copy_cmds = []
+
+        if needs_pkg
+          escaped_pkg = Shellwords.shellescape(pkg_file)
+          pre_cmds << 'if [ -e package.json ]; then cp -p package.json .package.json.veltrunode.bak; fi'
+          traps << 'if [ -f .package.json.veltrunode.bak ]; then ' \
+                   'mv -f .package.json.veltrunode.bak package.json; else rm -f package.json; fi'
+          copy_cmds << "cp #{escaped_pkg} package.json"
+        end
+
+        if needs_lock
+          escaped_lock = Shellwords.shellescape(lock_file)
+          pre_cmds << 'if [ -e package-lock.json ]; then cp -p package-lock.json .package-lock.json.veltrunode.bak; fi'
+          traps << 'if [ -f .package-lock.json.veltrunode.bak ]; then ' \
+                   'mv -f .package-lock.json.veltrunode.bak package-lock.json; else rm -f package-lock.json; fi'
+          copy_cmds << "cp #{escaped_lock} package-lock.json"
+        end
+
+        trap_str = traps.join('; ')
+        "#{pre_cmds.join(' && ')} && trap '#{trap_str}' EXIT && #{copy_cmds.join(' && ')} && #{install_cmd}"
       end
 
       def resolve_environment

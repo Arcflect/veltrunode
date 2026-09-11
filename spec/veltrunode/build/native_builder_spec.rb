@@ -412,6 +412,92 @@ RSpec.describe Veltrunode::Build::NativeBuilder do
       end
     end
 
+    it 'copies nonstandard lock filename to package-lock.json with trap when using default package.json' do
+      expect(mock_container_runner).to receive(:run).with(
+        hash_including(
+          command: [
+            'sh', '-c',
+            satisfy do |cmd|
+              cmd.include?('cp custom-lock.json package-lock.json') &&
+                cmd.include?('npm ci --production') &&
+                cmd.include?('trap') &&
+                cmd.include?('.package-lock.json.veltrunode.bak') &&
+                !cmd.include?('.package.json.veltrunode.bak')
+            end
+          ]
+        )
+      ).and_return(
+        executable: 'docker',
+        command: %w[docker run],
+        stdout: 'Npm success',
+        stderr: '',
+        status: 0
+      )
+
+      Dir.mktmpdir do |dir|
+        pkg_path = File.join(dir, 'package.json')
+        lock_path = File.join(dir, 'custom-lock.json')
+        File.write(pkg_path, '{}')
+        File.write(lock_path, '{}')
+
+        result = described_class.build(
+          source_dir: dir,
+          output_dir: File.join(dir, 'node_modules'),
+          runtime: 'nodejs20.x',
+          architecture: 'arm64',
+          package_lock_path: lock_path,
+          container_runner: mock_container_runner
+        )
+
+        expect(result[:output_dir]).to eq(File.join(dir, 'node_modules'))
+      end
+    end
+
+    it 'stages root package-lock.json into subdirectory when explicit package_lock_path is configured' do
+      expect(mock_container_runner).to receive(:run).with(
+        hash_including(
+          command: [
+            'sh', '-c',
+            satisfy do |cmd|
+              cmd.include?('cd /var/task/frontend') &&
+                cmd.include?('cp ../package-lock.json package-lock.json') &&
+                cmd.include?('npm ci --production') &&
+                cmd.include?('trap') &&
+                cmd.include?('.package-lock.json.veltrunode.bak')
+            end
+          ]
+        )
+      ).and_return(
+        executable: 'docker',
+        command: %w[docker run],
+        stdout: 'Npm success',
+        stderr: '',
+        status: 0
+      )
+
+      Dir.mktmpdir do |dir|
+        root_lock = File.join(dir, 'package-lock.json')
+        File.write(root_lock, '{}')
+
+        frontend_dir = File.join(dir, 'frontend')
+        FileUtils.mkdir_p(frontend_dir)
+        pkg_path = File.join(frontend_dir, 'package.json')
+        File.write(pkg_path, '{}')
+
+        result = described_class.build(
+          source_dir: dir,
+          output_dir: File.join(frontend_dir, 'node_modules'),
+          runtime: 'nodejs20.x',
+          architecture: 'arm64',
+          package_json_path: pkg_path,
+          package_lock_path: root_lock,
+          container_runner: mock_container_runner
+        )
+
+        expect(result[:output_dir]).to eq(File.join(frontend_dir, 'node_modules'))
+      end
+    end
+
     it 'uses custom package_json filename with safe backup and restore for Node.js container command' do
       expect(mock_container_runner).to receive(:run).with(
         hash_including(
