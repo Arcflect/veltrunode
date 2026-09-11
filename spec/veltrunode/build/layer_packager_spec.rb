@@ -1020,5 +1020,70 @@ RSpec.describe Veltrunode::Build::LayerPackager do
         expect(hash_strict).not_to eq(hash_permissive)
       end
     end
+
+    it 'changes Node.js content_hash when package-lock.json changes without changing package.json' do
+      with_tmpdir do |tmpdir|
+        pkg_file = File.join(tmpdir, 'package.json')
+        File.write(pkg_file, JSON.generate(dependencies: { 'lodash' => '^4.17.21' }))
+
+        lock_file = File.join(tmpdir, 'package-lock.json')
+        File.write(lock_file,
+                   JSON.generate(lockfileVersion: 2, packages: { 'node_modules/lodash' => { version: '4.17.20' } }))
+
+        nm_dir = File.join(tmpdir, 'node_modules', 'lodash')
+        FileUtils.mkdir_p(nm_dir)
+        File.write(File.join(nm_dir, 'index.js'), 'module.exports = {};')
+
+        node_layer = Veltrunode::Model::Layer.new(
+          name: 'node_lock_layer',
+          compatible_runtimes: ['nodejs20.x'],
+          architectures: [:x86_64]
+        )
+
+        res1 = described_class.package(
+          layer: node_layer,
+          package_json_path: pkg_file,
+          package_lock_path: lock_file,
+          source_dir: tmpdir,
+          output_dir: File.join(tmpdir, 'out1')
+        )
+
+        File.write(lock_file,
+                   JSON.generate(lockfileVersion: 2, packages: { 'node_modules/lodash' => { version: '4.17.21' } }))
+
+        res2 = described_class.package(
+          layer: node_layer,
+          package_json_path: pkg_file,
+          package_lock_path: lock_file,
+          source_dir: tmpdir,
+          output_dir: File.join(tmpdir, 'out2')
+        )
+
+        expect(res1.content_hash).not_to eq(res2.content_hash)
+      end
+    end
+
+    it 'raises ValidationError when explicit package_lock_path does not exist' do
+      with_tmpdir do |tmpdir|
+        pkg_file = File.join(tmpdir, 'package.json')
+        File.write(pkg_file, '{}')
+
+        node_layer = Veltrunode::Model::Layer.new(
+          name: 'node_missing_lock_layer',
+          compatible_runtimes: ['nodejs20.x'],
+          architectures: [:x86_64]
+        )
+
+        expect do
+          described_class.package(
+            layer: node_layer,
+            package_json_path: pkg_file,
+            package_lock_path: File.join(tmpdir, 'nonexistent-lock.json'),
+            source_dir: tmpdir,
+            output_dir: File.join(tmpdir, 'out')
+          )
+        end.to raise_error(Veltrunode::ValidationError, /package-lock\.json not found/)
+      end
+    end
   end
 end

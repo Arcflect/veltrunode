@@ -53,6 +53,7 @@ module Veltrunode
           container_runner: ContainerRunner,
           requirements_path: nil,
           package_json_path: nil,
+          package_lock_path: nil,
           layer: nil
         )
           new(
@@ -66,13 +67,14 @@ module Veltrunode
             container_runner: container_runner,
             requirements_path: requirements_path,
             package_json_path: package_json_path,
+            package_lock_path: package_lock_path,
             layer: layer
           ).build
         end
       end
 
       attr_reader :source_dir, :output_dir, :runtime, :architecture, :build_on, :image, :image_digest,
-                  :requirements_path, :package_json_path, :layer
+                  :requirements_path, :package_json_path, :package_lock_path, :layer
 
       def initialize(
         source_dir:,
@@ -85,6 +87,7 @@ module Veltrunode
         container_runner: ContainerRunner,
         requirements_path: nil,
         package_json_path: nil,
+        package_lock_path: nil,
         layer: nil
       )
         @source_dir = File.expand_path(source_dir.to_s)
@@ -99,6 +102,7 @@ module Veltrunode
         @layer = layer
         @requirements_path = resolve_requirements_path(requirements_path)
         @package_json_path = resolve_package_json_path(package_json_path)
+        @package_lock_path = resolve_package_lock_path(package_lock_path)
 
         validate_output_dir!
 
@@ -173,6 +177,32 @@ module Veltrunode
         end
       end
 
+      def resolve_package_lock_path(explicit_path)
+        if explicit_path && !explicit_path.to_s.strip.empty?
+          explicit_path.to_s.strip
+        elsif @layer.respond_to?(:build_environment) && @layer.build_environment.is_a?(Hash)
+          lock = @layer.build_environment['package_lock'] || @layer.build_environment[:package_lock]
+          lock&.to_s&.strip
+        end
+      end
+
+      def resolve_node_lock_file(target_dir, pkg_file)
+        if @package_lock_path && !@package_lock_path.to_s.strip.empty?
+          abs_lock = File.expand_path(@package_lock_path.to_s.strip, @source_dir)
+          return File.basename(abs_lock) if File.file?(abs_lock)
+        end
+
+        if pkg_file == 'package.json'
+          return 'package-lock.json' if File.file?(File.join(target_dir, 'package-lock.json'))
+          return 'npm-shrinkwrap.json' if File.file?(File.join(target_dir, 'npm-shrinkwrap.json'))
+        else
+          custom_lock = pkg_file.sub(/\.json\z/, '-lock.json')
+          return custom_lock if File.file?(File.join(target_dir, custom_lock))
+        end
+
+        nil
+      end
+
       def resolve_python_requirements_file
         return 'requirements.txt' if @requirements_path.nil? || @requirements_path.to_s.strip.empty?
 
@@ -227,20 +257,39 @@ module Veltrunode
         elsif @runtime.start_with?('node')
           working_dir = resolve_node_working_dir
           pkg_file = resolve_node_package_file
+          target_dir = working_dir == '.' ? @source_dir : File.join(@source_dir, working_dir)
           cd_target = working_dir == '.' ? '/var/task' : "/var/task/#{working_dir}"
+          lock_file = resolve_node_lock_file(target_dir, pkg_file)
+          install_cmd = lock_file ? 'npm ci --production' : 'npm install --production'
+
           cmd = if pkg_file == 'package.json'
-                  "cd #{Shellwords.shellescape(cd_target)} && npm install --production"
+                  "cd #{Shellwords.shellescape(cd_target)} && #{install_cmd}"
                 else
                   escaped_cd = Shellwords.shellescape(cd_target)
                   escaped_pkg = Shellwords.shellescape(pkg_file)
-                  "cd #{escaped_cd} && " \
-                    'if [ -e package.json ]; then ' \
-                    'cp -p package.json .package.json.veltrunode.bak && ' \
-                    "trap 'mv -f .package.json.veltrunode.bak package.json' EXIT; " \
-                    'else ' \
-                    "trap 'rm -f package.json' EXIT; " \
-                    'fi && ' \
-                    "cp #{escaped_pkg} package.json && npm install --production"
+                  if lock_file
+                    escaped_lock = Shellwords.shellescape(lock_file)
+                    restore_pkg = 'if [ -f .package.json.veltrunode.bak ]; then ' \
+                                  'mv -f .package.json.veltrunode.bak package.json; else rm -f package.json; fi'
+                    restore_lock = 'if [ -f .package-lock.json.veltrunode.bak ]; then ' \
+                                   'mv -f .package-lock.json.veltrunode.bak package-lock.json; ' \
+                                   'else rm -f package-lock.json; fi'
+                    "cd #{escaped_cd} && " \
+                      'if [ -e package.json ]; then cp -p package.json .package.json.veltrunode.bak; fi && ' \
+                      'if [ -e package-lock.json ]; then ' \
+                      'cp -p package-lock.json .package-lock.json.veltrunode.bak; fi && ' \
+                      "trap '#{restore_pkg}; #{restore_lock}' EXIT && " \
+                      "cp #{escaped_pkg} package.json && cp #{escaped_lock} package-lock.json && #{install_cmd}"
+                  else
+                    "cd #{escaped_cd} && " \
+                      'if [ -e package.json ]; then ' \
+                      'cp -p package.json .package.json.veltrunode.bak && ' \
+                      "trap 'mv -f .package.json.veltrunode.bak package.json' EXIT; " \
+                      'else ' \
+                      "trap 'rm -f package.json' EXIT; " \
+                      'fi && ' \
+                      "cp #{escaped_pkg} package.json && #{install_cmd}"
+                  end
                 end
           ['sh', '-c', cmd]
         else

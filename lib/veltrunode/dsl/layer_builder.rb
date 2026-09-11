@@ -29,8 +29,9 @@ module Veltrunode
         @build_environment['requirements'] = requirements.to_s
       end
 
-      def npm(package_json: 'package.json')
+      def npm(package_json: 'package.json', package_lock: nil)
         @build_environment['package_json'] = package_json.to_s
+        @build_environment['package_lock'] = package_lock.to_s if package_lock
       end
 
       def include_gems(gems)

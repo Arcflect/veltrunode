@@ -34,6 +34,7 @@ module Veltrunode
           gemfile_lock_path: nil,
           requirements_path: nil,
           package_json_path: nil,
+          package_lock_path: nil,
           source_dir: nil,
           output_dir: DEFAULT_OUTPUT_DIR,
           without_groups: %w[development test],
@@ -55,6 +56,7 @@ module Veltrunode
             gemfile_lock_path: gemfile_lock_path,
             requirements_path: requirements_path,
             package_json_path: package_json_path,
+            package_lock_path: package_lock_path,
             source_dir: source_dir,
             output_dir: output_dir,
             without_groups: without_groups,
@@ -79,6 +81,7 @@ module Veltrunode
         gemfile_lock_path: nil,
         requirements_path: nil,
         package_json_path: nil,
+        package_lock_path: nil,
         source_dir: nil,
         output_dir: DEFAULT_OUTPUT_DIR,
         without_groups: %w[development test],
@@ -100,6 +103,7 @@ module Veltrunode
         @gemfile_lock_path = resolve_gemfile_lock_path(gemfile_lock_path)
         @requirements_path = resolve_requirements_path(requirements_path)
         @package_json_path = resolve_package_json_path(package_json_path)
+        @package_lock_path = resolve_package_lock_path(package_lock_path)
         @output_dir = File.expand_path(output_dir.to_s)
         @without_groups = Array(without_groups).map(&:to_s)
         @groups = groups ? Array(groups).map(&:to_s) : []
@@ -309,6 +313,49 @@ module Veltrunode
         end
       end
 
+      def resolve_package_lock_path(path)
+        if path
+          resolved = File.expand_path(path.to_s, @source_dir)
+          return resolved if File.exist?(resolved)
+
+          raise ValidationError, "Configured package-lock.json not found at '#{resolved}'"
+        end
+
+        if @layer.respond_to?(:build_environment) && @layer.build_environment.is_a?(Hash)
+          custom_lock = @layer.build_environment['package_lock'] ||
+                        @layer.build_environment[:package_lock]
+          if custom_lock
+            resolved = File.expand_path(custom_lock.to_s, @source_dir)
+            return resolved if File.exist?(resolved)
+
+            raise ValidationError, "Configured package-lock.json not found at '#{resolved}'"
+          end
+        end
+
+        candidate_paths = []
+        if @package_json_path
+          pkg_dir = File.dirname(@package_json_path)
+          base_name = File.basename(@package_json_path, '.*')
+          candidate_paths << File.join(pkg_dir, "#{base_name}-lock.json") unless base_name == 'package'
+          candidate_paths << File.join(pkg_dir, 'package-lock.json')
+          candidate_paths << File.join(pkg_dir, 'npm-shrinkwrap.json')
+        end
+        candidate_paths << File.join(@source_dir, 'package-lock.json')
+        candidate_paths << File.join(@source_dir, 'npm-shrinkwrap.json')
+
+        candidate_paths.uniq.find { |p| File.file?(p) }
+      end
+
+      def read_package_lock_file
+        return '' unless @package_lock_path
+
+        unless File.file?(@package_lock_path)
+          raise ValidationError, "package-lock.json file not found: #{@package_lock_path}"
+        end
+
+        File.read(@package_lock_path)
+      end
+
       def read_package_json_file
         return '' unless @package_json_path
 
@@ -338,10 +385,12 @@ module Veltrunode
       end
 
       def calculate_nodejs_content_hash(pkg_content, image_digest: nil)
+        lock_content = read_package_lock_file
         raw = [
           "schema_version:#{BUILD_SCHEMA_VERSION}",
           'runtime_family:nodejs',
           "package_json:#{pkg_content}",
+          "package_lock:#{lock_content}",
           "runtimes:#{extract_runtimes.sort.join(',')}",
           "architectures:#{extract_architectures.sort.join(',')}",
           "build_image_id:#{@build_image_id}",
@@ -659,6 +708,7 @@ module Veltrunode
           container_runner: @container_runner,
           requirements_path: @requirements_path,
           package_json_path: @package_json_path,
+          package_lock_path: @package_lock_path,
           layer: @layer
         )
 
