@@ -723,5 +723,43 @@ RSpec.describe Veltrunode::Build::LayerPackager do
         expect(entries).to include('nodejs/node_modules/follow-redirects/index.js')
       end
     end
+
+    it 'raises ValidationError when configured requirements file does not exist' do
+      with_tmpdir do |tmpdir|
+        py_layer = Veltrunode::Model::Layer.new(
+          name: 'py_missing_layer',
+          compatible_runtimes: ['python3.12']
+        )
+
+        nonexistent = File.join(tmpdir, 'nonexistent-requirements.txt')
+        expect do
+          described_class.package(
+            layer: py_layer,
+            requirements_path: nonexistent,
+            source_dir: tmpdir,
+            output_dir: File.join(tmpdir, 'out')
+          )
+        end.to raise_error(Veltrunode::ValidationError, /requirements file not found:/)
+      end
+    end
+
+    it 'raises ValidationError when configured package.json file does not exist' do
+      with_tmpdir do |tmpdir|
+        node_layer = Veltrunode::Model::Layer.new(
+          name: 'node_missing_layer',
+          compatible_runtimes: ['nodejs20.x']
+        )
+
+        nonexistent = File.join(tmpdir, 'nonexistent-package.json')
+        expect do
+          described_class.package(
+            layer: node_layer,
+            package_json_path: nonexistent,
+            source_dir: tmpdir,
+            output_dir: File.join(tmpdir, 'out')
+          )
+        end.to raise_error(Veltrunode::ValidationError, /package.json file not found:/)
+      end
+    end
   end
 end

@@ -271,7 +271,11 @@ module Veltrunode
       end
 
       def read_requirements_file
-        return '' unless @requirements_path && File.exist?(@requirements_path)
+        return '' unless @requirements_path
+
+        unless File.file?(@requirements_path)
+          raise ValidationError, "requirements file not found: #{@requirements_path}"
+        end
 
         File.read(@requirements_path)
       end
@@ -288,7 +292,11 @@ module Veltrunode
       end
 
       def read_package_json_file
-        return '' unless @package_json_path && File.exist?(@package_json_path)
+        return '' unless @package_json_path
+
+        unless File.file?(@package_json_path)
+          raise ValidationError, "package.json file not found: #{@package_json_path}"
+        end
 
         File.read(@package_json_path)
       end
