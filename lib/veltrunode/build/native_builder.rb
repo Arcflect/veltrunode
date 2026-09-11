@@ -12,33 +12,33 @@ module Veltrunode
     class NativeBuilder
       DEFAULT_IMAGE_DIGESTS = {
         'ruby3.3-x86_64' => 'public.ecr.aws/sam/build-ruby3.3:latest-x86_64@sha256:' \
-                            '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+                            'ed67ce8c9a2288c48cb95f6c9ef2fe5be2375b4461e34bb88bb8e1ef16a87484',
         'ruby3.3-arm64' => 'public.ecr.aws/sam/build-ruby3.3:latest-arm64@sha256:' \
-                           '123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0',
+                           '3bc0be90a6d55ef3ac02e103a82f4556438deafbb6528fff5ca029e7947fabdf',
         'ruby3.2-x86_64' => 'public.ecr.aws/sam/build-ruby3.2:latest-x86_64@sha256:' \
-                            '23456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01',
+                            '167caa7f1cc96a664ca2446868f125e458399b39776d03bc17c9edacb608b10d',
         'ruby3.2-arm64' => 'public.ecr.aws/sam/build-ruby3.2:latest-arm64@sha256:' \
-                           '3456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012',
+                           '38bf3b7e2ba6dac0224f012fbda37698076cf3faf8b0a8277dd81b58df4709dd',
         'python3.12-x86_64' => 'public.ecr.aws/sam/build-python3.12:latest-x86_64@sha256:' \
-                               '6789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345',
+                               '4f6d1c3b9b2ad0ca1618a519ef409e3c15a7da6b87e9d064e23843ce53a307b5',
         'python3.12-arm64' => 'public.ecr.aws/sam/build-python3.12:latest-arm64@sha256:' \
-                              '789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456',
+                              '227044c26f87e9e536eebf515b65cf2e058107e74c903565ba5d1e9c45543ad1',
         'python3.11-x86_64' => 'public.ecr.aws/sam/build-python3.11:latest-x86_64@sha256:' \
-                               '89abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567',
+                               'af51c6d8d13347cfc2fb4c0d17638491b666704bf4b8e29ca538b46469107a05',
         'python3.11-arm64' => 'public.ecr.aws/sam/build-python3.11:latest-arm64@sha256:' \
-                              '9abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345678',
+                              '058b434bedacadac97ac898f6621eb37209334484b932fbf85dcbd00cad075bf',
         'nodejs20.x-x86_64' => 'public.ecr.aws/sam/build-nodejs20.x:latest-x86_64@sha256:' \
-                               'abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789',
+                               'eee793edc5cf0c5d6782fa3d83329c227c43bd66fdf0c8ba6a655c51c0b51ff2',
         'nodejs20.x-arm64' => 'public.ecr.aws/sam/build-nodejs20.x:latest-arm64@sha256:' \
-                              'bcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789a',
+                              '7a6183f6573b202fa2d542b34a97d45ea7aa5642ad80b765ee9390025d25c228',
         'nodejs18.x-x86_64' => 'public.ecr.aws/sam/build-nodejs18.x:latest-x86_64@sha256:' \
-                               'cdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789ab',
+                               '3e15c7aa40ab956a0de156929493e288a1cb7919fa1a15c7cdf9b44a634361e4',
         'nodejs18.x-arm64' => 'public.ecr.aws/sam/build-nodejs18.x:latest-arm64@sha256:' \
-                              'def0123456789abcdef0123456789abcdef0123456789abcdef0123456789abc',
+                              '4629886314b9b5967d518cecde57df551256aa60da4bae4d7831f9f50be2644f',
         'amazonlinux2023-x86_64' => 'public.ecr.aws/amazonlinux/amazonlinux:2023@sha256:' \
-                                    '456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123',
+                                    '79c418a55dfcdfa1f39ca174c8206ceabb89c200aba896d6b2b7c71a068c48d9',
         'amazonlinux2023-arm64' => 'public.ecr.aws/amazonlinux/amazonlinux:2023@sha256:' \
-                                   '56789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234'
+                                   '574a1ca288afe7e0b58f05fbeedc71fd57d78551ea2059129db7ecf692b8bd6a'
       }.freeze
 
       class << self

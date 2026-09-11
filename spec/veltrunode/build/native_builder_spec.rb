@@ -110,7 +110,23 @@ RSpec.describe Veltrunode::Build::NativeBuilder do
       described_class::DEFAULT_IMAGE_DIGESTS.each do |key, image|
         digest = image.split('@sha256:').last
         expect(digest).to match(/\A[a-f0-9]{64}\z/), "Expected #{key} digest to be 64 hex chars, got: #{digest.inspect}"
+        expect(digest).not_to match(/\A(0123456789abcdef|123456789abcdef0|6789abcdef012345|abcdef0123456789)/)
       end
+    end
+
+    it 'resolves published SAM build image digests for Python and Node.js runtimes' do
+      expect(described_class::DEFAULT_IMAGE_DIGESTS['python3.12-x86_64']).to include(
+        '4f6d1c3b9b2ad0ca1618a519ef409e3c15a7da6b87e9d064e23843ce53a307b5'
+      )
+      expect(described_class::DEFAULT_IMAGE_DIGESTS['python3.12-arm64']).to include(
+        '227044c26f87e9e536eebf515b65cf2e058107e74c903565ba5d1e9c45543ad1'
+      )
+      expect(described_class::DEFAULT_IMAGE_DIGESTS['nodejs20.x-x86_64']).to include(
+        'eee793edc5cf0c5d6782fa3d83329c227c43bd66fdf0c8ba6a655c51c0b51ff2'
+      )
+      expect(described_class::DEFAULT_IMAGE_DIGESTS['nodejs20.x-arm64']).to include(
+        '7a6183f6573b202fa2d542b34a97d45ea7aa5642ad80b765ee9390025d25c228'
+      )
     end
     it 'configures container command and output_dir for Python runtime' do
       expect(mock_container_runner).to receive(:run).with(
