@@ -190,7 +190,8 @@ module Veltrunode
         if @package_lock_path && !@package_lock_path.to_s.strip.empty?
           abs_lock = File.expand_path(@package_lock_path.to_s.strip, @source_dir)
           source_prefix = @source_dir.end_with?(File::SEPARATOR) ? @source_dir : "#{@source_dir}#{File::SEPARATOR}"
-          if (abs_lock == @source_dir || abs_lock.start_with?(source_prefix)) && File.file?(abs_lock)
+          if (abs_lock == @source_dir || abs_lock.start_with?(source_prefix)) && File.file?(abs_lock) &&
+             File.dirname(abs_lock) == target_dir
             return File.basename(abs_lock)
           end
         end

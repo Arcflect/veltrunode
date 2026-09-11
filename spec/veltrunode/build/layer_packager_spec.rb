@@ -1200,5 +1200,61 @@ RSpec.describe Veltrunode::Build::LayerPackager do
         end.to raise_error(Veltrunode::ValidationError, /package-lock\.json not found/)
       end
     end
+
+    it 'does not fall back to root package-lock.json when package.json is in a subdirectory' do
+      with_tmpdir do |tmpdir|
+        sub_dir = File.join(tmpdir, 'packages', 'api')
+        FileUtils.mkdir_p(sub_dir)
+        sub_pkg = File.join(sub_dir, 'package.json')
+        File.write(sub_pkg, '{"dependencies": {"lodash": "4.17.21"}}')
+
+        # Create root lockfile
+        File.write(File.join(tmpdir, 'package-lock.json'), '{"name": "root-lock"}')
+
+        node_layer = Veltrunode::Model::Layer.new(
+          name: 'node_sub_layer',
+          compatible_runtimes: ['nodejs20.x'],
+          architectures: [:x86_64]
+        )
+
+        packager = described_class.new(
+          layer: node_layer,
+          package_json_path: sub_pkg,
+          source_dir: tmpdir,
+          output_dir: File.join(tmpdir, 'out')
+        )
+
+        expect(packager.instance_variable_get(:@package_lock_path)).to be_nil
+      end
+    end
+
+    it 'selects subdirectory package-lock.json when package.json is in a subdirectory and has its own lockfile' do
+      with_tmpdir do |tmpdir|
+        sub_dir = File.join(tmpdir, 'packages', 'api')
+        FileUtils.mkdir_p(sub_dir)
+        sub_pkg = File.join(sub_dir, 'package.json')
+        sub_lock = File.join(sub_dir, 'package-lock.json')
+        File.write(sub_pkg, '{"dependencies": {"lodash": "4.17.21"}}')
+        File.write(sub_lock, '{"name": "sub-lock"}')
+
+        # Also create root lockfile
+        File.write(File.join(tmpdir, 'package-lock.json'), '{"name": "root-lock"}')
+
+        node_layer = Veltrunode::Model::Layer.new(
+          name: 'node_sub_layer',
+          compatible_runtimes: ['nodejs20.x'],
+          architectures: [:x86_64]
+        )
+
+        packager = described_class.new(
+          layer: node_layer,
+          package_json_path: sub_pkg,
+          source_dir: tmpdir,
+          output_dir: File.join(tmpdir, 'out')
+        )
+
+        expect(packager.instance_variable_get(:@package_lock_path)).to eq(sub_lock)
+      end
+    end
   end
 end

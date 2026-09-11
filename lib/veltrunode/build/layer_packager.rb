@@ -394,8 +394,11 @@ module Veltrunode
           candidate_paths << File.join(pkg_dir, 'package-lock.json')
           candidate_paths << File.join(pkg_dir, 'npm-shrinkwrap.json')
         end
-        candidate_paths << File.join(@source_dir, 'package-lock.json')
-        candidate_paths << File.join(@source_dir, 'npm-shrinkwrap.json')
+
+        if @package_json_path.nil? || File.dirname(@package_json_path) == @source_dir
+          candidate_paths << File.join(@source_dir, 'package-lock.json')
+          candidate_paths << File.join(@source_dir, 'npm-shrinkwrap.json')
+        end
 
         candidate_paths.uniq.find { |p| File.file?(p) }
       end

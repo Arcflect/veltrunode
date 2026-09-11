@@ -378,6 +378,40 @@ RSpec.describe Veltrunode::Build::NativeBuilder do
       end
     end
 
+    it 'does not select root package-lock.json when package_json_path is in a subdirectory' do
+      expect(mock_container_runner).to receive(:run).with(
+        hash_including(
+          command: ['sh', '-c', 'cd /var/task/frontend && npm install --production']
+        )
+      ).and_return(
+        executable: 'docker',
+        command: %w[docker run],
+        stdout: 'Npm success',
+        stderr: '',
+        status: 0
+      )
+
+      Dir.mktmpdir do |dir|
+        File.write(File.join(dir, 'package-lock.json'), '{}')
+
+        frontend_dir = File.join(dir, 'frontend')
+        FileUtils.mkdir_p(frontend_dir)
+        pkg_path = File.join(frontend_dir, 'package.json')
+        File.write(pkg_path, '{}')
+
+        result = described_class.build(
+          source_dir: dir,
+          output_dir: File.join(frontend_dir, 'node_modules'),
+          runtime: 'nodejs20.x',
+          architecture: 'arm64',
+          package_json_path: pkg_path,
+          container_runner: mock_container_runner
+        )
+
+        expect(result[:output_dir]).to eq(File.join(frontend_dir, 'node_modules'))
+      end
+    end
+
     it 'uses custom package_json filename with safe backup and restore for Node.js container command' do
       expect(mock_container_runner).to receive(:run).with(
         hash_including(
