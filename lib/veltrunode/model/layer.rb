@@ -47,7 +47,31 @@ module Veltrunode
           raise ValidationError, 'Layer compatible_runtimes is required and cannot be empty'
         end
 
+        validate_runtime_families!(compatible_runtimes)
         validate_retention_policy!(retention_policy)
+      end
+
+      def validate_runtime_families!(runtimes)
+        families = Array(runtimes).map { |r| runtime_family_for(r) }.uniq
+        return unless families.size > 1
+
+        family_list = families.sort.join(', ')
+        raise ValidationError,
+              "Layer specifies compatible runtimes across multiple runtime families (#{family_list}). " \
+              'Layers must belong to a single runtime family.'
+      end
+
+      def runtime_family_for(runtime)
+        r = runtime.to_s
+        if r.start_with?('python')
+          :python
+        elsif r.start_with?('node')
+          :nodejs
+        elsif r.start_with?('ruby')
+          :ruby
+        else
+          :unknown
+        end
       end
 
       def validate_retention_policy!(policy)

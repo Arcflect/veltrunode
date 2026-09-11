@@ -231,12 +231,27 @@ module Veltrunode
 
       def layer_runtime_family
         runtimes = extract_runtimes
-        if runtimes.any? { |r| r.start_with?('python') }
+        families = runtimes.map { |r| runtime_family_for(r) }.uniq
+        if families.size > 1
+          family_list = families.sort.join(', ')
+          raise ValidationError,
+                "Layer '#{extract_layer_name}' specifies compatible runtimes across multiple runtime families " \
+                "(#{family_list}). Layers must belong to a single runtime family."
+        end
+
+        families.first || :ruby
+      end
+
+      def runtime_family_for(runtime)
+        r = runtime.to_s
+        if r.start_with?('python')
           :python
-        elsif runtimes.any? { |r| r.start_with?('node') }
+        elsif r.start_with?('node')
           :nodejs
-        else
+        elsif r.start_with?('ruby')
           :ruby
+        else
+          :unknown
         end
       end
 

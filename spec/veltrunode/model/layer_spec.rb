@@ -124,6 +124,30 @@ RSpec.describe Veltrunode::Model::Layer do
           )
         end.to raise_error(Veltrunode::ValidationError, /latest/)
       end
+
+      it 'raises ValidationError when compatible_runtimes spans multiple runtime families' do
+        expect do
+          described_class.new(
+            name: 'mixed_layer',
+            compatible_runtimes: ['python3.12', 'ruby3.3']
+          )
+        end.to raise_error(Veltrunode::ValidationError, /multiple runtime families/)
+
+        expect do
+          described_class.new(
+            name: 'mixed_layer',
+            compatible_runtimes: ['nodejs20.x', 'python3.12']
+          )
+        end.to raise_error(Veltrunode::ValidationError, /multiple runtime families/)
+      end
+
+      it 'allows multiple compatible runtimes within the same runtime family' do
+        expect do
+          described_class.new(name: 'py_layer', compatible_runtimes: ['python3.12', 'python3.11'])
+          described_class.new(name: 'node_layer', compatible_runtimes: ['nodejs20.x', 'nodejs18.x'])
+          described_class.new(name: 'ruby_layer', compatible_runtimes: ['ruby3.3', 'ruby3.2'])
+        end.not_to raise_error
+      end
     end
   end
 end

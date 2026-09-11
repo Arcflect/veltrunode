@@ -832,5 +832,28 @@ RSpec.describe Veltrunode::Build::LayerPackager do
         expect(entries).to include('nodejs/node_modules/@aws-sdk/client-s3/package.json')
       end
     end
+
+    it 'raises ValidationError when layer specifies compatible runtimes across multiple families' do
+      with_tmpdir do |tmpdir|
+        mixed_layer = double(
+          name: 'mixed_layer',
+          compatible_runtimes: ['python3.12', 'ruby3.3'],
+          architectures: ['x86_64'],
+          respond_to?: true
+        )
+        allow(mixed_layer).to receive(:respond_to?).with(:compatible_runtimes).and_return(true)
+        allow(mixed_layer).to receive(:respond_to?).with(:name).and_return(true)
+        allow(mixed_layer).to receive(:respond_to?).with(:architectures).and_return(true)
+        allow(mixed_layer).to receive(:respond_to?).with(:build_environment).and_return(false)
+
+        expect do
+          described_class.package(
+            layer: mixed_layer,
+            source_dir: tmpdir,
+            output_dir: File.join(tmpdir, 'out')
+          )
+        end.to raise_error(Veltrunode::ValidationError, /multiple runtime families/)
+      end
+    end
   end
 end
