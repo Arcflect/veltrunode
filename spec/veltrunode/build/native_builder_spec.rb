@@ -308,10 +308,18 @@ RSpec.describe Veltrunode::Build::NativeBuilder do
       end
     end
 
-    it 'uses custom package_json filename for Node.js container command' do
+    it 'uses custom package_json filename with safe backup and restore for Node.js container command' do
       expect(mock_container_runner).to receive(:run).with(
         hash_including(
-          command: ['sh', '-c', 'cd /var/task && cp package-prod.json package.json && npm install --production']
+          command: [
+            'sh', '-c',
+            satisfy do |cmd|
+              cmd.include?('cp package-prod.json package.json') &&
+                cmd.include?('npm install --production') &&
+                cmd.include?('trap') &&
+                cmd.include?('.package.json.veltrunode.bak')
+            end
+          ]
         )
       ).and_return(
         executable: 'docker',

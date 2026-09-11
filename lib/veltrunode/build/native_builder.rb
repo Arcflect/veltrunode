@@ -231,8 +231,16 @@ module Veltrunode
           cmd = if pkg_file == 'package.json'
                   "cd #{Shellwords.shellescape(cd_target)} && npm install --production"
                 else
-                  "cd #{Shellwords.shellescape(cd_target)} && cp #{Shellwords.shellescape(pkg_file)} package.json " \
-                    '&& npm install --production'
+                  escaped_cd = Shellwords.shellescape(cd_target)
+                  escaped_pkg = Shellwords.shellescape(pkg_file)
+                  "cd #{escaped_cd} && " \
+                    'if [ -e package.json ]; then ' \
+                    'cp -p package.json .package.json.veltrunode.bak && ' \
+                    "trap 'mv -f .package.json.veltrunode.bak package.json' EXIT; " \
+                    'else ' \
+                    "trap 'rm -f package.json' EXIT; " \
+                    'fi && ' \
+                    "cp #{escaped_pkg} package.json && npm install --production"
                 end
           ['sh', '-c', cmd]
         else
