@@ -279,23 +279,37 @@ RSpec.describe Veltrunode::DSL do
       expect(ref_obj.name).to eq(:input_bucket)
       expect(ref_obj.inspect).to eq('ref(:input_bucket)')
     end
+  end
+
+  describe 'runtime normalization' do
     it 'normalizes node runtime when node prefix is provided in DSL' do
       code = <<~RUBY
         Veltrunode.application "node-prefix-app" do
           aws region: "ap-northeast-1"
           runtime node: "node20.x"
 
-          function :handler_fn do
+          function :handler_fn1 do
             handler "index.handler"
             runtime node: "node18.x"
+          end
+
+          function :handler_fn2 do
+            handler "index.handler"
+            runtime nodejs: "node18.x"
+          end
+
+          function :handler_fn3 do
+            handler "index.handler"
+            runtime "node18.x"
           end
         end
       RUBY
 
       app = Veltrunode.parse(code)
       expect(app.runtime).to eq('nodejs20.x')
-      fn = app.functions.first
-      expect(fn.runtime).to eq('nodejs18.x')
+      expect(app.functions.find { |f| f.logical_name == 'handler_fn1' }.runtime).to eq('nodejs18.x')
+      expect(app.functions.find { |f| f.logical_name == 'handler_fn2' }.runtime).to eq('nodejs18.x')
+      expect(app.functions.find { |f| f.logical_name == 'handler_fn3' }.runtime).to eq('nodejs18.x')
     end
   end
 end

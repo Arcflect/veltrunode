@@ -31,7 +31,8 @@ module Veltrunode
 
       def runtime(r = nil, ruby: nil, python: nil, nodejs: nil, node: nil)
         if r
-          @runtime = r.to_s
+          str = r.to_s
+          @runtime = str.start_with?('node') ? "nodejs#{str.sub(/^node(js)?/, '')}" : str
         elsif python
           py_str = python.to_s
           @runtime = "python#{py_str.sub(/^python/, '')}"
