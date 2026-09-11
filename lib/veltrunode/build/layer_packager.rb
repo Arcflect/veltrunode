@@ -377,6 +377,19 @@ module Veltrunode
 
       def stage_node_modules_into_structure(pkg_content, node_modules_dir)
         FileUtils.mkdir_p(node_modules_dir)
+
+        candidate_dirs = [File.join(@source_dir, 'node_modules')]
+        if @package_json_path && File.exist?(@package_json_path)
+          pkg_dir = File.dirname(@package_json_path)
+          candidate_dirs.unshift(File.join(pkg_dir, 'node_modules'))
+        end
+
+        installed_dir = candidate_dirs.uniq.find { |dir| File.directory?(dir) && Dir.glob(File.join(dir, '*')).any? }
+        if installed_dir
+          FileUtils.cp_r(File.join(installed_dir, '.'), node_modules_dir)
+          return
+        end
+
         return if pkg_content.nil? || pkg_content.strip.empty?
 
         begin

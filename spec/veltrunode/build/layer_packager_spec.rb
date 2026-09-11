@@ -685,5 +685,43 @@ RSpec.describe Veltrunode::Build::LayerPackager do
         expect(entries).to include('python/lib/python3.12/site-packages/transitive_dep/__init__.py')
       end
     end
+    it 'copies full installed tree from node_modules including transitive dependencies' do
+      with_tmpdir do |tmpdir|
+        pkg_file = File.join(tmpdir, 'package.json')
+        pkg_data = {
+          dependencies: {
+            'axios' => '^1.6.0'
+          }
+        }
+        File.write(pkg_file, JSON.generate(pkg_data))
+
+        node_modules_dir = File.join(tmpdir, 'node_modules')
+        FileUtils.mkdir_p(File.join(node_modules_dir, 'axios'))
+        File.write(File.join(node_modules_dir, 'axios', 'index.js'), 'module.exports = {};')
+        FileUtils.mkdir_p(File.join(node_modules_dir, 'follow-redirects'))
+        File.write(File.join(node_modules_dir, 'follow-redirects', 'index.js'), 'module.exports = {};')
+
+        node_layer = Veltrunode::Model::Layer.new(
+          name: 'node_axios_layer',
+          compatible_runtimes: ['nodejs20.x'],
+          architectures: [:x86_64]
+        )
+
+        res = described_class.package(
+          layer: node_layer,
+          package_json_path: pkg_file,
+          source_dir: tmpdir,
+          output_dir: File.join(tmpdir, 'out_node')
+        )
+
+        entries = []
+        Zip::File.open(res.zip_path) do |zip|
+          entries = zip.map(&:name)
+        end
+
+        expect(entries).to include('nodejs/node_modules/axios/index.js')
+        expect(entries).to include('nodejs/node_modules/follow-redirects/index.js')
+      end
+    end
   end
 end
