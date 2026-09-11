@@ -582,5 +582,39 @@ RSpec.describe Veltrunode::Build::LayerPackager do
         expect(entries).to include('nodejs/node_modules/axios/package.json')
       end
     end
+    it 'passes resolved requirements_path to native_builder when layer specifies custom requirements' do
+      with_tmpdir do |tmpdir|
+        req_path = File.join(tmpdir, 'requirements-custom.txt')
+        File.write(req_path, 'urllib3>=2.0.0')
+
+        py_layer = Veltrunode::Model::Layer.new(
+          name: 'python_custom_req_layer',
+          compatible_runtimes: ['python3.12'],
+          build_environment: {
+            'build_on' => 'amazon_linux_2023',
+            'requirements' => 'requirements-custom.txt'
+          }
+        )
+
+        mock_builder = class_double(Veltrunode::Build::NativeBuilder)
+        expect(mock_builder).to receive(:build).with(
+          hash_including(
+            requirements_path: req_path,
+            runtime: 'python3.12'
+          )
+        ).and_return(image_digest: 'sha256:1111222233334444555566667777888811112222333344445555666677778888')
+
+        res = described_class.package(
+          layer: py_layer,
+          source_dir: tmpdir,
+          output_dir: File.join(tmpdir, 'out'),
+          build_on: :amazon_linux_2023, # rubocop:disable Naming/VariableNumber
+          native_builder: mock_builder,
+          allow_missing_packages: true
+        )
+
+        expect(res.layer_name).to eq('python_custom_req_layer')
+      end
+    end
   end
 end

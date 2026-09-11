@@ -201,5 +201,64 @@ RSpec.describe Veltrunode::Build::NativeBuilder do
         end.to raise_error(Veltrunode::ValidationError, /node_modules/)
       end
     end
+    it 'uses custom requirements_path for Python container command when specified' do
+      expect(mock_container_runner).to receive(:run).with(
+        hash_including(
+          command: ['sh', '-c', 'cd /var/task && pip install -r requirements-lambda.txt -t vendor/python']
+        )
+      ).and_return(
+        executable: 'docker',
+        command: %w[docker run],
+        stdout: 'Pip success',
+        stderr: '',
+        status: 0
+      )
+
+      Dir.mktmpdir do |dir|
+        result = described_class.build(
+          source_dir: dir,
+          output_dir: File.join(dir, 'vendor', 'python'),
+          runtime: 'python3.12',
+          architecture: 'x86_64',
+          requirements_path: File.join(dir, 'requirements-lambda.txt'),
+          container_runner: mock_container_runner
+        )
+
+        expect(result[:output_dir]).to eq(File.join(dir, 'vendor', 'python'))
+      end
+    end
+
+    it 'falls back to layer.build_environment requirements setting for Python container command' do
+      layer = Veltrunode::Model::Layer.new(
+        name: 'custom_py_layer',
+        compatible_runtimes: ['python3.12'],
+        build_environment: { 'requirements' => 'custom-requirements.txt' }
+      )
+
+      expect(mock_container_runner).to receive(:run).with(
+        hash_including(
+          command: ['sh', '-c', 'cd /var/task && pip install -r custom-requirements.txt -t vendor/python']
+        )
+      ).and_return(
+        executable: 'docker',
+        command: %w[docker run],
+        stdout: 'Pip success',
+        stderr: '',
+        status: 0
+      )
+
+      Dir.mktmpdir do |dir|
+        result = described_class.build(
+          source_dir: dir,
+          output_dir: File.join(dir, 'vendor', 'python'),
+          runtime: 'python3.12',
+          architecture: 'x86_64',
+          layer: layer,
+          container_runner: mock_container_runner
+        )
+
+        expect(result[:output_dir]).to eq(File.join(dir, 'vendor', 'python'))
+      end
+    end
   end
 end

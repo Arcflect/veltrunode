@@ -467,7 +467,10 @@ module Veltrunode
           architecture: arch,
           build_on: build_on_setting,
           custom_image: @build_image_id == 'amazonlinux:default' ? nil : @build_image_id,
-          container_runner: @container_runner
+          container_runner: @container_runner,
+          requirements_path: @requirements_path,
+          package_json_path: @package_json_path,
+          layer: @layer
         )
 
         builder_result[:image_digest]

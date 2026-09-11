@@ -2,6 +2,8 @@
 
 require 'digest'
 require 'fileutils'
+require 'pathname'
+require 'shellwords'
 require_relative 'container_runner'
 require_relative '../validation'
 
@@ -48,7 +50,10 @@ module Veltrunode
           build_on: :amazon_linux_2023, # rubocop:disable Naming/VariableNumber
           custom_image: nil,
           runner_executable: nil,
-          container_runner: ContainerRunner
+          container_runner: ContainerRunner,
+          requirements_path: nil,
+          package_json_path: nil,
+          layer: nil
         )
           new(
             source_dir: source_dir,
@@ -58,12 +63,16 @@ module Veltrunode
             build_on: build_on,
             custom_image: custom_image,
             runner_executable: runner_executable,
-            container_runner: container_runner
+            container_runner: container_runner,
+            requirements_path: requirements_path,
+            package_json_path: package_json_path,
+            layer: layer
           ).build
         end
       end
 
-      attr_reader :source_dir, :output_dir, :runtime, :architecture, :build_on, :image, :image_digest
+      attr_reader :source_dir, :output_dir, :runtime, :architecture, :build_on, :image, :image_digest,
+                  :requirements_path, :package_json_path, :layer
 
       def initialize(
         source_dir:,
@@ -73,7 +82,10 @@ module Veltrunode
         build_on: :amazon_linux_2023, # rubocop:disable Naming/VariableNumber
         custom_image: nil,
         runner_executable: nil,
-        container_runner: ContainerRunner
+        container_runner: ContainerRunner,
+        requirements_path: nil,
+        package_json_path: nil,
+        layer: nil
       )
         @source_dir = File.expand_path(source_dir.to_s)
         @output_dir = File.expand_path(output_dir.to_s)
@@ -84,6 +96,9 @@ module Veltrunode
         @container_runner = container_runner
         @image = resolve_image(custom_image)
         @image_digest = extract_digest(@image)
+        @layer = layer
+        @requirements_path = resolve_requirements_path(requirements_path)
+        @package_json_path = resolve_package_json_path(package_json_path)
 
         validate_output_dir!
 
@@ -137,11 +152,47 @@ module Veltrunode
               "output_dir must be '#{expected_output_dir}' when using NativeBuilder (got: '#{@output_dir}')"
       end
 
+      def resolve_requirements_path(explicit_path)
+        if explicit_path && !explicit_path.to_s.strip.empty?
+          explicit_path.to_s.strip
+        elsif @layer.respond_to?(:build_environment) && @layer.build_environment.is_a?(Hash)
+          req = @layer.build_environment['requirements'] || @layer.build_environment[:requirements]
+          req&.to_s&.strip
+        end
+      end
+
+      def resolve_package_json_path(explicit_path)
+        if explicit_path && !explicit_path.to_s.strip.empty?
+          explicit_path.to_s.strip
+        elsif @layer.respond_to?(:build_environment) && @layer.build_environment.is_a?(Hash)
+          pkg = @layer.build_environment['package_json'] || @layer.build_environment[:package_json]
+          pkg&.to_s&.strip
+        end
+      end
+
+      def resolve_python_requirements_file
+        return 'requirements.txt' if @requirements_path.nil? || @requirements_path.to_s.strip.empty?
+
+        req_str = @requirements_path.to_s.strip
+        abs_path = File.expand_path(req_str, @source_dir)
+        if abs_path.start_with?(@source_dir)
+          begin
+            rel = Pathname.new(abs_path).relative_path_from(Pathname.new(@source_dir)).to_s
+            return rel unless rel.empty?
+          rescue ArgumentError
+            # Fallback to req_str
+          end
+        end
+
+        req_str
+      end
+
       def resolve_container_command
         if @runtime.start_with?('python')
+          req_file = resolve_python_requirements_file
           [
             'sh', '-c',
-            'cd /var/task && pip install -r requirements.txt -t vendor/python'
+            "cd /var/task && pip install -r #{Shellwords.shellescape(req_file)} -t vendor/python"
           ]
         elsif @runtime.start_with?('node')
           [
