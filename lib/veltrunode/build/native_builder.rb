@@ -263,14 +263,19 @@ module Veltrunode
       def resolve_image(custom_image)
         return custom_image.to_s.freeze if custom_image && !custom_image.to_s.strip.empty?
 
+        runtime_key = "#{@runtime}-#{@architecture}"
+        if (@runtime.start_with?('python') || @runtime.start_with?('node')) &&
+           DEFAULT_IMAGE_DIGESTS.key?(runtime_key)
+          return DEFAULT_IMAGE_DIGESTS[runtime_key].freeze
+        end
+
         build_on_str = @build_on.to_s.downcase
         if build_on_str.include?('amazon_linux_2023') || build_on_str.include?('al2023')
           al_key = "amazonlinux2023-#{@architecture}"
           return DEFAULT_IMAGE_DIGESTS[al_key].freeze if DEFAULT_IMAGE_DIGESTS.key?(al_key)
         end
 
-        key = "#{@runtime}-#{@architecture}"
-        return DEFAULT_IMAGE_DIGESTS[key].freeze if DEFAULT_IMAGE_DIGESTS.key?(key)
+        return DEFAULT_IMAGE_DIGESTS[runtime_key].freeze if DEFAULT_IMAGE_DIGESTS.key?(runtime_key)
 
         al_key = "amazonlinux2023-#{@architecture}"
         return DEFAULT_IMAGE_DIGESTS[al_key].freeze if DEFAULT_IMAGE_DIGESTS.key?(al_key)

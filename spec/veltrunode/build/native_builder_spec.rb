@@ -370,5 +370,63 @@ RSpec.describe Veltrunode::Build::NativeBuilder do
         expect(result[:output_dir]).to eq(File.join(dir, 'node_modules'))
       end
     end
+
+    it 'selects SAM Python build image even when build_on is :amazon_linux_2023' do
+      expect(mock_container_runner).to receive(:run).with(
+        hash_including(
+          image: match(/build-python3.12:latest-x86_64@sha256:/),
+          architecture: 'x86_64'
+        )
+      ).and_return(
+        executable: 'docker',
+        command: %w[docker run],
+        stdout: 'Success',
+        stderr: '',
+        status: 0
+      )
+
+      Dir.mktmpdir do |dir|
+        result = described_class.build(
+          source_dir: dir,
+          output_dir: File.join(dir, 'vendor', 'python'),
+          runtime: 'python3.12',
+          architecture: 'x86_64',
+          build_on: :amazon_linux_2023, # rubocop:disable Naming/VariableNumber
+          container_runner: mock_container_runner
+        )
+
+        expect(result[:image]).to include('build-python3.12:latest-x86_64')
+        expect(result[:image]).not_to include('amazonlinux:2023')
+      end
+    end
+
+    it 'selects SAM Node.js build image even when build_on is :amazon_linux_2023' do
+      expect(mock_container_runner).to receive(:run).with(
+        hash_including(
+          image: match(/build-nodejs20.x:latest-arm64@sha256:/),
+          architecture: 'arm64'
+        )
+      ).and_return(
+        executable: 'docker',
+        command: %w[docker run],
+        stdout: 'Success',
+        stderr: '',
+        status: 0
+      )
+
+      Dir.mktmpdir do |dir|
+        result = described_class.build(
+          source_dir: dir,
+          output_dir: File.join(dir, 'node_modules'),
+          runtime: 'nodejs20.x',
+          architecture: 'arm64',
+          build_on: :amazon_linux_2023, # rubocop:disable Naming/VariableNumber
+          container_runner: mock_container_runner
+        )
+
+        expect(result[:image]).to include('build-nodejs20.x:latest-arm64')
+        expect(result[:image]).not_to include('amazonlinux:2023')
+      end
+    end
   end
 end
