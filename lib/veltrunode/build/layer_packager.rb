@@ -25,6 +25,9 @@ module Veltrunode
         'ruby3.0' => '3.0.0'
       }.freeze
 
+      PYTHON_PACKAGE_NAME_REGEX = /\A[a-zA-Z0-9](?:[a-zA-Z0-9._-]*[a-zA-Z0-9])?\z/
+      NODE_MODULE_NAME_REGEX = %r{\A(?:@[a-zA-Z0-9_.-]+/)?[a-zA-Z0-9_.-]+\z}
+
       class << self
         def package(
           layer:,
@@ -333,6 +336,21 @@ module Veltrunode
         Digest::SHA256.hexdigest(raw)
       end
 
+      def valid_python_package_name?(name)
+        return false if name.nil? || name.empty?
+        return false if name.include?('..') || name.include?('/') || name.include?('\\')
+
+        PYTHON_PACKAGE_NAME_REGEX.match?(name)
+      end
+
+      def valid_node_module_name?(name)
+        return false if name.nil? || name.empty?
+        return false if name.include?('..') || name.include?('\\')
+        return false if name.count('/') > 1
+
+        NODE_MODULE_NAME_REGEX.match?(name)
+      end
+
       def stage_python_packages_into_structure(req_content, site_packages_dir)
         FileUtils.mkdir_p(site_packages_dir)
 
@@ -348,7 +366,8 @@ module Veltrunode
           stripped = line.strip
           next if stripped.empty? || stripped.start_with?('#')
 
-          pkg_name = stripped.split(/==|>=|<=|~=|>|<|!=/).first.to_s.strip
+          pkg_name = stripped.split(/==|>=|<=|~=|>|<|!=|;/).first.to_s.strip
+          pkg_name = pkg_name.split('[').first.to_s.strip if pkg_name.include?('[')
           next if pkg_name.empty?
 
           stage_single_python_package(pkg_name, site_packages_dir)
@@ -356,8 +375,18 @@ module Veltrunode
       end
 
       def stage_single_python_package(pkg_name, site_packages_dir)
+        unless valid_python_package_name?(pkg_name)
+          raise ValidationError, "Invalid Python package name '#{pkg_name}'. " \
+                                 'Package names must be valid identifiers without path traversal.'
+        end
+
+        base_site_packages = File.expand_path(site_packages_dir)
+        target_dir = File.expand_path(File.join(base_site_packages, pkg_name))
+        unless target_dir.start_with?(base_site_packages + File::SEPARATOR)
+          raise ValidationError, "Target directory '#{target_dir}' escapes site-packages directory."
+        end
+
         source_pkg_dir = find_local_python_package(pkg_name)
-        target_dir = File.join(site_packages_dir, pkg_name)
         if source_pkg_dir && File.directory?(source_pkg_dir)
           FileUtils.mkdir_p(target_dir)
           FileUtils.cp_r(File.join(source_pkg_dir, '.'), target_dir)
@@ -373,14 +402,16 @@ module Veltrunode
       end
 
       def find_local_python_package(pkg_name)
+        base_source = File.expand_path(@source_dir)
         candidates = [
-          File.join(@source_dir, 'site-packages', pkg_name),
-          File.join(@source_dir, 'vendor', 'python', pkg_name),
-          File.join(@source_dir, 'python', pkg_name),
-          File.join(@source_dir, pkg_name),
-          File.join(@source_dir, "#{pkg_name}.py")
+          File.expand_path(File.join(base_source, 'site-packages', pkg_name)),
+          File.expand_path(File.join(base_source, 'vendor', 'python', pkg_name)),
+          File.expand_path(File.join(base_source, 'python', pkg_name)),
+          File.expand_path(File.join(base_source, pkg_name)),
+          File.expand_path(File.join(base_source, "#{pkg_name}.py"))
         ]
-        candidates.find { |path| File.exist?(path) }
+        candidates.select { |path| path.start_with?(base_source + File::SEPARATOR) }
+                  .find { |path| File.exist?(path) }
       end
 
       def stage_node_modules_into_structure(pkg_content, node_modules_dir)
@@ -413,8 +444,18 @@ module Veltrunode
       end
 
       def stage_single_node_module(mod_name, node_modules_dir)
+        unless valid_node_module_name?(mod_name)
+          raise ValidationError, "Invalid Node.js module name '#{mod_name}'. " \
+                                 'Module names must be valid identifiers without path traversal.'
+        end
+
+        base_node_modules = File.expand_path(node_modules_dir)
+        target_dir = File.expand_path(File.join(base_node_modules, mod_name))
+        unless target_dir.start_with?(base_node_modules + File::SEPARATOR)
+          raise ValidationError, "Target directory '#{target_dir}' escapes node_modules directory."
+        end
+
         source_mod_dir = find_local_node_module(mod_name)
-        target_dir = File.join(node_modules_dir, mod_name)
         if source_mod_dir && File.directory?(source_mod_dir)
           FileUtils.mkdir_p(target_dir)
           FileUtils.cp_r(File.join(source_mod_dir, '.'), target_dir)
@@ -428,15 +469,24 @@ module Veltrunode
       end
 
       def find_local_node_module(mod_name)
+        base_source = File.expand_path(@source_dir)
         candidates = [
-          File.join(@source_dir, 'node_modules', mod_name),
-          File.join(@source_dir, mod_name)
+          File.expand_path(File.join(base_source, 'node_modules', mod_name)),
+          File.expand_path(File.join(base_source, mod_name))
         ]
         if @package_json_path && File.exist?(@package_json_path)
-          pkg_dir = File.dirname(@package_json_path)
-          candidates.unshift(File.join(pkg_dir, 'node_modules', mod_name))
+          pkg_dir = File.dirname(File.expand_path(@package_json_path))
+          candidates.unshift(File.expand_path(File.join(pkg_dir, 'node_modules', mod_name)))
         end
-        candidates.uniq.find { |path| File.directory?(path) }
+        allowed_prefixes = [base_source + File::SEPARATOR]
+        if @package_json_path
+          pkg_dir = File.dirname(File.expand_path(@package_json_path))
+          allowed_prefixes << (pkg_dir + File::SEPARATOR)
+        end
+
+        candidates.uniq.find do |path|
+          allowed_prefixes.any? { |prefix| path.start_with?(prefix) } && File.directory?(path)
+        end
       end
 
       def extract_layer_name

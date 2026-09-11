@@ -761,5 +761,49 @@ RSpec.describe Veltrunode::Build::LayerPackager do
         end.to raise_error(Veltrunode::ValidationError, /package.json file not found:/)
       end
     end
+
+    it 'raises ValidationError when requirements.txt contains a package name with path traversal' do
+      with_tmpdir do |tmpdir|
+        req_file = File.join(tmpdir, 'requirements.txt')
+        File.write(req_file, "../../secret\n")
+
+        py_layer = Veltrunode::Model::Layer.new(
+          name: 'py_traversal_layer',
+          compatible_runtimes: ['python3.12']
+        )
+
+        expect do
+          described_class.package(
+            layer: py_layer,
+            requirements_path: req_file,
+            source_dir: tmpdir,
+            output_dir: File.join(tmpdir, 'out'),
+            allow_missing_packages: true
+          )
+        end.to raise_error(Veltrunode::ValidationError, /Invalid Python package name/)
+      end
+    end
+
+    it 'raises ValidationError when package.json contains a module name with path traversal' do
+      with_tmpdir do |tmpdir|
+        pkg_file = File.join(tmpdir, 'package.json')
+        File.write(pkg_file, JSON.generate({ dependencies: { '../../secret' => '^1.0.0' } }))
+
+        node_layer = Veltrunode::Model::Layer.new(
+          name: 'node_traversal_layer',
+          compatible_runtimes: ['nodejs20.x']
+        )
+
+        expect do
+          described_class.package(
+            layer: node_layer,
+            package_json_path: pkg_file,
+            source_dir: tmpdir,
+            output_dir: File.join(tmpdir, 'out'),
+            allow_missing_packages: true
+          )
+        end.to raise_error(Veltrunode::ValidationError, /Invalid Node.js module name/)
+      end
+    end
   end
 end
