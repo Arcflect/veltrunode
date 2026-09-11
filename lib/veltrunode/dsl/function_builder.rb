@@ -34,13 +34,13 @@ module Veltrunode
           @runtime = r.to_s
         elsif python
           py_str = python.to_s
-          @runtime = py_str.start_with?('python') ? py_str : "python#{py_str}"
+          @runtime = "python#{py_str.sub(/^python/, '')}"
         elsif nodejs || node
           node_str = (nodejs || node).to_s
-          @runtime = node_str.start_with?('nodejs') ? node_str : "nodejs#{node_str}"
+          @runtime = "nodejs#{node_str.sub(/^node(js)?/, '')}"
         elsif ruby
           ruby_str = ruby.to_s
-          @runtime = ruby_str.start_with?('ruby') ? ruby_str : "ruby#{ruby_str}"
+          @runtime = "ruby#{ruby_str.sub(/^ruby/, '')}"
         end
       end
 

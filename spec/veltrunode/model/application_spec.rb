@@ -109,5 +109,28 @@ RSpec.describe Veltrunode::Model::Application do
         expect(Veltrunode::ValidationError.ancestors).to include(Veltrunode::Error)
       end
     end
+    describe '#runtime' do
+      it 'normalizes Node.js runtimes with node or nodejs prefix or plain version' do
+        app1 = described_class.new(name: 'app', runtime_defaults: { node: 'node20.x' })
+        expect(app1.runtime).to eq('nodejs20.x')
+
+        app2 = described_class.new(name: 'app', runtime_defaults: { nodejs: 'node20.x' })
+        expect(app2.runtime).to eq('nodejs20.x')
+
+        app3 = described_class.new(name: 'app', runtime_defaults: { nodejs: 'nodejs20.x' })
+        expect(app3.runtime).to eq('nodejs20.x')
+
+        app4 = described_class.new(name: 'app', runtime_defaults: { node: '20.x' })
+        expect(app4.runtime).to eq('nodejs20.x')
+      end
+
+      it 'normalizes Python runtimes with python prefix or plain version' do
+        app1 = described_class.new(name: 'app', runtime_defaults: { python: 'python3.12' })
+        expect(app1.runtime).to eq('python3.12')
+
+        app2 = described_class.new(name: 'app', runtime_defaults: { python: '3.12' })
+        expect(app2.runtime).to eq('python3.12')
+      end
+    end
   end
 end
