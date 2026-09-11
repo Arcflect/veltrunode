@@ -140,10 +140,12 @@ module Veltrunode
         cached = fetch_from_cache(content_hash, layer_name)
         return cached if cached
 
-        ruby_abi_version = resolve_ruby_abi_version
+        ruby_abi_versions = resolve_ruby_abi_versions
         result = Dir.mktmpdir('veltrunode_layer_') do |tmp_dir|
-          layer_gems_dir = File.join(tmp_dir, 'ruby', 'gems', ruby_abi_version)
-          stage_gems_into_structure(lock_content, layer_gems_dir)
+          ruby_abi_versions.each do |ruby_abi_version|
+            layer_gems_dir = File.join(tmp_dir, 'ruby', 'gems', ruby_abi_version)
+            stage_gems_into_structure(lock_content, layer_gems_dir)
+          end
           archive_layer_directory(tmp_dir, layer_name, content_hash)
         end
 
@@ -159,10 +161,12 @@ module Veltrunode
         cached = fetch_from_cache(content_hash, layer_name)
         return cached if cached
 
-        py_version = resolve_python_version
+        py_versions = resolve_python_versions
         result = Dir.mktmpdir('veltrunode_py_layer_') do |tmp_dir|
-          site_packages_dir = File.join(tmp_dir, 'python', 'lib', py_version, 'site-packages')
-          stage_python_packages_into_structure(req_content, site_packages_dir)
+          py_versions.each do |py_ver|
+            site_packages_dir = File.join(tmp_dir, 'python', 'lib', py_ver, 'site-packages')
+            stage_python_packages_into_structure(req_content, site_packages_dir)
+          end
           archive_layer_directory(tmp_dir, layer_name, content_hash)
         end
 
@@ -259,11 +263,19 @@ module Veltrunode
         end
       end
 
+      def resolve_python_versions
+        py_rts = extract_runtimes.select { |r| r.start_with?('python') }
+        return ['python3.12'] if py_rts.empty?
+
+        versions = py_rts.map do |py_rt|
+          m = py_rt.match(/python(\d+\.\d+)/)
+          m ? "python#{m[1]}" : py_rt
+        end
+        versions.uniq
+      end
+
       def resolve_python_version
-        runtimes = extract_runtimes
-        py_rt = runtimes.find { |r| r.start_with?('python') } || 'python3.12'
-        m = py_rt.match(/python(\d+\.\d+)/)
-        m ? "python#{m[1]}" : 'python3.12'
+        resolve_python_versions.first
       end
 
       def resolve_container_output_dir(runtime)
@@ -664,12 +676,14 @@ module Veltrunode
         end
       end
 
-      def resolve_ruby_abi_version
+      def resolve_ruby_abi_versions
         runtimes = extract_runtimes
-        runtimes.each do |r|
-          return RUNTIME_ABI_MAP[r] if RUNTIME_ABI_MAP.key?(r)
-        end
-        '3.3.0'
+        abis = runtimes.map { |r| RUNTIME_ABI_MAP[r] }.compact
+        abis.empty? ? ['3.3.0'] : abis.uniq
+      end
+
+      def resolve_ruby_abi_version
+        resolve_ruby_abi_versions.first
       end
 
       def read_gemfile_lock

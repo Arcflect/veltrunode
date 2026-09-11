@@ -856,6 +856,38 @@ RSpec.describe Veltrunode::Build::LayerPackager do
       end
     end
 
+    it 'packages Python packages into each version directory when multiple runtimes are specified' do
+      with_tmpdir do |tmpdir|
+        req_file = File.join(tmpdir, 'requirements.txt')
+        File.write(req_file, "requests==2.31.0\n")
+
+        vendor_py = File.join(tmpdir, 'vendor', 'python')
+        FileUtils.mkdir_p(File.join(vendor_py, 'requests'))
+        File.write(File.join(vendor_py, 'requests', '__init__.py'), '# req')
+
+        multi_py_layer = Veltrunode::Model::Layer.new(
+          name: 'multi_py_layer',
+          compatible_runtimes: ['python3.11', 'python3.12'],
+          architectures: [:x86_64]
+        )
+
+        res = described_class.package(
+          layer: multi_py_layer,
+          requirements_path: req_file,
+          source_dir: tmpdir,
+          output_dir: File.join(tmpdir, 'out')
+        )
+
+        entries = []
+        Zip::File.open(res.zip_path) do |zip|
+          entries = zip.map(&:name)
+        end
+
+        expect(entries).to include('python/lib/python3.11/site-packages/requests/__init__.py')
+        expect(entries).to include('python/lib/python3.12/site-packages/requests/__init__.py')
+      end
+    end
+
     it 'changes Python content_hash when vendor/python installed tree changes without changing requirements' do
       with_tmpdir do |tmpdir|
         req_file = File.join(tmpdir, 'requirements.txt')
