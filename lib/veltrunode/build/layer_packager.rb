@@ -142,10 +142,24 @@ module Veltrunode
 
         ruby_abi_versions = resolve_ruby_abi_versions
         result = Dir.mktmpdir('veltrunode_layer_') do |tmp_dir|
-          ruby_abi_versions.each do |ruby_abi_version|
-            layer_gems_dir = File.join(tmp_dir, 'ruby', 'gems', ruby_abi_version)
-            stage_gems_into_structure(lock_content, layer_gems_dir)
+          first_abi = ruby_abi_versions.first
+          first_abi_dir = File.join(tmp_dir, 'ruby', 'gems', first_abi)
+          stage_gems_into_structure(lock_content, first_abi_dir)
+
+          if ruby_abi_versions.size > 1
+            if native_extensions_present?(first_abi_dir, lock_content)
+              raise ValidationError,
+                    "Layer '#{layer_name}' contains native extensions and cannot target multiple Ruby ABI versions " \
+                    "(#{ruby_abi_versions.join(', ')}). Compile each ABI independently or use pure-Ruby gems."
+            end
+
+            ruby_abi_versions[1..].each do |ruby_abi_version|
+              layer_gems_dir = File.join(tmp_dir, 'ruby', 'gems', ruby_abi_version)
+              FileUtils.mkdir_p(layer_gems_dir)
+              FileUtils.cp_r(File.join(first_abi_dir, '.'), layer_gems_dir)
+            end
           end
+
           archive_layer_directory(tmp_dir, layer_name, content_hash)
         end
 
@@ -684,6 +698,22 @@ module Veltrunode
 
       def resolve_ruby_abi_version
         resolve_ruby_abi_versions.first
+      end
+
+      def native_extensions_present?(dir, lock_content)
+        return false unless dir && File.directory?(dir)
+
+        return true if Dir.glob(File.join(dir, '**', '*.{so,bundle,dll}')).any?
+        return true if Dir.glob(File.join(dir, '**', '{extconf.rb,mkmf.log}')).any?
+        return true if Dir.glob(File.join(dir, 'gems', '*', 'ext')).any?
+
+        specs = parse_lockfile_specs(lock_content)
+        specs.any? do |s|
+          installed_spec = Gem::Specification.find_all_by_name(s.name, s.version).first
+          installed_spec&.extensions&.any?
+        rescue StandardError
+          false
+        end
       end
 
       def read_gemfile_lock

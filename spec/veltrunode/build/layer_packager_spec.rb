@@ -888,6 +888,62 @@ RSpec.describe Veltrunode::Build::LayerPackager do
       end
     end
 
+    it 'raises ValidationError when layer specifies multiple Ruby ABIs and contains native extensions' do
+      with_tmpdir do |tmpdir|
+        lockfile_path = File.join(tmpdir, 'Gemfile.lock')
+        File.write(lockfile_path, sample_lockfile_content)
+
+        gem_dir = File.join(tmpdir, 'vendor', 'bundle', 'ruby', '3.2.0', 'gems', 'faraday-2.9.0')
+        FileUtils.mkdir_p(File.join(gem_dir, 'lib'))
+        File.write(File.join(gem_dir, 'lib', 'faraday_ext.so'), 'ELF binary')
+
+        multi_ruby_layer = Veltrunode::Model::Layer.new(
+          name: 'multi_ruby_native_layer',
+          compatible_runtimes: ['ruby3.2', 'ruby3.3'],
+          architectures: [:x86_64]
+        )
+
+        expect do
+          described_class.package(
+            layer: multi_ruby_layer,
+            gemfile_lock_path: lockfile_path,
+            source_dir: tmpdir,
+            output_dir: File.join(tmpdir, 'out'),
+            allow_missing_gems: true
+          )
+        end.to raise_error(Veltrunode::ValidationError, /contains native extensions/)
+      end
+    end
+
+    it 'packages pure-Ruby gems into each declared Ruby ABI directory when multiple Ruby runtimes are specified' do
+      with_tmpdir do |tmpdir|
+        lockfile_path = File.join(tmpdir, 'Gemfile.lock')
+        File.write(lockfile_path, sample_lockfile_content)
+
+        multi_ruby_layer = Veltrunode::Model::Layer.new(
+          name: 'multi_ruby_pure_layer',
+          compatible_runtimes: ['ruby3.2', 'ruby3.3'],
+          architectures: [:x86_64]
+        )
+
+        res = described_class.package(
+          layer: multi_ruby_layer,
+          gemfile_lock_path: lockfile_path,
+          source_dir: tmpdir,
+          output_dir: File.join(tmpdir, 'out'),
+          allow_missing_gems: true
+        )
+
+        entries = []
+        Zip::File.open(res.zip_path) do |zip|
+          entries = zip.map(&:name)
+        end
+
+        expect(entries).to include('ruby/gems/3.2.0/specifications/faraday-2.9.0.gemspec')
+        expect(entries).to include('ruby/gems/3.3.0/specifications/faraday-2.9.0.gemspec')
+      end
+    end
+
     it 'changes Python content_hash when vendor/python installed tree changes without changing requirements' do
       with_tmpdir do |tmpdir|
         req_file = File.join(tmpdir, 'requirements.txt')
