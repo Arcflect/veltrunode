@@ -652,5 +652,38 @@ RSpec.describe Veltrunode::Build::LayerPackager do
         expect(res.layer_name).to eq('node_custom_pkg_layer')
       end
     end
+    it 'copies full installed tree from vendor/python including transitive dependencies' do
+      with_tmpdir do |tmpdir|
+        req_file = File.join(tmpdir, 'requirements.txt')
+        File.write(req_file, "PyYAML==6.0.1\n")
+
+        vendor_py = File.join(tmpdir, 'vendor', 'python')
+        FileUtils.mkdir_p(File.join(vendor_py, 'yaml'))
+        File.write(File.join(vendor_py, 'yaml', '__init__.py'), '# yaml module')
+        FileUtils.mkdir_p(File.join(vendor_py, 'transitive_dep'))
+        File.write(File.join(vendor_py, 'transitive_dep', '__init__.py'), '# transitive')
+
+        py_layer = Veltrunode::Model::Layer.new(
+          name: 'py_yaml_layer',
+          compatible_runtimes: ['python3.12'],
+          architectures: [:x86_64]
+        )
+
+        res = described_class.package(
+          layer: py_layer,
+          requirements_path: req_file,
+          source_dir: tmpdir,
+          output_dir: File.join(tmpdir, 'out')
+        )
+
+        entries = []
+        Zip::File.open(res.zip_path) do |zip|
+          entries = zip.map(&:name)
+        end
+
+        expect(entries).to include('python/lib/python3.12/site-packages/yaml/__init__.py')
+        expect(entries).to include('python/lib/python3.12/site-packages/transitive_dep/__init__.py')
+      end
+    end
   end
 end

@@ -327,6 +327,13 @@ module Veltrunode
 
       def stage_python_packages_into_structure(req_content, site_packages_dir)
         FileUtils.mkdir_p(site_packages_dir)
+
+        installed_dir = File.join(@source_dir, 'vendor', 'python')
+        if File.directory?(installed_dir) && Dir.glob(File.join(installed_dir, '*')).any?
+          FileUtils.cp_r(File.join(installed_dir, '.'), site_packages_dir)
+          return
+        end
+
         return if req_content.nil? || req_content.strip.empty?
 
         req_content.each_line do |line|
