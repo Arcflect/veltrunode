@@ -177,10 +177,25 @@ module Veltrunode
 
         py_versions = resolve_python_versions
         result = Dir.mktmpdir('veltrunode_py_layer_') do |tmp_dir|
-          py_versions.each do |py_ver|
-            site_packages_dir = File.join(tmp_dir, 'python', 'lib', py_ver, 'site-packages')
-            stage_python_packages_into_structure(req_content, site_packages_dir)
+          first_ver = py_versions.first
+          first_site_packages_dir = File.join(tmp_dir, 'python', 'lib', first_ver, 'site-packages')
+          stage_python_packages_into_structure(req_content, first_site_packages_dir)
+
+          if py_versions.size > 1
+            if python_abi_specific_files_present?(first_site_packages_dir)
+              raise ValidationError,
+                    "Layer '#{layer_name}' contains ABI-specific compiled extensions and cannot target multiple " \
+                    "Python runtime versions (#{py_versions.join(', ')}). Package each Python version independently " \
+                    'or use pure-Python packages.'
+            end
+
+            py_versions[1..].each do |py_ver|
+              site_packages_dir = File.join(tmp_dir, 'python', 'lib', py_ver, 'site-packages')
+              FileUtils.mkdir_p(site_packages_dir)
+              FileUtils.cp_r(File.join(first_site_packages_dir, '.'), site_packages_dir)
+            end
           end
+
           archive_layer_directory(tmp_dir, layer_name, content_hash)
         end
 
@@ -290,6 +305,19 @@ module Veltrunode
 
       def resolve_python_version
         resolve_python_versions.first
+      end
+
+      def python_abi_specific_files_present?(dir)
+        return false unless dir && File.directory?(dir)
+
+        return true if Dir.glob(File.join(dir, '**', '*.{so,pyd,dylib}')).any?
+
+        wheel_files = Dir.glob(File.join(dir, '**', '*.dist-info', 'WHEEL'))
+        wheel_files.any? do |wf|
+          File.read(wf).match?(/^Tag:\s*(?:cp|cpython)\d+/i)
+        rescue StandardError
+          false
+        end
       end
 
       def resolve_container_output_dir(runtime)

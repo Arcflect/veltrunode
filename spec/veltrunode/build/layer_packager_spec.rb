@@ -888,6 +888,33 @@ RSpec.describe Veltrunode::Build::LayerPackager do
       end
     end
 
+    it 'raises ValidationError when layer specifies multiple Python runtimes and contains ABI-specific files' do
+      with_tmpdir do |tmpdir|
+        req_file = File.join(tmpdir, 'requirements.txt')
+        File.write(req_file, "requests==2.31.0\n")
+
+        vendor_py = File.join(tmpdir, 'vendor', 'python')
+        FileUtils.mkdir_p(File.join(vendor_py, 'requests'))
+        File.write(File.join(vendor_py, 'requests', '__init__.py'), '# req')
+        File.write(File.join(vendor_py, 'requests', 'speedup.cpython-312-x86_64-linux-gnu.so'), 'ELF binary')
+
+        multi_py_layer = Veltrunode::Model::Layer.new(
+          name: 'multi_py_so_layer',
+          compatible_runtimes: ['python3.11', 'python3.12'],
+          architectures: [:x86_64]
+        )
+
+        expect do
+          described_class.package(
+            layer: multi_py_layer,
+            requirements_path: req_file,
+            source_dir: tmpdir,
+            output_dir: File.join(tmpdir, 'out')
+          )
+        end.to raise_error(Veltrunode::ValidationError, /contains ABI-specific compiled extensions/)
+      end
+    end
+
     it 'raises ValidationError when layer specifies multiple Ruby ABIs and contains native extensions' do
       with_tmpdir do |tmpdir|
         lockfile_path = File.join(tmpdir, 'Gemfile.lock')
