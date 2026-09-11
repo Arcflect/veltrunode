@@ -805,5 +805,32 @@ RSpec.describe Veltrunode::Build::LayerPackager do
         end.to raise_error(Veltrunode::ValidationError, /Invalid Node.js module name/)
       end
     end
+
+    it 'allows valid scoped Node.js package names when staging dependencies' do
+      with_tmpdir do |tmpdir|
+        pkg_file = File.join(tmpdir, 'package.json')
+        File.write(pkg_file, JSON.generate({ dependencies: { '@aws-sdk/client-s3' => '^3.0.0' } }))
+
+        node_layer = Veltrunode::Model::Layer.new(
+          name: 'node_scoped_layer',
+          compatible_runtimes: ['nodejs20.x']
+        )
+
+        res = described_class.package(
+          layer: node_layer,
+          package_json_path: pkg_file,
+          source_dir: tmpdir,
+          output_dir: File.join(tmpdir, 'out'),
+          allow_missing_packages: true
+        )
+
+        entries = []
+        Zip::File.open(res.zip_path) do |zip|
+          entries = zip.map(&:name)
+        end
+
+        expect(entries).to include('nodejs/node_modules/@aws-sdk/client-s3/package.json')
+      end
+    end
   end
 end
