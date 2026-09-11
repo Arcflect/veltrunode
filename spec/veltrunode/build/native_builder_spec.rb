@@ -449,6 +449,74 @@ RSpec.describe Veltrunode::Build::NativeBuilder do
       end
     end
 
+    it 'does not escape source_dir when package_json_path resides in a sibling directory with matching prefix' do
+      expect(mock_container_runner).to receive(:run).with(
+        hash_including(
+          command: ['sh', '-c', 'cd /var/task && npm install --production']
+        )
+      ).and_return(
+        executable: 'docker',
+        command: %w[docker run],
+        stdout: 'Npm success',
+        stderr: '',
+        status: 0
+      )
+
+      Dir.mktmpdir do |base_tmp|
+        source_dir = File.join(base_tmp, 'app')
+        sibling_dir = File.join(base_tmp, 'app-evil')
+        FileUtils.mkdir_p(source_dir)
+        FileUtils.mkdir_p(sibling_dir)
+        evil_pkg = File.join(sibling_dir, 'package.json')
+        File.write(evil_pkg, '{}')
+
+        result = described_class.build(
+          source_dir: source_dir,
+          output_dir: File.join(source_dir, 'node_modules'),
+          runtime: 'nodejs20.x',
+          architecture: 'arm64',
+          package_json_path: evil_pkg,
+          container_runner: mock_container_runner
+        )
+
+        expect(result[:output_dir]).to eq(File.join(source_dir, 'node_modules'))
+      end
+    end
+
+    it 'does not escape source_dir when requirements_path resides in a sibling directory with matching prefix' do
+      expect(mock_container_runner).to receive(:run).with(
+        hash_including(
+          command: ['sh', '-c', 'cd /var/task && pip install -r requirements.txt -t vendor/python']
+        )
+      ).and_return(
+        executable: 'docker',
+        command: %w[docker run],
+        stdout: 'Pip success',
+        stderr: '',
+        status: 0
+      )
+
+      Dir.mktmpdir do |base_tmp|
+        source_dir = File.join(base_tmp, 'app')
+        sibling_dir = File.join(base_tmp, 'app-evil')
+        FileUtils.mkdir_p(source_dir)
+        FileUtils.mkdir_p(sibling_dir)
+        evil_req = File.join(sibling_dir, 'requirements.txt')
+        File.write(evil_req, "requests\n")
+
+        result = described_class.build(
+          source_dir: source_dir,
+          output_dir: File.join(source_dir, 'vendor', 'python'),
+          runtime: 'python3.12',
+          architecture: 'x86_64',
+          requirements_path: evil_req,
+          container_runner: mock_container_runner
+        )
+
+        expect(result[:output_dir]).to eq(File.join(source_dir, 'vendor', 'python'))
+      end
+    end
+
     it 'selects SAM Python build image even when build_on is :amazon_linux_2023' do
       expect(mock_container_runner).to receive(:run).with(
         hash_including(

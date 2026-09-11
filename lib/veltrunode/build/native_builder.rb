@@ -189,7 +189,10 @@ module Veltrunode
       def resolve_node_lock_file(target_dir, pkg_file)
         if @package_lock_path && !@package_lock_path.to_s.strip.empty?
           abs_lock = File.expand_path(@package_lock_path.to_s.strip, @source_dir)
-          return File.basename(abs_lock) if File.file?(abs_lock)
+          source_prefix = @source_dir.end_with?(File::SEPARATOR) ? @source_dir : "#{@source_dir}#{File::SEPARATOR}"
+          if (abs_lock == @source_dir || abs_lock.start_with?(source_prefix)) && File.file?(abs_lock)
+            return File.basename(abs_lock)
+          end
         end
 
         if pkg_file == 'package.json'
@@ -208,16 +211,17 @@ module Veltrunode
 
         req_str = @requirements_path.to_s.strip
         abs_path = File.expand_path(req_str, @source_dir)
-        if abs_path.start_with?(@source_dir)
+        source_prefix = @source_dir.end_with?(File::SEPARATOR) ? @source_dir : "#{@source_dir}#{File::SEPARATOR}"
+        if abs_path == @source_dir || abs_path.start_with?(source_prefix)
           begin
-            rel = Pathname.new(abs_path).relative_path_from(Pathname.new(@source_dir)).to_s
-            return rel unless rel.empty?
+            rel = Pathname.new(abs_path).relative_path_from(Pathname.new(@source_dir)).cleanpath.to_s
+            return rel unless rel.empty? || rel == '.'
           rescue ArgumentError
-            # Fallback to req_str
+            # Fallback
           end
         end
 
-        req_str
+        'requirements.txt'
       end
 
       def resolve_node_working_dir
@@ -227,7 +231,8 @@ module Veltrunode
         abs_path = File.expand_path(pkg_str, @source_dir)
         dir_path = File.directory?(abs_path) ? abs_path : File.dirname(abs_path)
 
-        if dir_path.start_with?(@source_dir)
+        source_prefix = @source_dir.end_with?(File::SEPARATOR) ? @source_dir : "#{@source_dir}#{File::SEPARATOR}"
+        if dir_path == @source_dir || dir_path.start_with?(source_prefix)
           begin
             rel = Pathname.new(dir_path).relative_path_from(Pathname.new(@source_dir)).cleanpath.to_s
             return rel unless rel.empty?
@@ -244,6 +249,9 @@ module Veltrunode
 
         pkg_str = @package_json_path.to_s.strip
         abs_path = File.expand_path(pkg_str, @source_dir)
+        source_prefix = @source_dir.end_with?(File::SEPARATOR) ? @source_dir : "#{@source_dir}#{File::SEPARATOR}"
+        return 'package.json' unless abs_path == @source_dir || abs_path.start_with?(source_prefix)
+
         File.directory?(abs_path) ? 'package.json' : File.basename(abs_path)
       end
 
