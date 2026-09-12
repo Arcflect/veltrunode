@@ -1,0 +1,37 @@
+# frozen_string_literal: true
+
+Veltrunode.application "multi-resource-app" do
+  aws region: "ap-northeast-1", account: "123456789012"
+  runtime ruby: "3.4", architecture: :arm64
+
+  defaults do
+    logs retention_days: 14
+    tags env: "production", system: "batch"
+  end
+
+  function :ingest do
+    handler "app.ingest"
+    memory 256
+    timeout 30
+  end
+
+  function :aggregate do
+    handler "app.aggregate"
+    memory 1024
+    timeout 300
+    concurrency 5
+  end
+
+  schedule :hourly_ingest do
+    target :ingest
+    rate "1 hour"
+    input source: "scheduler"
+  end
+
+  schedule :daily_aggregate do
+    target :aggregate
+    cron "0 2 * * ? *", timezone: "Asia/Tokyo"
+    retry maximum_attempts: 2, maximum_event_age: 3600
+    dead_letter_queue arn: "arn:aws:sqs:ap-northeast-1:123456789012:agg-dlq"
+  end
+end

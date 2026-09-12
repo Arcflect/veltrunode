@@ -1,0 +1,104 @@
+---
+AWSTemplateFormatVersion: '2010-09-09'
+Description: iam-capabilities-app - dev (compiled by Veltrunode v0.1.39)
+Parameters:
+  ArtifactBucket:
+    Description: S3 bucket name where function and layer zip packages are stored
+    Type: String
+Resources:
+  SecureWorkerFunction:
+    DependsOn:
+    - SecureWorkerFunctionLogGroup
+    Properties:
+      Architectures:
+      - arm64
+      Code:
+        S3Bucket:
+          Ref: ArtifactBucket
+        S3Key: artifacts/functions/secure_worker.zip
+      EphemeralStorage:
+        Size: 512
+      FunctionName: secure_worker
+      Handler: app.handler
+      MemorySize: 256
+      Role:
+        Fn::GetAtt:
+        - SecureWorkerFunctionRole
+        - Arn
+      Runtime: ruby3.3
+      Timeout: 30
+    Type: AWS::Lambda::Function
+  SecureWorkerFunctionLogGroup:
+    Properties:
+      LogGroupName: "/aws/lambda/secure_worker"
+      RetentionInDays: 30
+    Type: AWS::Logs::LogGroup
+  SecureWorkerFunctionRole:
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+        - Action: sts:AssumeRole
+          Effect: Allow
+          Principal:
+            Service: lambda.amazonaws.com
+        Version: '2012-10-17'
+      Policies:
+      - PolicyDocument:
+          Statement:
+          - Action:
+            - logs:CreateLogStream
+            - logs:PutLogEvents
+            Effect: Allow
+            Resource:
+            - Fn::GetAtt:
+              - SecureWorkerFunctionLogGroup
+              - Arn
+          - Action:
+            - s3:GetObject
+            - s3:ListBucket
+            Effect: Allow
+            Resource:
+            - arn:aws:s3:::data-input-bucket
+            - arn:aws:s3:::data-input-bucket/*
+          - Action:
+            - s3:PutObject
+            Effect: Allow
+            Resource:
+            - arn:aws:s3:::data-output-bucket/*
+          - Action:
+            - ssm:GetParameter
+            - ssm:GetParameters
+            Effect: Allow
+            Resource:
+            - arn:aws:ssm:*:*:parameter/app/config/*
+          - Action:
+            - sns:Publish
+            Effect: Allow
+            Resource:
+            - arn:aws:sns:ap-northeast-1:123456789012:alert-topic
+          Version: '2012-10-17'
+        PolicyName: SecureWorkerFunctionRolePolicy
+    Type: AWS::IAM::Role
+Outputs:
+  ApplicationName:
+    Description: Veltrunode application name
+    Value: iam-capabilities-app
+  ApplicationStage:
+    Description: Veltrunode application stage
+    Value: dev
+  SecureWorkerFunctionArn:
+    Description: ARN of secure_worker Lambda function
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}-SecureWorkerFunctionArn"
+    Value:
+      Fn::GetAtt:
+      - SecureWorkerFunction
+      - Arn
+  SecureWorkerFunctionName:
+    Description: Name of secure_worker Lambda function
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}-SecureWorkerFunctionName"
+    Value:
+      Ref: SecureWorkerFunction

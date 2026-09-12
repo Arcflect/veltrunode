@@ -1,0 +1,100 @@
+---
+AWSTemplateFormatVersion: '2010-09-09'
+Description: efs-app - dev (compiled by Veltrunode v0.1.39)
+Parameters:
+  ArtifactBucket:
+    Description: S3 bucket name where function and layer zip packages are stored
+    Type: String
+Resources:
+  ProcessorFunction:
+    DependsOn:
+    - ProcessorFunctionLogGroup
+    Properties:
+      Architectures:
+      - arm64
+      Code:
+        S3Bucket:
+          Ref: ArtifactBucket
+        S3Key: artifacts/functions/processor.zip
+      EphemeralStorage:
+        Size: 512
+      FileSystemConfigs:
+      - Arn:
+          Fn::GetAtt:
+          - SharedDataAccessPoint
+          - Arn
+        LocalMountPath: "/mnt/shared_data"
+      FunctionName: processor
+      Handler: app.handler
+      MemorySize: 512
+      Role:
+        Fn::GetAtt:
+        - ProcessorFunctionRole
+        - Arn
+      Runtime: ruby3.3
+      Timeout: 60
+      VpcConfig:
+        SecurityGroupIds:
+        - sg-12345678
+        SubnetIds:
+        - subnet-12345678
+    Type: AWS::Lambda::Function
+  ProcessorFunctionLogGroup:
+    Properties:
+      LogGroupName: "/aws/lambda/processor"
+      RetentionInDays: 30
+    Type: AWS::Logs::LogGroup
+  ProcessorFunctionRole:
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+        - Action: sts:AssumeRole
+          Effect: Allow
+          Principal:
+            Service: lambda.amazonaws.com
+        Version: '2012-10-17'
+      Policies:
+      - PolicyDocument:
+          Statement:
+          - Action:
+            - logs:CreateLogStream
+            - logs:PutLogEvents
+            Effect: Allow
+            Resource:
+            - Fn::GetAtt:
+              - ProcessorFunctionLogGroup
+              - Arn
+          - Action:
+            - elasticfilesystem:ClientMount
+            - elasticfilesystem:ClientWrite
+            Effect: Allow
+            Resource:
+            - Fn::GetAtt:
+              - SharedDataAccessPoint
+              - Arn
+          Version: '2012-10-17'
+        PolicyName: ProcessorFunctionRolePolicy
+    Type: AWS::IAM::Role
+Outputs:
+  ApplicationName:
+    Description: Veltrunode application name
+    Value: efs-app
+  ApplicationStage:
+    Description: Veltrunode application stage
+    Value: dev
+  ProcessorFunctionArn:
+    Description: ARN of processor Lambda function
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}-ProcessorFunctionArn"
+    Value:
+      Fn::GetAtt:
+      - ProcessorFunction
+      - Arn
+  ProcessorFunctionName:
+    Description: Name of processor Lambda function
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}-ProcessorFunctionName"
+    Value:
+      Ref: ProcessorFunction

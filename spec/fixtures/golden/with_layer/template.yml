@@ -1,0 +1,102 @@
+---
+AWSTemplateFormatVersion: '2010-09-09'
+Description: layer-app - dev (compiled by Veltrunode v0.1.39)
+Parameters:
+  ArtifactBucket:
+    Description: S3 bucket name where function and layer zip packages are stored
+    Type: String
+Resources:
+  ApiFunction:
+    DependsOn:
+    - ApiFunctionLogGroup
+    - GemDepsLayerVersion
+    Properties:
+      Architectures:
+      - arm64
+      Code:
+        S3Bucket:
+          Ref: ArtifactBucket
+        S3Key: artifacts/functions/api.zip
+      EphemeralStorage:
+        Size: 512
+      FunctionName: api
+      Handler: app.handler
+      Layers:
+      - Ref: GemDepsLayerVersion
+      MemorySize: 256
+      Role:
+        Fn::GetAtt:
+        - ApiFunctionRole
+        - Arn
+      Runtime: ruby3.3
+      Timeout: 15
+    Type: AWS::Lambda::Function
+  ApiFunctionLogGroup:
+    Properties:
+      LogGroupName: "/aws/lambda/api"
+      RetentionInDays: 30
+    Type: AWS::Logs::LogGroup
+  ApiFunctionRole:
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+        - Action: sts:AssumeRole
+          Effect: Allow
+          Principal:
+            Service: lambda.amazonaws.com
+        Version: '2012-10-17'
+      Policies:
+      - PolicyDocument:
+          Statement:
+          - Action:
+            - logs:CreateLogStream
+            - logs:PutLogEvents
+            Effect: Allow
+            Resource:
+            - Fn::GetAtt:
+              - ApiFunctionLogGroup
+              - Arn
+          Version: '2012-10-17'
+        PolicyName: ApiFunctionRolePolicy
+    Type: AWS::IAM::Role
+  GemDepsLayerVersion:
+    Properties:
+      CompatibleArchitectures:
+      - arm64
+      CompatibleRuntimes:
+      - ruby3.3
+      Content:
+        S3Bucket:
+          Ref: ArtifactBucket
+        S3Key: artifacts/layers/gem_deps.zip
+    Type: AWS::Lambda::LayerVersion
+Outputs:
+  ApiFunctionArn:
+    Description: ARN of api Lambda function
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}-ApiFunctionArn"
+    Value:
+      Fn::GetAtt:
+      - ApiFunction
+      - Arn
+  ApiFunctionName:
+    Description: Name of api Lambda function
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}-ApiFunctionName"
+    Value:
+      Ref: ApiFunction
+  ApplicationName:
+    Description: Veltrunode application name
+    Value: layer-app
+  ApplicationStage:
+    Description: Veltrunode application stage
+    Value: dev
+  GemDepsLayerVersionArn:
+    Description: ARN of gem_deps Lambda layer version
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}-GemDepsLayerVersionArn"
+    Value:
+      Ref: GemDepsLayerVersion

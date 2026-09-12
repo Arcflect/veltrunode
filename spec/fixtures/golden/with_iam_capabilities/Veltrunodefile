@@ -1,0 +1,19 @@
+# frozen_string_literal: true
+
+Veltrunode.application "iam-capabilities-app" do
+  aws region: "ap-northeast-1", account: "123456789012"
+  runtime ruby: "3.3", architecture: :arm64
+
+  function :secure_worker do
+    handler "app.handler"
+    memory 256
+    timeout 30
+
+    permit do
+      read_from_s3 bucket: "data-input-bucket"
+      write_to_s3 bucket: "data-output-bucket"
+      read_parameter path: "/app/config/*"
+      allow actions: ["sns:Publish"], resources: ["arn:aws:sns:ap-northeast-1:123456789012:alert-topic"]
+    end
+  end
+end
