@@ -1,0 +1,17 @@
+# frozen_string_literal: true
+
+Veltrunode.application "minimal-app" do
+  aws region: "ap-northeast-1", account: "123456789012"
+  runtime ruby: "3.3", architecture: :x86_64
+
+  function :worker do
+    handler "app.handler"
+    memory 128
+    timeout 30
+  end
+
+  schedule :heartbeat do
+    target :worker
+    cron "0 12 * * ? *"
+  end
+end

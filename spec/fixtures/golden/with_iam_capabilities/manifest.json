@@ -1,0 +1,68 @@
+{
+  "application": {
+    "account_constraint": "123456789012",
+    "name": "iam-capabilities-app",
+    "region": "ap-northeast-1",
+    "stage": "dev"
+  },
+  "built_at": "2026-01-01T00:00:00Z",
+  "compiler_version": "0.1.39",
+  "functions": {
+    "secure_worker": {
+      "architecture": "arm64",
+      "ephemeral_storage": 512,
+      "handler": "app.handler",
+      "logical_name": "secure_worker",
+      "memory": 256,
+      "runtime": "ruby3.3",
+      "timeout": 30
+    }
+  },
+  "iam_capabilities": {
+    "secure_worker": [
+      {
+        "Action": [
+          "s3:GetObject",
+          "s3:ListBucket"
+        ],
+        "Effect": "Allow",
+        "Resource": [
+          "arn:aws:s3:::data-input-bucket",
+          "arn:aws:s3:::data-input-bucket/*"
+        ]
+      },
+      {
+        "Action": [
+          "s3:PutObject"
+        ],
+        "Effect": "Allow",
+        "Resource": [
+          "arn:aws:s3:::data-output-bucket/*"
+        ]
+      },
+      {
+        "Action": [
+          "ssm:GetParameter",
+          "ssm:GetParameters"
+        ],
+        "Effect": "Allow",
+        "Resource": [
+          "arn:aws:ssm:ap-northeast-1:123456789012:parameter/app/config/*"
+        ]
+      },
+      {
+        "Action": [
+          "sns:Publish"
+        ],
+        "Effect": "Allow",
+        "Resource": [
+          "arn:aws:sns:ap-northeast-1:123456789012:alert-topic"
+        ]
+      }
+    ]
+  },
+  "layers": {},
+  "manifest_schema_version": "1.0",
+  "schedules": {},
+  "schema_version": "1.0"
+}
