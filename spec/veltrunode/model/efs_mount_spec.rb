@@ -21,6 +21,7 @@ RSpec.describe Veltrunode::Model::EfsMount do
 
       it 'correctly assigns all attributes' do
         expect(mount.symbolic_name).to eq('shared_data')
+        expect(mount.name).to eq('shared_data')
         expect(mount.access_point_source).to eq(valid_arn)
         expect(mount.local_path).to eq('/mnt/shared')
         expect(mount.vpc_expectations).to eq({ 'security_group_id' => 'sg-12345' })

@@ -218,8 +218,11 @@ module Veltrunode
               end
 
               arn = raw_arn || mount_name
+              mapped = mount_map[mount_name.to_s]
+              mapped_local = mapped.local_path if mapped.respond_to?(:local_path)
               local_path = mount_entry[:local_path] || mount_entry['local_path'] ||
                            mount_entry['LocalMountPath'] || mount_entry[:local_mount_path] ||
+                           mapped_local ||
                            (mount_name ? "/mnt/#{mount_name}" : nil)
 
               {

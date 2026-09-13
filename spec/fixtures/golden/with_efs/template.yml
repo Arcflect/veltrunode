@@ -19,11 +19,8 @@ Resources:
       EphemeralStorage:
         Size: 512
       FileSystemConfigs:
-      - Arn:
-          Fn::GetAtt:
-          - SharedDataAccessPoint
-          - Arn
-        LocalMountPath: "/mnt/shared_data"
+      - Arn: arn:aws:elasticfilesystem:ap-northeast-1:123456789012:access-point/fsap-1234567890abcdef0
+        LocalMountPath: "/mnt/shared"
       FunctionName: processor
       Handler: app.handler
       MemorySize: 512
@@ -69,9 +66,7 @@ Resources:
             - elasticfilesystem:ClientWrite
             Effect: Allow
             Resource:
-            - Fn::GetAtt:
-              - SharedDataAccessPoint
-              - Arn
+            - arn:aws:elasticfilesystem:ap-northeast-1:123456789012:access-point/fsap-1234567890abcdef0
           Version: '2012-10-17'
         PolicyName: ProcessorFunctionRolePolicy
     Type: AWS::IAM::Role

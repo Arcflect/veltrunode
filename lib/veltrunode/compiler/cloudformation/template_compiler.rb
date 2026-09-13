@@ -136,9 +136,21 @@ module Veltrunode
           end
           local_layer_names = layer_ref_map.keys
 
+          mount_nodes = extract_collection(:mounts)
+          mount_map = mount_nodes.each_with_object({}) do |mount, memo|
+            name = extract_name(mount).to_s
+            next if name.strip.empty?
+
+            memo[name] = mount
+          end
+
           fn_nodes.each do |fn|
             # Lambda Execution Role
-            role_res = RoleCompiler.compile_lambda_role(fn, context: context)
+            role_res = RoleCompiler.compile_lambda_role(
+              fn,
+              context: context.merge(mount_map: mount_map),
+              mount_map: mount_map
+            )
             resources.merge!(role_res)
 
             # CloudWatch Log Group
@@ -155,7 +167,8 @@ module Veltrunode
               fn,
               context: context,
               depends_on: depends_on,
-              layer_map: layer_ref_map
+              layer_map: layer_ref_map,
+              mount_map: mount_map
             )
             resources.merge!(fn_res)
           end
@@ -294,10 +307,14 @@ module Veltrunode
         def extract_name(item)
           if item.respond_to?(:logical_name)
             item.logical_name
+          elsif item.respond_to?(:symbolic_name)
+            item.symbolic_name
           elsif item.respond_to?(:name)
             item.name
           elsif item.is_a?(Hash)
-            item[:logical_name] || item['logical_name'] || item[:name] || item['name']
+            item[:logical_name] || item['logical_name'] ||
+              item[:symbolic_name] || item['symbolic_name'] ||
+              item[:name] || item['name']
           else
             item.to_s
           end
