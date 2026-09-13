@@ -244,7 +244,7 @@ module Veltrunode
           return @mount_map unless @mount_map.empty?
 
           ctx_mounts = context[:mount_map] || context['mount_map']
-          return ctx_mounts if ctx_mounts.is_a?(Hash)
+          return freeze_hash(ctx_mounts) if ctx_mounts.is_a?(Hash)
 
           {}
         end
