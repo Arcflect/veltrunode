@@ -161,6 +161,23 @@ RSpec.describe Veltrunode::Compiler::CloudFormation::RoleCompiler do
                                            'access-point/fsap-1234567890abcdef0'
                                          ])
     end
+
+    it 'resolves symbolic_name in hash mount to AccessPoint reference when unmapped in mount_map' do
+      fn = Veltrunode::Model::Function.new(
+        logical_name: 'mount_worker',
+        handler: 'functions/worker.handler',
+        runtime: 'ruby3.3',
+        mounts: [{ symbolic_name: 'shared_storage' }]
+      )
+
+      result = described_class.compile_lambda_role(fn)
+      policy_stmts = result['MountWorkerFunctionRole']['Properties']['Policies'].first['PolicyDocument']['Statement']
+      efs_stmt = policy_stmts.find do |s|
+        s['Action'] == %w[elasticfilesystem:ClientMount elasticfilesystem:ClientWrite]
+      end
+
+      expect(efs_stmt['Resource']).to eq([{ 'Fn::GetAtt' => %w[SharedStorageAccessPoint Arn] }])
+    end
   end
 
   describe '#to_h and properties for Scheduler Invocation Role' do

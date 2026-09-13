@@ -273,7 +273,7 @@ module Veltrunode
 
           name = mount_entry[:name] || mount_entry['name'] ||
                  mount_entry[:symbolic_name] || mount_entry['symbolic_name']
-          return mount_entry[:name] || mount_entry['name'] unless name && resolved_mount_map.key?(name.to_s)
+          return name unless name && resolved_mount_map.key?(name.to_s)
 
           m = resolved_mount_map[name.to_s]
           m.respond_to?(:access_point_source) ? m.access_point_source : m
