@@ -185,6 +185,31 @@ RSpec.describe Veltrunode::Compiler::CloudFormation::TemplateCompiler do
                                          ])
     end
 
+    it 'passes application region and account to IAM capability expansion in execution role' do
+      fn = Veltrunode::Model::Function.new(
+        logical_name: 'param_reader',
+        handler: 'app.handler',
+        runtime: 'ruby3.3',
+        iam_capabilities: [
+          { type: :read_parameter, params: { path: '/app/config/*' } }
+        ]
+      )
+      app = Veltrunode::Model::Application.new(
+        name: 'ssm-app',
+        region: 'ap-northeast-1',
+        account_constraint: '123456789012',
+        stage: 'prod',
+        functions: [fn]
+      )
+
+      result = described_class.compile(app)
+      role_policies = result['Resources']['ParamReaderFunctionRole']['Properties']['Policies']
+      statements = role_policies.first['PolicyDocument']['Statement']
+      ssm_stmt = statements.find { |s| s['Action'] == %w[ssm:GetParameter ssm:GetParameters] }
+
+      expect(ssm_stmt['Resource']).to eq(['arn:aws:ssm:ap-northeast-1:123456789012:parameter/app/config/*'])
+    end
+
     it 'allows custom parameters via parameters option' do
       result = described_class.compile(
         minimal_application,

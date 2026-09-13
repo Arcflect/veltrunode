@@ -36,9 +36,9 @@ module Veltrunode
         def initialize(application, defaults: {}, context: {}, parameters: {}, description: nil)
           @application = application
           @defaults = freeze_hash(defaults)
-          @context = freeze_hash(context)
           @parameters = freeze_hash(parameters)
           @description = description
+          @context = freeze_hash(resolve_initial_context(context))
         end
 
         def to_h
@@ -330,6 +330,36 @@ module Veltrunode
             obj.map { |v| deep_sort_keys(v) }
           else
             obj
+          end
+        end
+
+        def resolve_initial_context(user_context)
+          app_ctx = build_application_context
+          base = {}
+          app_ctx.each { |k, v| base[k.to_s] = v }
+          (user_context || {}).each { |k, v| base[k.to_s] = v }
+          base
+        end
+
+        def build_application_context
+          app_ctx = {}
+          region = extract_app_val(:region)
+          app_ctx[:region] = region.to_s if region
+
+          account = extract_app_val(:account_constraint) || extract_app_val(:account)
+          app_ctx[:account] = account.to_s if account
+
+          stage = extract_app_val(:stage)
+          app_ctx[:stage] = stage.to_s if stage
+
+          app_ctx
+        end
+
+        def extract_app_val(method_name)
+          if application.respond_to?(method_name) && application.public_send(method_name)
+            application.public_send(method_name)
+          elsif application.is_a?(Hash)
+            application[method_name.to_sym] || application[method_name.to_s]
           end
         end
 

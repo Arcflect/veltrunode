@@ -70,7 +70,7 @@ Resources:
             - ssm:GetParameters
             Effect: Allow
             Resource:
-            - arn:aws:ssm:*:*:parameter/app/config/*
+            - arn:aws:ssm:ap-northeast-1:123456789012:parameter/app/config/*
           - Action:
             - sns:Publish
             Effect: Allow
