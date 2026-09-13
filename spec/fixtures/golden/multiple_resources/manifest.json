@@ -1,0 +1,70 @@
+{
+  "application": {
+    "account_constraint": "123456789012",
+    "name": "multi-resource-app",
+    "region": "ap-northeast-1",
+    "stage": "dev"
+  },
+  "built_at": "2026-01-01T00:00:00Z",
+  "compiler_version": "0.1.39",
+  "functions": {
+    "aggregate": {
+      "architecture": "arm64",
+      "concurrency": 5,
+      "ephemeral_storage": 512,
+      "handler": "app.aggregate",
+      "logical_name": "aggregate",
+      "memory": 1024,
+      "runtime": "ruby3.4",
+      "timeout": 300
+    },
+    "ingest": {
+      "architecture": "arm64",
+      "ephemeral_storage": 512,
+      "handler": "app.ingest",
+      "logical_name": "ingest",
+      "memory": 256,
+      "runtime": "ruby3.4",
+      "timeout": 30
+    }
+  },
+  "iam_capabilities": {
+    "aggregate": [],
+    "ingest": []
+  },
+  "layers": {},
+  "manifest_schema_version": "1.0",
+  "schedules": {
+    "daily_aggregate": {
+      "dlq": "arn:aws:sqs:ap-northeast-1:123456789012:agg-dlq",
+      "expression": "0 2 * * ? *",
+      "expression_type": "cron",
+      "flexible_window": {
+        "mode": "off"
+      },
+      "name": "daily_aggregate",
+      "retry_policy": {
+        "maximum_attempts": 2,
+        "maximum_event_age": 3600
+      },
+      "state": "enabled",
+      "target_function": "aggregate",
+      "timezone": "Asia/Tokyo"
+    },
+    "hourly_ingest": {
+      "expression": "rate(1 hour)",
+      "expression_type": "rate",
+      "flexible_window": {
+        "mode": "off"
+      },
+      "input": {
+        "source": "scheduler"
+      },
+      "name": "hourly_ingest",
+      "state": "enabled",
+      "target_function": "ingest",
+      "timezone": "UTC"
+    }
+  },
+  "schema_version": "1.0"
+}

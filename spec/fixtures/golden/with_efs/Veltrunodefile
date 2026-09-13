@@ -1,0 +1,20 @@
+# frozen_string_literal: true
+
+Veltrunode.application "efs-app" do
+  aws region: "ap-northeast-1", account: "123456789012"
+  runtime ruby: "3.3", architecture: :arm64
+
+  efs_mount :shared_data do
+    existing_access_point arn: "arn:aws:elasticfilesystem:ap-northeast-1:123456789012:access-point/fsap-1234567890abcdef0"
+    local_path "/mnt/shared"
+    expect_posix uid: 1000, gid: 1000
+  end
+
+  function :processor do
+    handler "app.handler"
+    memory 512
+    timeout 60
+    vpc_reference({ security_group_ids: ["sg-12345678"], subnet_ids: ["subnet-12345678"] })
+    mount :shared_data
+  end
+end

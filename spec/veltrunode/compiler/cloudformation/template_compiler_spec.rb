@@ -142,6 +142,74 @@ RSpec.describe Veltrunode::Compiler::CloudFormation::TemplateCompiler do
       expect(result['Resources']).to have_key('RuntimeGemsLayerVersion')
     end
 
+    it 'wires application efs_mount into function FileSystemConfigs and execution role' do
+      mount = Veltrunode::Model::EfsMount.new(
+        symbolic_name: 'shared_data',
+        access_point_source: 'arn:aws:elasticfilesystem:ap-northeast-1:123456789012:' \
+                             'access-point/fsap-1234567890abcdef0',
+        local_path: '/mnt/shared'
+      )
+      fn = Veltrunode::Model::Function.new(
+        logical_name: 'processor',
+        handler: 'app.handler',
+        runtime: 'ruby3.3',
+        vpc_reference: { security_group_ids: ['sg-12345678'], subnet_ids: ['subnet-12345678'] },
+        mounts: [:shared_data]
+      )
+      app = Veltrunode::Model::Application.new(
+        name: 'efs-test-app',
+        region: 'ap-northeast-1',
+        stage: 'dev',
+        mounts: [mount],
+        functions: [fn]
+      )
+
+      result = described_class.compile(app)
+      fn_props = result['Resources']['ProcessorFunction']['Properties']
+      expect(fn_props['FileSystemConfigs']).to eq([
+                                                    {
+                                                      'Arn' => 'arn:aws:elasticfilesystem:ap-northeast-1:' \
+                                                               '123456789012:access-point/fsap-1234567890abcdef0',
+                                                      'LocalMountPath' => '/mnt/shared'
+                                                    }
+                                                  ])
+
+      role_policies = result['Resources']['ProcessorFunctionRole']['Properties']['Policies']
+      statements = role_policies.first['PolicyDocument']['Statement']
+      efs_stmt = statements.find do |s|
+        s['Action'] == %w[elasticfilesystem:ClientMount elasticfilesystem:ClientWrite]
+      end
+      expect(efs_stmt['Resource']).to eq([
+                                           'arn:aws:elasticfilesystem:ap-northeast-1:123456789012:' \
+                                           'access-point/fsap-1234567890abcdef0'
+                                         ])
+    end
+
+    it 'passes application region and account to IAM capability expansion in execution role' do
+      fn = Veltrunode::Model::Function.new(
+        logical_name: 'param_reader',
+        handler: 'app.handler',
+        runtime: 'ruby3.3',
+        iam_capabilities: [
+          { type: :read_parameter, params: { path: '/app/config/*' } }
+        ]
+      )
+      app = Veltrunode::Model::Application.new(
+        name: 'ssm-app',
+        region: 'ap-northeast-1',
+        account_constraint: '123456789012',
+        stage: 'prod',
+        functions: [fn]
+      )
+
+      result = described_class.compile(app)
+      role_policies = result['Resources']['ParamReaderFunctionRole']['Properties']['Policies']
+      statements = role_policies.first['PolicyDocument']['Statement']
+      ssm_stmt = statements.find { |s| s['Action'] == %w[ssm:GetParameter ssm:GetParameters] }
+
+      expect(ssm_stmt['Resource']).to eq(['arn:aws:ssm:ap-northeast-1:123456789012:parameter/app/config/*'])
+    end
+
     it 'allows custom parameters via parameters option' do
       result = described_class.compile(
         minimal_application,

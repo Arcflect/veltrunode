@@ -1,0 +1,21 @@
+# frozen_string_literal: true
+
+Veltrunode.application "layer-app" do
+  aws region: "ap-northeast-1", account: "123456789012"
+  runtime ruby: "3.3", architecture: :arm64
+
+  layer :gem_deps do
+    architectures [:arm64]
+    bundle lockfile: "Gemfile.lock", without: %i[development test]
+    include_gems %w[aws-sdk-s3]
+    build_on :amazon_linux_2023
+    retain latest: 3
+  end
+
+  function :api do
+    handler "app.handler"
+    memory 256
+    timeout 15
+    attach_layer :gem_deps
+  end
+end

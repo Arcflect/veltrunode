@@ -1,0 +1,39 @@
+{
+  "application": {
+    "account_constraint": "123456789012",
+    "name": "efs-app",
+    "region": "ap-northeast-1",
+    "stage": "dev"
+  },
+  "built_at": "2026-01-01T00:00:00Z",
+  "compiler_version": "0.1.39",
+  "functions": {
+    "processor": {
+      "architecture": "arm64",
+      "ephemeral_storage": 512,
+      "handler": "app.handler",
+      "logical_name": "processor",
+      "memory": 512,
+      "mounts": [
+        "shared_data"
+      ],
+      "runtime": "ruby3.3",
+      "timeout": 60,
+      "vpc_reference": {
+        "security_group_ids": [
+          "sg-12345678"
+        ],
+        "subnet_ids": [
+          "subnet-12345678"
+        ]
+      }
+    }
+  },
+  "iam_capabilities": {
+    "processor": []
+  },
+  "layers": {},
+  "manifest_schema_version": "1.0",
+  "schedules": {},
+  "schema_version": "1.0"
+}

@@ -49,10 +49,11 @@ module Veltrunode
           end
         end
 
-        def initialize(target, type: :lambda, context: {})
+        def initialize(target, type: :lambda, context: {}, mount_map: {})
           @target = target
           @type = type.to_sym
           @context = freeze_hash(context)
+          @mount_map = freeze_hash(mount_map)
         end
 
         def logical_id
@@ -239,6 +240,15 @@ module Veltrunode
           end
         end
 
+        def resolved_mount_map
+          return @mount_map unless @mount_map.empty?
+
+          ctx_mounts = context[:mount_map] || context['mount_map']
+          return freeze_hash(ctx_mounts) if ctx_mounts.is_a?(Hash)
+
+          {}
+        end
+
         def format_mount_arns(mounts)
           Array(mounts).map do |mount_entry|
             raw_arn = extract_mount_arn(mount_entry)
@@ -250,25 +260,43 @@ module Veltrunode
           if mount_entry.respond_to?(:access_point_source)
             mount_entry.access_point_source
           elsif mount_entry.is_a?(Hash)
-            mount_entry[:arn] || mount_entry['arn'] || mount_entry['Arn'] ||
-              mount_entry[:access_point_source] || mount_entry['access_point_source'] ||
-              mount_entry[:name] || mount_entry['name']
+            extract_hash_mount_arn(mount_entry)
           else
-            entry_str = mount_entry.to_s
-            entry_str.include?(':') ? entry_str.split(':', 2).first : entry_str
+            extract_string_mount_arn(mount_entry)
           end
+        end
+
+        def extract_hash_mount_arn(mount_entry)
+          raw = mount_entry[:arn] || mount_entry['arn'] || mount_entry['Arn'] ||
+                mount_entry[:access_point_source] || mount_entry['access_point_source']
+          return raw if raw
+
+          name = mount_entry[:name] || mount_entry['name'] ||
+                 mount_entry[:symbolic_name] || mount_entry['symbolic_name']
+          return name unless name && resolved_mount_map.key?(name.to_s)
+
+          m = resolved_mount_map[name.to_s]
+          m.respond_to?(:access_point_source) ? m.access_point_source : m
+        end
+
+        def extract_string_mount_arn(mount_entry)
+          entry_str = mount_entry.to_s
+          mount_name = entry_str.include?(':') ? entry_str.split(':', 2).first : entry_str
+          return mount_name unless resolved_mount_map.key?(mount_name)
+
+          m = resolved_mount_map[mount_name]
+          m.respond_to?(:access_point_source) ? m.access_point_source : m
         end
 
         def format_arn_or_ref(val)
           return nil if val.nil?
+          return val if val.is_a?(Hash)
 
           val_str = val.to_s
           if val_str.start_with?('arn:')
             val_str
           elsif val.respond_to?(:name)
             { 'Fn::GetAtt' => ["#{self.class.pascalize(val.name)}AccessPoint", 'Arn'] }
-          elsif val.is_a?(Hash)
-            val
           else
             { 'Fn::GetAtt' => ["#{self.class.pascalize(val_str)}AccessPoint", 'Arn'] }
           end

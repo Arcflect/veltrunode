@@ -1,0 +1,55 @@
+{
+  "application": {
+    "account_constraint": "123456789012",
+    "name": "layer-app",
+    "region": "ap-northeast-1",
+    "stage": "dev"
+  },
+  "built_at": "2026-01-01T00:00:00Z",
+  "compiler_version": "0.1.39",
+  "functions": {
+    "api": {
+      "architecture": "arm64",
+      "ephemeral_storage": 512,
+      "handler": "app.handler",
+      "layers": [
+        "gem_deps"
+      ],
+      "logical_name": "api",
+      "memory": 256,
+      "runtime": "ruby3.3",
+      "timeout": 15
+    }
+  },
+  "iam_capabilities": {
+    "api": []
+  },
+  "layers": {
+    "gem_deps": {
+      "architectures": [
+        "arm64"
+      ],
+      "build_environment": {
+        "build_on": "amazon_linux_2023",
+        "include_gems": [
+          "aws-sdk-s3"
+        ],
+        "lockfile": "Gemfile.lock",
+        "without": [
+          "development",
+          "test"
+        ]
+      },
+      "compatible_runtimes": [
+        "ruby3.3"
+      ],
+      "name": "gem_deps",
+      "retention_policy": {
+        "latest": 3
+      }
+    }
+  },
+  "manifest_schema_version": "1.0",
+  "schedules": {},
+  "schema_version": "1.0"
+}

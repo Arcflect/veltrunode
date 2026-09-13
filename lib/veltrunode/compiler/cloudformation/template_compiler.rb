@@ -36,9 +36,9 @@ module Veltrunode
         def initialize(application, defaults: {}, context: {}, parameters: {}, description: nil)
           @application = application
           @defaults = freeze_hash(defaults)
-          @context = freeze_hash(context)
           @parameters = freeze_hash(parameters)
           @description = description
+          @context = freeze_hash(resolve_initial_context(context))
         end
 
         def to_h
@@ -136,9 +136,21 @@ module Veltrunode
           end
           local_layer_names = layer_ref_map.keys
 
+          mount_nodes = extract_collection(:mounts)
+          mount_map = mount_nodes.each_with_object({}) do |mount, memo|
+            name = extract_name(mount).to_s
+            next if name.strip.empty?
+
+            memo[name] = mount
+          end
+
           fn_nodes.each do |fn|
             # Lambda Execution Role
-            role_res = RoleCompiler.compile_lambda_role(fn, context: context)
+            role_res = RoleCompiler.compile_lambda_role(
+              fn,
+              context: context.merge(mount_map: mount_map),
+              mount_map: mount_map
+            )
             resources.merge!(role_res)
 
             # CloudWatch Log Group
@@ -155,7 +167,8 @@ module Veltrunode
               fn,
               context: context,
               depends_on: depends_on,
-              layer_map: layer_ref_map
+              layer_map: layer_ref_map,
+              mount_map: mount_map
             )
             resources.merge!(fn_res)
           end
@@ -294,10 +307,14 @@ module Veltrunode
         def extract_name(item)
           if item.respond_to?(:logical_name)
             item.logical_name
+          elsif item.respond_to?(:symbolic_name)
+            item.symbolic_name
           elsif item.respond_to?(:name)
             item.name
           elsif item.is_a?(Hash)
-            item[:logical_name] || item['logical_name'] || item[:name] || item['name']
+            item[:logical_name] || item['logical_name'] ||
+              item[:symbolic_name] || item['symbolic_name'] ||
+              item[:name] || item['name']
           else
             item.to_s
           end
@@ -313,6 +330,36 @@ module Veltrunode
             obj.map { |v| deep_sort_keys(v) }
           else
             obj
+          end
+        end
+
+        def resolve_initial_context(user_context)
+          app_ctx = build_application_context
+          base = {}
+          app_ctx.each { |k, v| base[k.to_s] = v }
+          (user_context || {}).each { |k, v| base[k.to_s] = v }
+          base
+        end
+
+        def build_application_context
+          app_ctx = {}
+          region = extract_app_val(:region)
+          app_ctx[:region] = region.to_s if region
+
+          account = extract_app_val(:account_constraint) || extract_app_val(:account)
+          app_ctx[:account] = account.to_s if account
+
+          stage = extract_app_val(:stage)
+          app_ctx[:stage] = stage.to_s if stage
+
+          app_ctx
+        end
+
+        def extract_app_val(method_name)
+          if application.respond_to?(method_name) && application.public_send(method_name)
+            application.public_send(method_name)
+          elsif application.is_a?(Hash)
+            application[method_name.to_sym] || application[method_name.to_s]
           end
         end
 

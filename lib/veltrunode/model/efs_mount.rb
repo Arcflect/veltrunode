@@ -12,6 +12,8 @@ module Veltrunode
                   :posix_expectations,
                   :diagnostic_policy
 
+      alias name symbolic_name
+
       class << self
         def validate_unique_local_paths!(mounts)
           return if mounts.nil? || mounts.empty?
