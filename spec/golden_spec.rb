@@ -6,6 +6,7 @@ require 'tmpdir'
 
 module GoldenSpecHelper
   FIXTURES_BASE_DIR = File.expand_path('fixtures/golden', __dir__)
+  extend RSpec::Matchers
 
   class << self
     def updated_fixtures
@@ -36,6 +37,22 @@ module GoldenSpecHelper
       out.puts '    git diff spec/fixtures/golden/'
       out.puts '=' * 80
       out.puts "\n"
+    end
+
+    def verify_fixture(actual_content, fixture_path)
+      if update_golden?
+        if !File.exist?(fixture_path) || File.read(fixture_path) != actual_content
+          File.write(fixture_path, actual_content)
+          record_update(fixture_path)
+        end
+      else
+        expect(File.exist?(fixture_path)).to be(true),
+                                             "Missing golden fixture: #{fixture_path}. " \
+                                             'Run UPDATE_GOLDEN=1 bundle exec rspec to generate it.'
+
+        expected_content = File.read(fixture_path)
+        expect(actual_content).to eq(expected_content)
+      end
     end
   end
 end
@@ -71,30 +88,8 @@ RSpec.describe 'Golden Tests' do
         actual_template = Veltrunode::Compiler::CloudFormation.to_yaml(app)
         actual_manifest = Veltrunode::Compiler::Manifest.to_json(application: app, built_at: fixed_time)
 
-        if GoldenSpecHelper.update_golden?
-          if !File.exist?(template_path) || File.read(template_path) != actual_template
-            File.write(template_path, actual_template)
-            GoldenSpecHelper.record_update(template_path)
-          end
-
-          if !File.exist?(manifest_path) || File.read(manifest_path) != actual_manifest
-            File.write(manifest_path, actual_manifest)
-            GoldenSpecHelper.record_update(manifest_path)
-          end
-        else
-          expect(File.exist?(template_path)).to be(true),
-                                                "Missing golden fixture: #{template_path}. " \
-                                                'Run UPDATE_GOLDEN=1 bundle exec rspec to generate it.'
-          expect(File.exist?(manifest_path)).to be(true),
-                                                "Missing golden fixture: #{manifest_path}. " \
-                                                'Run UPDATE_GOLDEN=1 bundle exec rspec to generate it.'
-
-          expected_template = File.read(template_path)
-          expected_manifest = File.read(manifest_path)
-
-          expect(actual_template).to eq(expected_template)
-          expect(actual_manifest).to eq(expected_manifest)
-        end
+        GoldenSpecHelper.verify_fixture(actual_template, template_path)
+        GoldenSpecHelper.verify_fixture(actual_manifest, manifest_path)
       end
     end
   end
@@ -166,51 +161,60 @@ RSpec.describe 'Golden Tests' do
           expect(buffer.string).to be_empty
         end
       end
-    end
 
-    it 'detects discrepancy between generated output and fixture when UPDATE_GOLDEN is disabled' do
-      Dir.mktmpdir do |tmpdir|
-        vlt_file = File.join(tmpdir, 'Veltrunodefile')
-        tpl_file = File.join(tmpdir, 'template.yml')
+      describe '.verify_fixture' do
+        it 'detects discrepancy between generated output and fixture when UPDATE_GOLDEN is disabled' do
+          Dir.mktmpdir do |tmpdir|
+            tpl_file = File.join(tmpdir, 'template.yml')
+            File.write(tpl_file, 'expected golden content')
 
-        dsl = <<~RUBY
-          Veltrunode.application 'discrepancy-app' do
-            aws region: 'ap-northeast-1', account: '123456789012'
-            runtime ruby: '3.3', architecture: :x86_64
-            function :worker do
-              handler 'app.handler'
-            end
+            ENV.delete('UPDATE_GOLDEN')
+            expect do
+              GoldenSpecHelper.verify_fixture('different generated content', tpl_file)
+            end.to raise_error(RSpec::Expectations::ExpectationNotMetError)
           end
-        RUBY
-        File.write(vlt_file, dsl)
-        File.write(tpl_file, 'outdated template content')
-
-        app = Veltrunode.parse(dsl, vlt_file)
-        actual_template = Veltrunode::Compiler::CloudFormation.to_yaml(app)
-
-        expect(actual_template).not_to eq(File.read(tpl_file))
-      end
-    end
-
-    it 'updates fixture file and records update when UPDATE_GOLDEN is enabled' do
-      dummy_fixture_dir = File.join(GoldenSpecHelper::FIXTURES_BASE_DIR, '.tmp_test_fixture')
-      FileUtils.mkdir_p(dummy_fixture_dir)
-      tpl_file = File.join(dummy_fixture_dir, 'template.yml')
-      File.write(tpl_file, 'old content')
-
-      begin
-        ENV['UPDATE_GOLDEN'] = '1'
-        new_content = 'new template content'
-
-        if GoldenSpecHelper.update_golden? && (!File.exist?(tpl_file) || File.read(tpl_file) != new_content)
-          File.write(tpl_file, new_content)
-          GoldenSpecHelper.record_update(tpl_file)
         end
 
-        expect(File.read(tpl_file)).to eq(new_content)
-        expect(GoldenSpecHelper.updated_fixtures).to include(tpl_file)
-      ensure
-        FileUtils.rm_rf(dummy_fixture_dir)
+        it 'raises error when fixture file does not exist and UPDATE_GOLDEN is disabled' do
+          missing_file = File.join(Dir.tmpdir, 'missing_golden_file.yml')
+          FileUtils.rm_f(missing_file)
+
+          ENV.delete('UPDATE_GOLDEN')
+          expect do
+            GoldenSpecHelper.verify_fixture('some content', missing_file)
+          end.to raise_error(RSpec::Expectations::ExpectationNotMetError, /Missing golden fixture/)
+        end
+
+        it 'passes when generated output matches fixture and UPDATE_GOLDEN is disabled' do
+          Dir.mktmpdir do |tmpdir|
+            tpl_file = File.join(tmpdir, 'template.yml')
+            File.write(tpl_file, 'matching content')
+
+            ENV.delete('UPDATE_GOLDEN')
+            expect do
+              GoldenSpecHelper.verify_fixture('matching content', tpl_file)
+            end.not_to raise_error
+          end
+        end
+
+        it 'updates fixture file and records update when UPDATE_GOLDEN is enabled' do
+          dummy_fixture_dir = File.join(GoldenSpecHelper::FIXTURES_BASE_DIR, '.tmp_test_fixture')
+          FileUtils.mkdir_p(dummy_fixture_dir)
+          tpl_file = File.join(dummy_fixture_dir, 'template.yml')
+          File.write(tpl_file, 'old content')
+
+          begin
+            ENV['UPDATE_GOLDEN'] = '1'
+            new_content = 'new template content'
+
+            GoldenSpecHelper.verify_fixture(new_content, tpl_file)
+
+            expect(File.read(tpl_file)).to eq(new_content)
+            expect(GoldenSpecHelper.updated_fixtures).to include(tpl_file)
+          ensure
+            FileUtils.rm_rf(dummy_fixture_dir)
+          end
+        end
       end
     end
   end
