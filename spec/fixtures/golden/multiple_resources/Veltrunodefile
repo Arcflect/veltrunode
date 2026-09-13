@@ -6,7 +6,6 @@ Veltrunode.application "multi-resource-app" do
 
   defaults do
     logs retention_days: 14
-    tags env: "production", system: "batch"
   end
 
   function :ingest do
