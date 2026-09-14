@@ -23,6 +23,10 @@ module Veltrunode
     def reset!
       @app = nil
     end
+
+    def normalize_path(path)
+      PathNormalizer.normalize(path)
+    end
   end
 end
 
@@ -42,3 +46,4 @@ require_relative 'veltrunode/diagnostics'
 require_relative 'veltrunode/settings_loader'
 require_relative 'veltrunode/runner'
 require_relative 'veltrunode/generator'
+require_relative 'veltrunode/path_normalizer'

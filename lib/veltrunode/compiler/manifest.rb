@@ -88,8 +88,8 @@ module Veltrunode
       def deep_sort_keys(obj)
         case obj
         when Hash
-          obj.keys.sort.to_h do |k|
-            [k, deep_sort_keys(obj[k])]
+          obj.keys.sort_by(&:to_s).to_h do |k|
+            [k.to_s, deep_sort_keys(obj[k])]
           end
         when Array
           obj.map { |v| deep_sort_keys(v) }

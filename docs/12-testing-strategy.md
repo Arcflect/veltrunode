@@ -38,7 +38,32 @@ UPDATE_GOLDEN=1 bundle exec rspec spec/golden_spec.rb
 
 ## プロパティテスト (Property Tests)
 
-生成されるインプット値の多様な組み合わせにわたって、決定論的な（再現可能な）コンパイル、安定したマップソート順序、パスの正規化、および参照解決をテストします。
+`rantly`（`rantly/rspec_extensions`）を用いたプロパティベーステストにより、ランダムかつ多様な入力組み合わせに対して、以下の不変条件（Properties）が常に維持されることを検証します。
+
+### 検証対象の主要プロパティ (`spec/property_spec.rb`)
+
+1. **CloudFormation出力の決定性（Compilation Determinism）**
+   - 同一のアプリケーションモデル・関数・スケジュール・IAMケーパビリティ設定に対して、複数回コンパイル（`to_yaml` および `compile`）を行っても、完全一致する同一の CloudFormation テンプレート YAML およびハッシュが出力されることを検証します。
+2. **マップキーの安定ソート順序（Map Key Stable Sorting）**
+   - 任意の深さを持つネストされた辞書構造に対して、`TemplateCompiler#deep_sort_keys` を通すことですべてのキーが文字列化され、アルファベット順に安定ソートされることを検証します。
+3. **ファイルパスの正規化（Path Normalization）**
+   - 冗長なスラッシュ（`//`）、カレントディレクトリ表現（`./`）、末尾スラッシュの除去が安全かつ冪等に行われること（`normalize(normalize(p)) == normalize(p)`）、および相対パス・絶対パスの種別が保持されることを検証します（`Veltrunode::PathNormalizer`）。
+4. **論理ID生成の一意性と妥当性（Logical ID Uniqueness and Validity）**
+   - 任意の名前文字列から生成される CloudFormation 論理ID（`LogicalId.for`）が英字開始の英数字（`\A[A-Z][a-zA-Z0-9]*\z`）に正規化されること、同一タイプ内での異なるシンボリック名同士が重複しないこと、および同一名称であっても異なるリソースタイプ間で一意のIDが割り振られることを検証します。
+5. **参照解決の冪等性（Reference Resolution Idempotency）**
+   - 複数関数、Layer、EFSマウント、スケジュール等が複雑に相互参照するアプリケーションモデルにおいて、リソースグラフ（`Veltrunode::Graph::ResourceGraph`）のトポロジカルソート順序や依存関係解決が状態変化を伴わず常に冪等・安定して評価されることを検証します。
+
+### テストの実行
+
+プロパティテスト単体の実行:
+```bash
+bundle exec rspec spec/property_spec.rb
+```
+
+テストスイート全体の一部としても実行されます:
+```bash
+bundle exec rspec
+```
 
 ## 統合テスト (Integration Tests)
 
