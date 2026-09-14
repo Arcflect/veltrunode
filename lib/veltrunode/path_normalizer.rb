@@ -5,8 +5,8 @@ require 'pathname'
 module Veltrunode
   # ファイルパスの正規化ユーティリティ
   #
-  # 連続スラッシュ (//)、カレントディレクトリ (./)、親ディレクトリ参照 (../) などの
-  # 冗長なパス要素を除去し、安全で一貫したパス表現へ正規化します。
+  # 連続スラッシュ (//)、カレントディレクトリ (./)、親ディレクトリ参照 (../)、
+  # バックスラッシュ (\) などの冗長・非互換なパス要素を除去し、安全で一貫したパス表現へ正規化します。
   module PathNormalizer
     module_function
 
@@ -20,7 +20,7 @@ module Veltrunode
       str = path.to_s.strip
       return '' if str.empty?
 
-      Pathname.new(str).cleanpath.to_s
+      Pathname.new(str.tr('\\', '/')).cleanpath.to_s
     end
   end
 end
