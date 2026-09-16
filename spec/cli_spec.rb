@@ -363,6 +363,19 @@ RSpec.describe Veltrunode::CLI::Router do
         expect(json['manifest_path']).to end_with('manifest.json')
       end
 
+      it 'runs build command with --bucket option and invokes S3Uploader' do
+        mock_uploader = instance_double(Veltrunode::AWS::S3Uploader)
+        allow(Veltrunode::AWS::S3Uploader).to receive(:new).with(
+          bucket: 'my-cli-bucket',
+          application: anything
+        ).and_return(mock_uploader)
+        allow(mock_uploader).to receive(:upload_and_update_template)
+
+        code = run_cli(['build', '--bucket', 'my-cli-bucket'])
+        expect(code).to eq(0)
+        expect(mock_uploader).to have_received(:upload_and_update_template)
+      end
+
       it 'aborts and returns exit code 3 on validation failure in text format' do
         diag = Veltrunode::Diagnostics::Diagnostic.new(
           code: 'VLT-LAYER-001',

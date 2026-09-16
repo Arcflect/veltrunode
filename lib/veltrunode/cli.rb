@@ -143,6 +143,18 @@ module Veltrunode
           @argv.delete_at(idx)
         end
 
+        # --bucket オプションの抽出
+        if (idx = @argv.index('--bucket'))
+          if (val = @argv[idx + 1])
+            @options[:bucket] = val
+            @argv.delete_at(idx + 1)
+          end
+          @argv.delete_at(idx)
+        elsif (idx = @argv.find_index { |arg| arg.start_with?('--bucket=') })
+          @options[:bucket] = @argv[idx].split('=', 2)[1]
+          @argv.delete_at(idx)
+        end
+
         # ヘルプフラグの抽出
         if @argv.include?('--help') || @argv.include?('-h') || @argv.include?('help')
           @options[:help] = true
@@ -255,6 +267,16 @@ module Veltrunode
           return handle_validation_error(e.diagnostics)
         rescue StandardError => e
           return handle_error(e.message, EXIT_BUILD_FAILED)
+        end
+
+        bucket = @options[:bucket] || (application.respond_to?(:artifact_bucket) ? application.artifact_bucket : nil)
+        if bucket && !bucket.to_s.strip.empty?
+          begin
+            uploader = AWS::S3Uploader.new(bucket: bucket, application: application)
+            uploader.upload_and_update_template(result)
+          rescue AWS::S3UploadError, StandardError => e
+            return handle_error("S3 upload failed: #{e.message}", EXIT_BUILD_FAILED)
+          end
         end
 
         output_build_success(result)
@@ -480,6 +502,7 @@ module Veltrunode
             --aws                    Run AWS connection and account constraint validation
             --runtime <name>         Set function runtime (default: ruby)
             --event <path>           Path to JSON event file for invoke local
+            --bucket <name>          S3 bucket for artifact upload
 
           Commands:
             init                       # Initialize a new Veltrunode project
