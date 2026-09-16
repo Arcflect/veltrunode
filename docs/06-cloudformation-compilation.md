@@ -48,3 +48,43 @@ CloudFormation の論理ID（Logical ID）は、`Veltrunode::Compiler::LogicalId
 ## 既存のインフラストラクチャ (Existing Infrastructure)
 
 参照先には、リテラルARN、CloudFormationパラメータ、スタック出力（Export）、またはステージごとの値を指定できます。ユーザーが明確に本ツール側にリソース管理を要求しない限り、既存のEFS、VPC、サブネット、セキュリティグループ、キュー、およびS3バケットをCloudFormationスタック内にインポート（管理対象化）すべきではありません。
+
+## S3 アーティファクトのアップロードと参照更新 (S3 Artifact Upload & Reference Updating)
+
+Lambda 関数のデプロイパッケージおよび Layer バージョンのデプロイパッケージは、`Veltrunode::AWS::S3Uploader` を通じて指定された S3 バケットへアップロードされます。
+
+### S3 キー命名規則
+アーティファクトの S3 キーは、決定論的なコンテンツハッシュを含めることで重複アップロードを防止し、バージョニングされた一貫性を保ちます。
+
+形式:
+`veltrunode/<app>/<stage>/<hash>/<name>.zip`
+
+- `<app>`: アプリケーション名（`application.name`）
+- `<stage>`: デプロイステージ（例: `production`, `dev`）
+- `<hash>`: ビルド成果物のコンテンツハッシュ（SHA-256）
+- `<name>`: 関数名（`function.logical_name`）または Layer 名（`layer.name`）
+
+### 重複アップロードのスキップ (Deduplication)
+アップロード前に `head_object` API を実行し、同一コンテンツハッシュのオブジェクトが S3 上に既に存在する場合は実際のファイル転送をスキップします。これにより、変更のないパッケージの不要な転送コストやレイテンシを排除します。
+
+### テンプレート参照の更新
+アーティファクトがアップロードされると、生成された CloudFormation テンプレート（`build/template.yml`）内のリソース定義が自動的に更新されます。
+
+- **Lambda 関数 (`AWS::Lambda::Function`)**:
+  `Properties.Code.S3Bucket` および `Properties.Code.S3Key` がアップロード先 S3 バケットおよび S3 キーで更新されます。
+- **Lambda Layer (`AWS::Lambda::LayerVersion`)**:
+  `Properties.Content.S3Bucket` および `Properties.Content.S3Key` がアップロード先 S3 バケットおよび S3 キーで更新されます。
+
+### CLI での利用
+ビルド時に `--bucket` オプションを指定することで、ビルド直後にアーティファクトのアップロードおよびテンプレート更新を自動実行できます。
+
+```bash
+veltrunode build --bucket my-deployment-bucket
+```
+
+また、`Veltrunodefile` の `aws` 設定ブロックで `artifact_bucket` を指定することも可能です。
+```ruby
+Veltrunode.application "my-app" do
+  aws region: "ap-northeast-1", artifact_bucket: "my-deployment-bucket"
+end
+```
