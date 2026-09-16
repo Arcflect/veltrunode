@@ -105,5 +105,27 @@ RSpec.describe Veltrunode::Compiler::CloudFormation::LayerVersionCompiler do
       expect(YAML.safe_load(generated_yaml)).to eq(YAML.safe_load(expected_yaml))
       expect(generated_yaml.strip).to eq(expected_yaml.strip)
     end
+
+    it 'resolves S3Bucket and S3Key from layer_artifact_map in context' do
+      layer = Veltrunode::Model::Layer.new(
+        name: 'shared_gems',
+        compatible_runtimes: ['ruby3.3']
+      )
+      context = {
+        layer_artifact_map: {
+          'shared_gems' => {
+            bucket: 'layer-bucket',
+            key: 'veltrunode/app/prod/layerhash/shared_gems.zip'
+          }
+        }
+      }
+
+      compiler = described_class.new(layer, context: context)
+      content_props = compiler.properties['Content']
+      expect(content_props).to eq({
+                                    'S3Bucket' => 'layer-bucket',
+                                    'S3Key' => 'veltrunode/app/prod/layerhash/shared_gems.zip'
+                                  })
+    end
   end
 end
