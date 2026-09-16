@@ -6,7 +6,7 @@
     "stage": "dev"
   },
   "built_at": "2026-01-01T00:00:00Z",
-  "compiler_version": "0.1.39",
+  "compiler_version": "0.1.40",
   "functions": {
     "processor": {
       "architecture": "arm64",

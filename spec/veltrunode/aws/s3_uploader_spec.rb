@@ -150,6 +150,32 @@ RSpec.describe Veltrunode::AWS::S3Uploader do
         end.to raise_error(Veltrunode::AWS::S3UploadError, /Access denied to S3 bucket 'my-deployment-bucket'/)
       end
     end
+
+    context 'when put_object fails during upload' do
+      before do
+        allow(mock_s3_client).to receive(:head_object).and_raise(StandardError.new('404 Not Found'))
+        allow(mock_s3_client).to receive(:put_object).and_raise(StandardError.new('Network timeout writing to S3'))
+      end
+
+      it 'raises S3UploadError preserving error details' do
+        expect do
+          uploader.upload_file(file_path: zip_file, name: 'worker', content_hash: '123')
+        end.to raise_error(Veltrunode::AWS::S3UploadError, /Failed to put_object.*Network timeout/)
+      end
+    end
+
+    context 'when credentials are missing' do
+      before do
+        cred_err = StandardError.new('missing credentials')
+        allow(mock_s3_client).to receive(:head_object).and_raise(cred_err)
+      end
+
+      it 'raises S3UploadError explaining AWS credentials error' do
+        expect do
+          uploader.upload_file(file_path: zip_file, name: 'worker', content_hash: '123')
+        end.to raise_error(Veltrunode::AWS::S3UploadError, /AWS credentials error/)
+      end
+    end
   end
 
   describe '#update_template' do
@@ -308,6 +334,56 @@ RSpec.describe Veltrunode::AWS::S3Uploader do
       expect(res[:upload_results].map(&:name)).to contain_exactly('processor', 'runtime_layer')
       expect(res[:template]['Resources']['ProcessorFunction']['Properties']['Code']['S3Key'])
         .to eq('veltrunode/order-service/production/fnhash/processor.zip')
+    end
+
+    it 'updates in-memory template_data when template_path does not exist on disk' do
+      not_found_err = StandardError.new('404 Not Found')
+      allow(mock_s3_client).to receive(:head_object).and_raise(not_found_err)
+      allow(mock_s3_client).to receive(:put_object)
+
+      in_memory_result = Veltrunode::Build::BuildResult.new(
+        application: application,
+        function_results: [fn_res],
+        layer_results: [],
+        template_path: '/non/existent/template.yml',
+        template_data: {
+          'Resources' => {
+            'ProcessorFunction' => {
+              'Type' => 'AWS::Lambda::Function',
+              'Properties' => { 'Code' => {} }
+            }
+          }
+        },
+        manifest_path: '/tmp/m.json',
+        manifest_data: {}
+      )
+
+      res = uploader.upload_and_update_template(in_memory_result)
+      expect(res[:template]['Resources']['ProcessorFunction']['Properties']['Code']['S3Key'])
+        .to eq('veltrunode/order-service/production/fnhash/processor.zip')
+    end
+  end
+
+  describe 'UploadResult' do
+    it 'converts to hash with string values' do
+      res = Veltrunode::AWS::UploadResult.new(
+        name: 'worker',
+        bucket: 'my-bucket',
+        key: 'veltrunode/app/dev/h/worker.zip',
+        status: :uploaded,
+        content_hash: 'h',
+        zip_path: '/tmp/worker.zip',
+        type: :function
+      )
+      expect(res.to_h).to eq({
+                               'name' => 'worker',
+                               'bucket' => 'my-bucket',
+                               'key' => 'veltrunode/app/dev/h/worker.zip',
+                               'status' => 'uploaded',
+                               'content_hash' => 'h',
+                               'zip_path' => '/tmp/worker.zip',
+                               'type' => 'function'
+                             })
     end
   end
 end
