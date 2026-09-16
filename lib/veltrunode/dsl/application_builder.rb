@@ -17,6 +17,7 @@ module Veltrunode
         @region = 'ap-northeast-1'
         @stage = 'dev'
         @account_constraint = nil
+        @artifact_bucket = nil
         @runtime_defaults = {}
         @function_builders = []
         @layer_builders = []
@@ -26,9 +27,10 @@ module Veltrunode
         @tags = {}
       end
 
-      def aws(region: nil, account: nil, account_constraint: nil)
+      def aws(region: nil, account: nil, account_constraint: nil, artifact_bucket: nil, bucket: nil)
         @region = region.to_s if region
         @account_constraint = (account || account_constraint)&.to_s
+        @artifact_bucket = (artifact_bucket || bucket)&.to_s
       end
 
       def stage(st)
@@ -106,6 +108,7 @@ module Veltrunode
           region: @region,
           stage: @stage,
           account_constraint: @account_constraint,
+          artifact_bucket: @artifact_bucket,
           runtime_defaults: @runtime_defaults,
           functions: functions,
           layers: layers,

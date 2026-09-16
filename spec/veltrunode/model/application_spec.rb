@@ -9,6 +9,7 @@ RSpec.describe Veltrunode::Model::Application do
       region: 'ap-northeast-1',
       stage: 'production',
       account_constraint: '123456789012',
+      artifact_bucket: 'my-artifacts',
       runtime_defaults: { ruby: '3.3' },
       functions: ['fn1'],
       layers: ['layer1'],
@@ -28,6 +29,7 @@ RSpec.describe Veltrunode::Model::Application do
         expect(app.region).to eq('ap-northeast-1')
         expect(app.stage).to eq('production')
         expect(app.account_constraint).to eq('123456789012')
+        expect(app.artifact_bucket).to eq('my-artifacts')
         expect(app.runtime_defaults).to eq({ ruby: '3.3' })
         expect(app.functions).to eq(['fn1'])
         expect(app.layers).to eq(['layer1'])
@@ -40,6 +42,7 @@ RSpec.describe Veltrunode::Model::Application do
       it 'provides default empty values for omitted optional attributes' do
         minimal_app = described_class.new(name: 'app', region: 'us-east-1', stage: 'dev')
         expect(minimal_app.account_constraint).to be_nil
+        expect(minimal_app.artifact_bucket).to be_nil
         expect(minimal_app.runtime_defaults).to eq({})
         expect(minimal_app.functions).to eq([])
         expect(minimal_app.layers).to eq([])

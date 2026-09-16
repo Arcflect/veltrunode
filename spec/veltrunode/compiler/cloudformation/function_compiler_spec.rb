@@ -344,5 +344,28 @@ RSpec.describe Veltrunode::Compiler::CloudFormation::FunctionCompiler do
       expect(YAML.safe_load(generated_yaml)).to eq(YAML.safe_load(expected_yaml))
       expect(generated_yaml.strip).to eq(expected_yaml.strip)
     end
+
+    it 'resolves S3Bucket and S3Key from artifact_map in context' do
+      fn = Veltrunode::Model::Function.new(
+        logical_name: 'api_handler',
+        handler: 'functions/api.handler',
+        runtime: 'ruby3.3'
+      )
+      context = {
+        artifact_map: {
+          'api_handler' => {
+            bucket: 'custom-artifact-bucket',
+            key: 'veltrunode/app/prod/hash123/api_handler.zip'
+          }
+        }
+      }
+
+      compiler = described_class.new(fn, context: context)
+      code_props = compiler.properties['Code']
+      expect(code_props).to eq({
+                                 'S3Bucket' => 'custom-artifact-bucket',
+                                 'S3Key' => 'veltrunode/app/prod/hash123/api_handler.zip'
+                               })
+    end
   end
 end

@@ -20,3 +20,5 @@ module Veltrunode
   module AWS
   end
 end
+
+require_relative 'aws/s3_uploader'

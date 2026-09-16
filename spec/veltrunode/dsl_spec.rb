@@ -10,7 +10,7 @@ RSpec.describe Veltrunode::DSL do
   let(:sample_veltrunodefile_content) do
     <<~RUBY
       Veltrunode.application "document-converter" do
-        aws region: "ap-northeast-1", account: "123456789012"
+        aws region: "ap-northeast-1", account: "123456789012", artifact_bucket: "my-artifact-bucket"
         runtime ruby: "3.4", architecture: :arm64
 
         defaults do
@@ -63,6 +63,7 @@ RSpec.describe Veltrunode::DSL do
       expect(app.name).to eq('document-converter')
       expect(app.region).to eq('ap-northeast-1')
       expect(app.account_constraint).to eq('123456789012')
+      expect(app.artifact_bucket).to eq('my-artifact-bucket')
       expect(app.tags).to eq({ system: 'document-converter', managed_by: 'veltrunode' })
 
       # Layer validation

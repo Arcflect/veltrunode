@@ -287,9 +287,29 @@ module Veltrunode
         def format_code
           return code if code
 
+          artifact_entry = resolve_artifact_context(function.logical_name)
+          return artifact_entry if artifact_entry
+
           {
             'S3Bucket' => { 'Ref' => 'ArtifactBucket' },
             'S3Key' => "artifacts/functions/#{function.logical_name}.zip"
+          }
+        end
+
+        def resolve_artifact_context(name)
+          map = context[:artifact_map] || context['artifact_map']
+          return nil unless map.is_a?(Hash)
+
+          entry = map[name] || map[name.to_sym]
+          return nil unless entry.is_a?(Hash)
+
+          bucket_val = entry[:bucket] || entry['bucket'] || entry[:s3_bucket] || entry['S3Bucket']
+          key_val = entry[:key] || entry['key'] || entry[:s3_key] || entry['S3Key']
+          return nil unless bucket_val && key_val
+
+          {
+            'S3Bucket' => bucket_val,
+            'S3Key' => key_val
           }
         end
 

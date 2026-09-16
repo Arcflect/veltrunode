@@ -93,12 +93,33 @@ module Veltrunode
           return context[:content] if context[:content]
           return context['content'] if context['content']
 
+          artifact_entry = resolve_layer_artifact_context(layer_name_source)
+          return artifact_entry if artifact_entry
+
           s3_bucket = context[:artifact_bucket] || context['artifact_bucket'] || { 'Ref' => 'ArtifactBucket' }
           s3_key = context[:s3_key] || context['s3_key'] || "artifacts/layers/#{layer_name_source}.zip"
 
           {
             'S3Bucket' => s3_bucket,
             'S3Key' => s3_key
+          }
+        end
+
+        def resolve_layer_artifact_context(name)
+          map = context[:layer_artifact_map] || context['layer_artifact_map'] ||
+                context[:artifact_map] || context['artifact_map']
+          return nil unless map.is_a?(Hash)
+
+          entry = map[name] || map[name.to_sym]
+          return nil unless entry.is_a?(Hash)
+
+          bucket_val = entry[:bucket] || entry['bucket'] || entry[:s3_bucket] || entry['S3Bucket']
+          key_val = entry[:key] || entry['key'] || entry[:s3_key] || entry['S3Key']
+          return nil unless bucket_val && key_val
+
+          {
+            'S3Bucket' => bucket_val,
+            'S3Key' => key_val
           }
         end
 
