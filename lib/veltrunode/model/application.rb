@@ -7,6 +7,7 @@ module Veltrunode
                   :region,
                   :stage,
                   :account_constraint,
+                  :artifact_bucket,
                   :runtime_defaults,
                   :functions,
                   :layers,
@@ -21,6 +22,7 @@ module Veltrunode
         region: 'ap-northeast-1',
         stage: 'dev',
         account_constraint: nil,
+        artifact_bucket: nil,
         runtime_defaults: {},
         functions: [],
         layers: [],
@@ -36,6 +38,7 @@ module Veltrunode
         @region = region.to_s.freeze
         @stage = stage.to_s.freeze
         @account_constraint = account_constraint&.to_s&.freeze
+        @artifact_bucket = artifact_bucket&.to_s&.freeze
         @runtime_defaults = runtime_defaults.dup.freeze
         @functions = normalize_collection_with_lookup(functions, :logical_name).freeze
         @layers = layers.dup.freeze
