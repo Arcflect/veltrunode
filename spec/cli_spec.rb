@@ -469,10 +469,123 @@ RSpec.describe Veltrunode::CLI::Router do
       expect(json['iam_capabilities']['api_fn'].first['Action']).to eq(%w[s3:GetObject s3:ListBucket])
     end
 
-    it 'runs deploy command stub' do
-      code = run_cli(['deploy'])
-      expect(code).to eq(0)
-      expect(stdout.string.strip).to eq('Deployment successful.')
+    describe 'deploy command' do
+      let(:deploy_app) do
+        Veltrunode::Model::Application.new(
+          name: 'deploy-app',
+          region: 'ap-northeast-1',
+          stage: 'prod',
+          account_constraint: '123456789012'
+        )
+      end
+
+      before do
+        allow(Veltrunode::SettingsLoader).to receive(:load).and_return(deploy_app)
+        require 'veltrunode/aws/account_region_guard'
+      end
+
+      it 'runs deploy successfully when account and region match' do
+        allow(Veltrunode::AWS::AccountRegionGuard).to receive(:check).and_return([])
+
+        code = run_cli(['deploy'])
+        expect(code).to eq(0)
+        expect(stdout.string.strip).to eq('Deployment successful.')
+      end
+
+      it 'runs deploy with warning and exits 0 when account constraint is not specified' do
+        warn_diag = Veltrunode::Diagnostics::Diagnostic.new(
+          code: 'VLT-AWS-ACCOUNT-002',
+          severity: :warning,
+          summary: 'No account constraint specified.',
+          suggested_action: 'Specify account constraint.'
+        )
+        allow(Veltrunode::AWS::AccountRegionGuard).to receive(:check).and_return([warn_diag])
+
+        code = run_cli(['deploy'])
+        expect(code).to eq(0)
+        expect(stdout.string).to include('[WARN] [VLT-AWS-ACCOUNT-002] No account constraint specified.')
+        expect(stdout.string).to include('Deployment successful.')
+      end
+
+      it 'aborts deployment and returns exit code 4 on account mismatch' do
+        account_error = Veltrunode::Diagnostics::Diagnostic.new(
+          code: 'VLT-AWS-ACCOUNT-001',
+          severity: :error,
+          summary: "AWS account mismatch: current '999999999999' != expected '123456789012'.",
+          suggested_action: 'Switch credentials.'
+        )
+        allow(Veltrunode::AWS::AccountRegionGuard).to receive(:check).and_return([account_error])
+
+        code = run_cli(['deploy'])
+        expect(code).to eq(4)
+        expect(stdout.string).to include('[ERROR] [VLT-AWS-ACCOUNT-001]')
+        expect(stderr.string).to include('Deployment aborted: AWS verification failed with 1 error(s).')
+      end
+
+      it 'aborts deployment and returns exit code 4 on region mismatch' do
+        region_error = Veltrunode::Diagnostics::Diagnostic.new(
+          code: 'VLT-AWS-REGION-001',
+          severity: :error,
+          summary: "AWS region mismatch: configured 'us-east-1' != expected 'ap-northeast-1'.",
+          suggested_action: 'Switch region.'
+        )
+        allow(Veltrunode::AWS::AccountRegionGuard).to receive(:check).and_return([region_error])
+
+        code = run_cli(['deploy'])
+        expect(code).to eq(4)
+        expect(stdout.string).to include('[ERROR] [VLT-AWS-REGION-001]')
+        expect(stderr.string).to include('Deployment aborted: AWS verification failed with 1 error(s).')
+      end
+
+      it 'aborts deployment and returns exit code 4 on STS authentication failure' do
+        auth_error = Veltrunode::Diagnostics::Diagnostic.new(
+          code: 'VLT-AWS-AUTH-001',
+          severity: :error,
+          summary: 'AWS authentication failed.',
+          suggested_action: 'Verify AWS credentials.'
+        )
+        allow(Veltrunode::AWS::AccountRegionGuard).to receive(:check).and_return([auth_error])
+
+        code = run_cli(['deploy'])
+        expect(code).to eq(4)
+        expect(stdout.string).to include('[ERROR] [VLT-AWS-AUTH-001]')
+        expect(stderr.string).to include('Deployment aborted: AWS verification failed with 1 error(s).')
+      end
+
+      it 'returns structured JSON error with exit code 4 on verification failure with --format json' do
+        account_error = Veltrunode::Diagnostics::Diagnostic.new(
+          code: 'VLT-AWS-ACCOUNT-001',
+          severity: :error,
+          summary: "AWS account mismatch: current '999999999999' != expected '123456789012'.",
+          suggested_action: 'Switch credentials.'
+        )
+        allow(Veltrunode::AWS::AccountRegionGuard).to receive(:check).and_return([account_error])
+
+        code = run_cli(['deploy', '--format', 'json'])
+        expect(code).to eq(4)
+        json = JSON.parse(stderr.string)
+        expect(json['status']).to eq('error')
+        expect(json['error_code']).to eq(4)
+        expect(json['errors_count']).to eq(1)
+        expect(json['diagnostics'].first['code']).to eq('VLT-AWS-ACCOUNT-001')
+      end
+
+      it 'returns structured JSON success with warning details when account is unconstrained with --format json' do
+        warn_diag = Veltrunode::Diagnostics::Diagnostic.new(
+          code: 'VLT-AWS-ACCOUNT-002',
+          severity: :warning,
+          summary: 'No account constraint specified.',
+          suggested_action: 'Specify account constraint.'
+        )
+        allow(Veltrunode::AWS::AccountRegionGuard).to receive(:check).and_return([warn_diag])
+
+        code = run_cli(['deploy', '--format', 'json'])
+        expect(code).to eq(0)
+        json = JSON.parse(stdout.string)
+        expect(json['status']).to eq('success')
+        expect(json['warnings_count']).to eq(1)
+        expect(json['diagnostics'].first['code']).to eq('VLT-AWS-ACCOUNT-002')
+      end
     end
 
     it 'runs invoke local command' do
