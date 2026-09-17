@@ -376,8 +376,58 @@ module Veltrunode
       end
 
       def execute_deploy
-        load_application!
-        output_success('Deployment successful.', { message: 'Deployment successful' })
+        application = load_application!
+
+        require_relative 'aws/account_region_guard'
+        diagnostics = Veltrunode::AWS::AccountRegionGuard.check(application)
+
+        errors = diagnostics.select { |d| d.severity == :error }
+        return handle_aws_guard_error(diagnostics) unless errors.empty?
+
+        output_deploy_diagnostics(diagnostics)
+
+        extra_json = { message: 'Deployment successful' }
+        warnings = diagnostics.select { |d| d.severity == :warning }
+        unless warnings.empty?
+          extra_json[:warnings_count] = warnings.size
+          extra_json[:diagnostics] = warnings.map(&:to_h)
+        end
+
+        output_success('Deployment successful.', extra_json)
+      end
+
+      def handle_aws_guard_error(diagnostics)
+        errors = diagnostics.select { |d| d.severity == :error }
+
+        if @options[:format] == :json
+          output = {
+            status: 'error',
+            error_code: EXIT_AWS_AUTH_FAILED,
+            message: "Deployment aborted: AWS verification failed with #{errors.size} error(s).",
+            errors_count: errors.size,
+            warnings_count: diagnostics.count { |d| d.severity == :warning },
+            diagnostics: diagnostics.map(&:to_h)
+          }
+          # rubocop:disable Style/StderrPuts
+          $stderr.puts JSON.generate(output)
+        else
+          diagnostics.each do |diag|
+            prefix = diag.severity == :error ? '[ERROR]' : '[WARN]'
+            $stdout.puts "#{prefix} [#{diag.code}] #{diag.summary}"
+          end
+          $stderr.puts "Deployment aborted: AWS verification failed with #{errors.size} error(s)."
+          # rubocop:enable Style/StderrPuts
+        end
+
+        EXIT_AWS_AUTH_FAILED
+      end
+
+      def output_deploy_diagnostics(diagnostics)
+        return if @options[:format] == :json
+
+        diagnostics.select { |d| d.severity == :warning }.each do |diag|
+          $stdout.puts "[WARN] [#{diag.code}] #{diag.summary}"
+        end
       end
 
       def execute_invoke_local

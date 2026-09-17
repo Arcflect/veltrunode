@@ -24,14 +24,14 @@ RSpec.describe Veltrunode::AWS::Inspectors::ConnectionInspector do
   end
 
   describe '.inspect' do
-    it 'returns no diagnostics when STS authentication succeeds and account matches' do
-      diagnostics = described_class.inspect(application, sts_client: mock_sts_client)
+    it 'returns no errors when STS authentication succeeds and account and region match' do
+      diagnostics = described_class.inspect(application, sts_client: mock_sts_client, aws_region: 'ap-northeast-1')
       errors = diagnostics.select { |d| d.severity == :error }
 
       expect(errors).to be_empty
     end
 
-    it 'returns no diagnostics when account_constraint is not specified' do
+    it 'returns warning diagnostic VLT-AWS-ACCOUNT-002 when account_constraint is not specified' do
       no_constraint_app = Veltrunode::Model::Application.new(
         name: 'test-app',
         region: 'ap-northeast-1',
@@ -41,8 +41,13 @@ RSpec.describe Veltrunode::AWS::Inspectors::ConnectionInspector do
 
       diagnostics = described_class.inspect(no_constraint_app, sts_client: mock_sts_client)
       errors = diagnostics.select { |d| d.severity == :error }
+      warning = diagnostics.find { |d| d.code == 'VLT-AWS-ACCOUNT-002' }
 
       expect(errors).to be_empty
+      expect(warning).not_to be_nil
+      expect(warning.severity).to eq(:warning)
+      expect(warning.summary).to include('No account constraint specified')
+      expect(warning.evidence['current_account']).to eq('123456789012')
     end
 
     it 'detects account mismatch and returns VLT-AWS-ACCOUNT-001 error diagnostic' do
@@ -57,6 +62,40 @@ RSpec.describe Veltrunode::AWS::Inspectors::ConnectionInspector do
       expect(account_error.summary).to include('AWS account mismatch')
       expect(account_error.evidence['current_account']).to eq('999999999999')
       expect(account_error.evidence['expected_account']).to eq('123456789012')
+    end
+
+    it 'detects region mismatch from aws_region and returns VLT-AWS-REGION-001 error diagnostic' do
+      diagnostics = described_class.inspect(application, sts_client: mock_sts_client, aws_region: 'us-east-1')
+      region_error = diagnostics.find { |d| d.code == 'VLT-AWS-REGION-001' }
+
+      expect(region_error).not_to be_nil
+      expect(region_error.severity).to eq(:error)
+      expect(region_error.summary).to include('AWS region mismatch')
+      expect(region_error.evidence['configured_region']).to eq('us-east-1')
+      expect(region_error.evidence['application_region']).to eq('ap-northeast-1')
+    end
+
+    it 'detects region mismatch from ENV[AWS_REGION]' do
+      allow(ENV).to receive(:fetch).and_call_original
+      allow(ENV).to receive(:fetch).with('AWS_REGION', nil).and_return('eu-west-1')
+
+      diagnostics = described_class.inspect(application, sts_client: mock_sts_client)
+      region_error = diagnostics.find { |d| d.code == 'VLT-AWS-REGION-001' }
+
+      expect(region_error).not_to be_nil
+      expect(region_error.evidence['configured_region']).to eq('eu-west-1')
+    end
+
+    it 'detects region mismatch from client config' do
+      client_with_config = instance_double('Aws::STS::Client',
+                                           get_caller_identity: mock_caller_identity,
+                                           config: double('Config', region: 'ap-southeast-1'))
+
+      diagnostics = described_class.inspect(application, sts_client: client_with_config)
+      region_error = diagnostics.find { |d| d.code == 'VLT-AWS-REGION-001' }
+
+      expect(region_error).not_to be_nil
+      expect(region_error.evidence['configured_region']).to eq('ap-southeast-1')
     end
 
     it 'detects STS authentication failure and returns VLT-AWS-AUTH-001 error diagnostic' do

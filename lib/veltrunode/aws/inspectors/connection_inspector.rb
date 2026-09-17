@@ -7,20 +7,23 @@ module Veltrunode
     module Inspectors
       class ConnectionInspector
         class << self
-          def inspect(application, sts_client: nil)
-            new(application, sts_client: sts_client).inspect
+          def inspect(application, sts_client: nil, aws_region: nil)
+            new(application, sts_client: sts_client, aws_region: aws_region).inspect
           end
         end
 
-        attr_reader :application, :sts_client
+        attr_reader :application, :sts_client, :configured_region
 
-        def initialize(application, sts_client: nil)
+        def initialize(application, sts_client: nil, aws_region: nil)
           @application = application
           @sts_client = sts_client
+          @configured_region = aws_region
         end
 
         def inspect
           diagnostics = []
+
+          check_region(diagnostics)
 
           client = resolve_sts_client
           unless client
@@ -47,19 +50,7 @@ module Veltrunode
             return diagnostics
           end
 
-          current_account = extract_account(caller_identity)
-          expected_account = application.respond_to?(:account_constraint) ? application.account_constraint : nil
-
-          if expected_account && !expected_account.to_s.strip.empty? && (current_account != expected_account.to_s.strip)
-            diagnostics << Diagnostics::Diagnostic.new(
-              code: 'VLT-AWS-ACCOUNT-001',
-              severity: :error,
-              summary: "AWS account mismatch: current AWS caller account '#{current_account}' " \
-                       "does not match expected constraint '#{expected_account}'.",
-              suggested_action: "Switch to AWS credentials for account '#{expected_account}'.",
-              evidence: { 'current_account' => current_account, 'expected_account' => expected_account }
-            )
-          end
+          check_account(caller_identity, diagnostics)
 
           diagnostics
         end
@@ -71,6 +62,73 @@ module Veltrunode
             application.region.to_s
           else
             'ap-northeast-1'
+          end
+        end
+
+        def check_region(diagnostics)
+          sdk_reg = resolve_sdk_region
+          return if sdk_reg.nil? || sdk_reg.empty?
+
+          expected = application_region
+          return if sdk_reg == expected
+
+          diagnostics << Diagnostics::Diagnostic.new(
+            code: 'VLT-AWS-REGION-001',
+            severity: :error,
+            summary: "AWS region mismatch: configured AWS SDK region '#{sdk_reg}' " \
+                     "does not match application region '#{expected}'.",
+            suggested_action: "Switch AWS_REGION or SDK configuration to '#{expected}' " \
+                              'to match application settings.',
+            evidence: { 'configured_region' => sdk_reg, 'application_region' => expected }
+          )
+        end
+
+        def resolve_sdk_region
+          return configured_region.to_s.strip if configured_region && !configured_region.to_s.strip.empty?
+
+          if sts_client.respond_to?(:config) && sts_client.config.respond_to?(:region) && sts_client.config.region
+            return sts_client.config.region.to_s.strip
+          end
+
+          return ENV.fetch('AWS_REGION', nil).to_s.strip if env_present?('AWS_REGION')
+          return ENV.fetch('AWS_DEFAULT_REGION', nil).to_s.strip if env_present?('AWS_DEFAULT_REGION')
+
+          if defined?(::Aws) && ::Aws.respond_to?(:config) && ::Aws.config[:region]
+            return ::Aws.config[:region].to_s.strip
+          end
+
+          nil
+        end
+
+        def env_present?(key)
+          val = ENV.fetch(key, nil)
+          val && !val.to_s.strip.empty?
+        end
+
+        def check_account(caller_identity, diagnostics)
+          current_account = extract_account(caller_identity)
+          expected_account = application.respond_to?(:account_constraint) ? application.account_constraint : nil
+
+          if expected_account && !expected_account.to_s.strip.empty?
+            if current_account != expected_account.to_s.strip
+              diagnostics << Diagnostics::Diagnostic.new(
+                code: 'VLT-AWS-ACCOUNT-001',
+                severity: :error,
+                summary: "AWS account mismatch: current AWS caller account '#{current_account}' " \
+                         "does not match expected constraint '#{expected_account}'.",
+                suggested_action: "Switch to AWS credentials for account '#{expected_account}'.",
+                evidence: { 'current_account' => current_account, 'expected_account' => expected_account }
+              )
+            end
+          else
+            diagnostics << Diagnostics::Diagnostic.new(
+              code: 'VLT-AWS-ACCOUNT-002',
+              severity: :warning,
+              summary: 'No account constraint specified in application configuration. ' \
+                       "Operating against AWS account '#{current_account}' without verification.",
+              suggested_action: "Specify 'account' constraint in Veltrunodefile to prevent accidental deployments.",
+              evidence: { 'current_account' => current_account }
+            )
           end
         end
 
