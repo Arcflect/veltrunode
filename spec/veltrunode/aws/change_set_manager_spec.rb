@@ -1,7 +1,6 @@
 # frozen_string_literal: true
 
 require 'spec_helper'
-require 'ostruct'
 require 'veltrunode/aws/change_set_manager'
 require 'veltrunode/model/application'
 
@@ -31,11 +30,13 @@ RSpec.describe Veltrunode::AWS::ChangeSetManager do
       expect(rc_add.display_action).to eq(:add)
       expect(rc_add.add?).to be true
 
-      rc_mod = described_class.new(logical_resource_id: 'Fn1', resource_type: 'AWS::Lambda::Function', action: 'Modify', replacement: 'Never')
+      rc_mod = described_class.new(logical_resource_id: 'Fn1', resource_type: 'AWS::Lambda::Function',
+                                   action: 'Modify', replacement: 'Never')
       expect(rc_mod.display_action).to eq(:modify)
       expect(rc_mod.modify?).to be true
 
-      rc_rep = described_class.new(logical_resource_id: 'Role1', resource_type: 'AWS::IAM::Role', action: 'Modify', replacement: 'Always')
+      rc_rep = described_class.new(logical_resource_id: 'Role1', resource_type: 'AWS::IAM::Role', action: 'Modify',
+                                   replacement: 'Always')
       expect(rc_rep.display_action).to eq(:replace)
       expect(rc_rep.replace?).to be true
       expect(rc_rep.action).to eq('Replace')
@@ -67,10 +68,14 @@ RSpec.describe Veltrunode::AWS::ChangeSetManager do
 
   describe Veltrunode::AWS::ChangeSetResult do
     it 'calculates summary correctly' do
-      c1 = Veltrunode::AWS::ResourceChange.new(logical_resource_id: 'Fn1', resource_type: 'AWS::Lambda::Function', action: 'Add')
-      c2 = Veltrunode::AWS::ResourceChange.new(logical_resource_id: 'Fn2', resource_type: 'AWS::Lambda::Function', action: 'Modify', replacement: 'Never')
-      c3 = Veltrunode::AWS::ResourceChange.new(logical_resource_id: 'Role1', resource_type: 'AWS::IAM::Role', action: 'Modify', replacement: 'Always')
-      c4 = Veltrunode::AWS::ResourceChange.new(logical_resource_id: 'OldFn', resource_type: 'AWS::Lambda::Function', action: 'Remove')
+      c1 = Veltrunode::AWS::ResourceChange.new(logical_resource_id: 'Fn1', resource_type: 'AWS::Lambda::Function',
+                                               action: 'Add')
+      c2 = Veltrunode::AWS::ResourceChange.new(logical_resource_id: 'Fn2', resource_type: 'AWS::Lambda::Function',
+                                               action: 'Modify', replacement: 'Never')
+      c3 = Veltrunode::AWS::ResourceChange.new(logical_resource_id: 'Role1', resource_type: 'AWS::IAM::Role',
+                                               action: 'Modify', replacement: 'Always')
+      c4 = Veltrunode::AWS::ResourceChange.new(logical_resource_id: 'OldFn', resource_type: 'AWS::Lambda::Function',
+                                               action: 'Remove')
 
       result = described_class.new(
         stack_name: 'plan-app-dev',
@@ -100,12 +105,15 @@ RSpec.describe Veltrunode::AWS::ChangeSetManager do
         allow(mock_cfn_client).to receive(:describe_stacks).and_raise(not_found_err)
         allow(mock_cfn_client).to receive(:create_change_set)
 
-        describe_resp = OpenStruct.new(
+        describe_resp = double(
+          'DescribeChangeSetResponse',
           status: 'CREATE_COMPLETE',
           changes: [
-            OpenStruct.new(
+            double(
+              'Change',
               type: 'Resource',
-              resource_change: OpenStruct.new(
+              resource_change: double(
+                'ResourceChange',
                 logical_resource_id: 'MyFunction',
                 physical_resource_id: nil,
                 resource_type: 'AWS::Lambda::Function',
@@ -137,16 +145,19 @@ RSpec.describe Veltrunode::AWS::ChangeSetManager do
 
     context 'when updating an existing stack Change Set (stack exists)' do
       before do
-        stacks_resp = OpenStruct.new(stacks: [OpenStruct.new(stack_status: 'CREATE_COMPLETE')])
+        stacks_resp = double('DescribeStacksResponse', stacks: [double('Stack', stack_status: 'CREATE_COMPLETE')])
         allow(mock_cfn_client).to receive(:describe_stacks).and_return(stacks_resp)
         allow(mock_cfn_client).to receive(:create_change_set)
 
-        describe_resp = OpenStruct.new(
+        describe_resp = double(
+          'DescribeChangeSetResponse',
           status: 'CREATE_COMPLETE',
           changes: [
-            OpenStruct.new(
+            double(
+              'Change',
               type: 'Resource',
-              resource_change: OpenStruct.new(
+              resource_change: double(
+                'ResourceChange',
                 logical_resource_id: 'MyFunction',
                 physical_resource_id: 'arn:aws:lambda:...',
                 resource_type: 'AWS::Lambda::Function',
@@ -154,9 +165,11 @@ RSpec.describe Veltrunode::AWS::ChangeSetManager do
                 replacement: 'Never'
               )
             ),
-            OpenStruct.new(
+            double(
+              'Change',
               type: 'Resource',
-              resource_change: OpenStruct.new(
+              resource_change: double(
+                'ResourceChange',
                 logical_resource_id: 'MyRole',
                 physical_resource_id: 'arn:aws:iam:...',
                 resource_type: 'AWS::IAM::Role',
@@ -188,11 +201,12 @@ RSpec.describe Veltrunode::AWS::ChangeSetManager do
 
     context 'when Change Set results in FAILED with "No changes"' do
       before do
-        stacks_resp = OpenStruct.new(stacks: [OpenStruct.new(stack_status: 'CREATE_COMPLETE')])
+        stacks_resp = double('DescribeStacksResponse', stacks: [double('Stack', stack_status: 'CREATE_COMPLETE')])
         allow(mock_cfn_client).to receive(:describe_stacks).and_return(stacks_resp)
         allow(mock_cfn_client).to receive(:create_change_set)
 
-        failed_resp = OpenStruct.new(
+        failed_resp = double(
+          'DescribeChangeSetResponse',
           status: 'FAILED',
           status_reason: 'The submitted information causes no changes to the set.'
         )
@@ -209,11 +223,12 @@ RSpec.describe Veltrunode::AWS::ChangeSetManager do
 
     context 'when Change Set results in FAILED with actual error' do
       before do
-        stacks_resp = OpenStruct.new(stacks: [OpenStruct.new(stack_status: 'CREATE_COMPLETE')])
+        stacks_resp = double('DescribeStacksResponse', stacks: [double('Stack', stack_status: 'CREATE_COMPLETE')])
         allow(mock_cfn_client).to receive(:describe_stacks).and_return(stacks_resp)
         allow(mock_cfn_client).to receive(:create_change_set)
 
-        failed_resp = OpenStruct.new(
+        failed_resp = double(
+          'DescribeChangeSetResponse',
           status: 'FAILED',
           status_reason: 'Template format error: Unresolved resource dependency'
         )
@@ -229,11 +244,11 @@ RSpec.describe Veltrunode::AWS::ChangeSetManager do
 
     context 'when Change Set polling times out' do
       before do
-        stacks_resp = OpenStruct.new(stacks: [OpenStruct.new(stack_status: 'CREATE_COMPLETE')])
+        stacks_resp = double('DescribeStacksResponse', stacks: [double('Stack', stack_status: 'CREATE_COMPLETE')])
         allow(mock_cfn_client).to receive(:describe_stacks).and_return(stacks_resp)
         allow(mock_cfn_client).to receive(:create_change_set)
 
-        pending_resp = OpenStruct.new(status: 'CREATE_IN_PROGRESS')
+        pending_resp = double('DescribeChangeSetResponse', status: 'CREATE_IN_PROGRESS')
         allow(mock_cfn_client).to receive(:describe_change_set).and_return(pending_resp)
       end
 

@@ -487,11 +487,16 @@ RSpec.describe Veltrunode::CLI::Router do
       it 'runs plan command and outputs diffs with Replace emphasis and risk notice' do
         code = run_cli(['plan'])
         expect(code).to eq(0)
-        expect(stdout.string).to include("Plan generated for application 'plan-app' (Stack: plan-app-dev, Change Set: veltrunode-plan-12345).")
+        expect(stdout.string).to include(
+          "Plan generated for application 'plan-app' (Stack: plan-app-dev, Change Set: veltrunode-plan-12345)."
+        )
         expect(stdout.string).to include('[NOTE] Plan preview cannot eliminate all execution risks.')
         expect(stdout.string).to include('Resource Changes (Add: 1, Modify: 0, Replace: 1, Remove: 0):')
         expect(stdout.string).to include('[ADD] ApiFnFunction [AWS::Lambda::Function]')
-        expect(stdout.string).to include('[REPLACE *** EMPHASIS ***] ApiFnRole [AWS::IAM::Role] (arn:aws:iam::123:role/ApiFnRole) [Replacement: Always]')
+        expect(stdout.string).to include(
+          '[REPLACE *** EMPHASIS ***] ApiFnRole [AWS::IAM::Role] ' \
+          '(arn:aws:iam::123:role/ApiFnRole) [Replacement: Always]'
+        )
         expect(stdout.string).to include('IAM Capabilities Expansion:')
         expect(stdout.string).to include("Function 'api_fn':")
         expect(stdout.string).to include('s3:GetObject, s3:ListBucket')

@@ -7,7 +7,6 @@ require_relative 'generator'
 require_relative 'runner'
 require_relative 'aws'
 
-
 module Veltrunode
   class CLI
     # 終了コード体系の定義
@@ -402,21 +401,26 @@ module Veltrunode
           }
           $stdout.puts JSON.generate(output)
         else
-          $stdout.puts "Plan generated for application '#{application.name}' (Stack: #{cs_result.stack_name}, Change Set: #{cs_result.change_set_name})."
+          $stdout.puts "Plan generated for application '#{application.name}' " \
+                       "(Stack: #{cs_result.stack_name}, Change Set: #{cs_result.change_set_name})."
           $stdout.puts "[NOTE] #{warning_notice}"
           $stdout.puts ''
-          $stdout.puts "Resource Changes (Add: #{cs_result.summary[:add]}, Modify: #{cs_result.summary[:modify]}, Replace: #{cs_result.summary[:replace]}, Remove: #{cs_result.summary[:remove]}):"
+          summary = cs_result.summary
+          $stdout.puts "Resource Changes (Add: #{summary[:add]}, Modify: #{summary[:modify]}, " \
+                       "Replace: #{summary[:replace]}, Remove: #{summary[:remove]}):"
 
           if cs_result.changes.empty?
             $stdout.puts '  (No resource changes detected)'
           else
+            action_tags = {
+              add: '[ADD]',
+              modify: '[MODIFY]',
+              remove: '[REMOVE]',
+              replace: '[REPLACE *** EMPHASIS ***]'
+            }.freeze
+
             cs_result.changes.each do |change|
-              tag = case change.display_action
-                    when :add then '[ADD]'
-                    when :modify then '[MODIFY]'
-                    when :remove then '[REMOVE]'
-                    when :replace then '[REPLACE *** EMPHASIS ***]'
-                    end
+              tag = action_tags[change.display_action]
               phys_str = change.physical_resource_id ? " (#{change.physical_resource_id})" : ''
               repl_str = change.replace? ? " [Replacement: #{change.replacement || 'Yes'}]" : ''
               $stdout.puts "  #{tag} #{change.logical_resource_id} [#{change.resource_type}]#{phys_str}#{repl_str}"

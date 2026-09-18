@@ -19,7 +19,8 @@ module Veltrunode
 
     # 個々のリソース変更を表す値オブジェクト
     class ResourceChange
-      attr_reader :logical_resource_id, :physical_resource_id, :resource_type, :action, :replacement, :display_action, :details
+      attr_reader :logical_resource_id, :physical_resource_id, :resource_type, :action, :replacement, :display_action,
+                  :details
 
       # @param logical_resource_id [String]
       # @param physical_resource_id [String, nil]
@@ -30,9 +31,7 @@ module Veltrunode
       # @param details [Array, Hash, nil]
       def initialize(
         logical_resource_id:,
-        physical_resource_id: nil,
-        resource_type:,
-        action:,
+        resource_type:, action:, physical_resource_id: nil,
         replacement: nil,
         display_action: nil,
         details: nil
@@ -148,7 +147,8 @@ module Veltrunode
       # @return [ChangeSetResult]
       def create_and_describe_change_set(template_data_or_path, stack_name: nil, change_set_name: nil)
         resolved_stack_name = stack_name.to_s.strip.empty? ? default_stack_name : stack_name.to_s.strip
-        resolved_change_set_name = change_set_name.to_s.strip.empty? ? default_change_set_name : change_set_name.to_s.strip
+        stripped_change_set_name = change_set_name.to_s.strip
+        resolved_change_set_name = stripped_change_set_name.empty? ? default_change_set_name : stripped_change_set_name
         template_body = load_template_body(template_data_or_path)
 
         change_set_type = determine_change_set_type(resolved_stack_name)
@@ -162,7 +162,8 @@ module Veltrunode
 
         describe_result = poll_change_set_status(resolved_stack_name, resolved_change_set_name)
 
-        parse_change_set_response(describe_result, stack_name: resolved_stack_name, change_set_name: resolved_change_set_name)
+        parse_change_set_response(describe_result, stack_name: resolved_stack_name,
+                                                   change_set_name: resolved_change_set_name)
       end
 
       private
@@ -186,7 +187,9 @@ module Veltrunode
           require 'aws-sdk-cloudformation' unless defined?(::Aws::CloudFormation::Client)
           ::Aws::CloudFormation::Client.new(region: resolve_region)
         rescue LoadError => e
-          raise ChangeSetError.new("AWS SDK (aws-sdk-cloudformation) is not available: #{e.message}. Please install aws-sdk-cloudformation.")
+          raise ChangeSetError,
+                "AWS SDK (aws-sdk-cloudformation) is not available: #{e.message}. " \
+                'Please install aws-sdk-cloudformation.'
         rescue StandardError => e
           raise ChangeSetError.new("Failed to initialize CloudFormation client: #{e.message}", original_error: e)
         end
@@ -250,7 +253,7 @@ module Veltrunode
 
           return resp if %w[CREATE_COMPLETE FAILED].include?(status)
 
-          sleep(@poll_interval) if @poll_interval.to_f > 0
+          sleep(@poll_interval) if @poll_interval.to_f.positive?
         end
 
         raise ChangeSetError.new(
@@ -271,7 +274,11 @@ module Veltrunode
 
       def parse_change_set_response(response, stack_name:, change_set_name:)
         status = response.status.to_s.upcase
-        reason = response.respond_to?(:status_reason) ? response.status_reason.to_s : (response.respond_to?(:reason) ? response.reason.to_s : '')
+        reason = if response.respond_to?(:status_reason)
+                   response.status_reason.to_s
+                 else
+                   (response.respond_to?(:reason) ? response.reason.to_s : '')
+                 end
 
         if status == 'FAILED'
           if no_changes_reason?(reason)
@@ -296,7 +303,11 @@ module Veltrunode
           type = change.respond_to?(:type) ? change.type : (change['type'] || change[:type])
           next unless type.to_s.capitalize == 'Resource'
 
-          rc = change.respond_to?(:resource_change) ? change.resource_change : (change['resource_change'] || change[:resource_change])
+          rc = if change.respond_to?(:resource_change)
+                 change.resource_change
+               else
+                 change['resource_change'] || change[:resource_change]
+               end
           next unless rc
 
           logical_id = get_val(rc, :logical_resource_id)
