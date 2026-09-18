@@ -429,44 +429,124 @@ RSpec.describe Veltrunode::CLI::Router do
       end
     end
 
-    it 'runs plan command and outputs application plan and IAM capabilities' do
-      mock_fn = Veltrunode::Model::Function.new(
-        logical_name: 'api_fn',
-        handler: 'api.handler',
-        iam_capabilities: [{ type: :read_from_s3, params: { bucket: 'my-bucket' } }]
-      )
-      mock_app = Veltrunode::Model::Application.new(
-        name: 'plan-app',
-        functions: [mock_fn]
-      )
-      allow(Veltrunode::SettingsLoader).to receive(:load).and_return(mock_app)
+    describe 'plan command' do
+      let(:mock_fn) do
+        Veltrunode::Model::Function.new(
+          logical_name: 'api_fn',
+          handler: 'api.handler',
+          iam_capabilities: [{ type: :read_from_s3, params: { bucket: 'my-bucket' } }]
+        )
+      end
+      let(:plan_app) do
+        Veltrunode::Model::Application.new(
+          name: 'plan-app',
+          region: 'ap-northeast-1',
+          stage: 'dev',
+          functions: [mock_fn]
+        )
+      end
+      let(:mock_cs_manager) { instance_double(Veltrunode::AWS::ChangeSetManager) }
+      let(:sample_changes) do
+        [
+          Veltrunode::AWS::ResourceChange.new(
+            logical_resource_id: 'ApiFnFunction',
+            resource_type: 'AWS::Lambda::Function',
+            action: 'Add'
+          ),
+          Veltrunode::AWS::ResourceChange.new(
+            logical_resource_id: 'ApiFnRole',
+            physical_resource_id: 'arn:aws:iam::123:role/ApiFnRole',
+            resource_type: 'AWS::IAM::Role',
+            action: 'Modify',
+            replacement: 'Always'
+          )
+        ]
+      end
+      let(:mock_cs_result) do
+        Veltrunode::AWS::ChangeSetResult.new(
+          stack_name: 'plan-app-dev',
+          change_set_name: 'veltrunode-plan-12345',
+          changes: sample_changes
+        )
+      end
 
-      code = run_cli(['plan'])
-      expect(code).to eq(0)
-      expect(stdout.string).to include("Plan generated for application 'plan-app'.")
-      expect(stdout.string).to include('IAM Capabilities Expansion:')
-      expect(stdout.string).to include("Function 'api_fn':")
-      expect(stdout.string).to include('s3:GetObject, s3:ListBucket')
-    end
+      before do
+        allow(Veltrunode::SettingsLoader).to receive(:load).and_return(plan_app)
+        allow(Veltrunode::Validation::Engine).to receive(:run).and_return([])
+        mock_build_result = instance_double(
+          Veltrunode::Build::BuildResult,
+          template_path: 'build/template.yml'
+        )
+        allow(Veltrunode::Build::Pipeline).to receive(:execute).and_return(mock_build_result)
+        allow(Veltrunode::AWS::ChangeSetManager).to receive(:new).with(
+          application: plan_app
+        ).and_return(mock_cs_manager)
+        allow(mock_cs_manager).to receive(:create_and_describe_change_set).and_return(mock_cs_result)
+      end
 
-    it 'runs plan command with --format json and outputs expanded IAM capabilities in JSON' do
-      mock_fn = Veltrunode::Model::Function.new(
-        logical_name: 'api_fn',
-        handler: 'api.handler',
-        iam_capabilities: [{ type: :read_from_s3, params: { bucket: 'my-bucket' } }]
-      )
-      mock_app = Veltrunode::Model::Application.new(
-        name: 'plan-app',
-        functions: [mock_fn]
-      )
-      allow(Veltrunode::SettingsLoader).to receive(:load).and_return(mock_app)
+      it 'runs plan command and outputs diffs with Replace emphasis and risk notice' do
+        code = run_cli(['plan'])
+        expect(code).to eq(0)
+        expect(stdout.string).to include("Plan generated for application 'plan-app' (Stack: plan-app-dev, Change Set: veltrunode-plan-12345).")
+        expect(stdout.string).to include('[NOTE] Plan preview cannot eliminate all execution risks.')
+        expect(stdout.string).to include('Resource Changes (Add: 1, Modify: 0, Replace: 1, Remove: 0):')
+        expect(stdout.string).to include('[ADD] ApiFnFunction [AWS::Lambda::Function]')
+        expect(stdout.string).to include('[REPLACE *** EMPHASIS ***] ApiFnRole [AWS::IAM::Role] (arn:aws:iam::123:role/ApiFnRole) [Replacement: Always]')
+        expect(stdout.string).to include('IAM Capabilities Expansion:')
+        expect(stdout.string).to include("Function 'api_fn':")
+        expect(stdout.string).to include('s3:GetObject, s3:ListBucket')
+      end
 
-      code = run_cli(['plan', '--format', 'json'])
-      expect(code).to eq(0)
-      json = JSON.parse(stdout.string)
-      expect(json['status']).to eq('success')
-      expect(json['iam_capabilities']['api_fn']).to be_an(Array)
-      expect(json['iam_capabilities']['api_fn'].first['Action']).to eq(%w[s3:GetObject s3:ListBucket])
+      it 'runs plan command with --format json and outputs expanded JSON' do
+        code = run_cli(['plan', '--format', 'json'])
+        expect(code).to eq(0)
+        json = JSON.parse(stdout.string)
+        expect(json['status']).to eq('success')
+        expect(json['stack_name']).to eq('plan-app-dev')
+        expect(json['change_set_name']).to eq('veltrunode-plan-12345')
+        expect(json['summary']).to eq({ 'add' => 1, 'modify' => 0, 'replace' => 1, 'remove' => 0 })
+        expect(json['changes'].size).to eq(2)
+        expect(json['changes'].last['action']).to eq('Replace')
+        expect(json['changes'].last['replacement']).to eq('Always')
+        expect(json['warning']).to eq('Plan preview cannot eliminate all execution risks.')
+        expect(json['iam_capabilities']['api_fn'].first['Action']).to eq(%w[s3:GetObject s3:ListBucket])
+      end
+
+      it 'runs plan command with --bucket option and invokes S3Uploader' do
+        mock_uploader = instance_double(Veltrunode::AWS::S3Uploader)
+        allow(Veltrunode::AWS::S3Uploader).to receive(:new).with(
+          bucket: 'my-plan-bucket',
+          application: plan_app
+        ).and_return(mock_uploader)
+        allow(mock_uploader).to receive(:upload_and_update_template)
+
+        code = run_cli(['plan', '--bucket', 'my-plan-bucket'])
+        expect(code).to eq(0)
+        expect(mock_uploader).to have_received(:upload_and_update_template)
+      end
+
+      it 'returns exit code 6 when ChangeSetManager raises ChangeSetError' do
+        allow(mock_cs_manager).to receive(:create_and_describe_change_set).and_raise(
+          Veltrunode::AWS::ChangeSetError.new('CFN API error')
+        )
+
+        code = run_cli(['plan'])
+        expect(code).to eq(6)
+        expect(stderr.string).to include('Error: Plan failed: CFN API error')
+      end
+
+      it 'returns exit code 6 with JSON error output when --format json is provided on failure' do
+        allow(mock_cs_manager).to receive(:create_and_describe_change_set).and_raise(
+          Veltrunode::AWS::ChangeSetError.new('CFN API error')
+        )
+
+        code = run_cli(['plan', '--format', 'json'])
+        expect(code).to eq(6)
+        json = JSON.parse(stderr.string)
+        expect(json['status']).to eq('error')
+        expect(json['error_code']).to eq(6)
+        expect(json['message']).to include('Plan failed: CFN API error')
+      end
     end
 
     describe 'deploy command' do

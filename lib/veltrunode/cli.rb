@@ -5,6 +5,8 @@ require_relative 'build'
 require_relative 'compiler'
 require_relative 'generator'
 require_relative 'runner'
+require_relative 'aws'
+
 
 module Veltrunode
   class CLI
@@ -344,18 +346,84 @@ module Veltrunode
 
       def execute_plan
         application = load_application!
+        source_dir = @options[:file] ? File.dirname(File.expand_path(@options[:file])) : Dir.pwd
+        source_dir = Dir.pwd if source_dir.empty? || source_dir == '.'
+
+        diagnostics = Veltrunode::Validation::Engine.run(application, source_dir: source_dir)
+        errors = diagnostics.select { |d| d.severity == :error }
+        return handle_validation_error(diagnostics) unless errors.empty?
+
+        no_cache = @options[:no_cache] || false
+        begin
+          build_result = Veltrunode::Build::Pipeline.execute(
+            application,
+            source_dir: source_dir,
+            no_cache: no_cache
+          )
+        rescue Veltrunode::ValidationError => e
+          return handle_validation_error(e.diagnostics)
+        rescue StandardError => e
+          return handle_error("Plan failed during build: #{e.message}", EXIT_PLAN_FAILED)
+        end
+
+        bucket = @options[:bucket] || (application.respond_to?(:artifact_bucket) ? application.artifact_bucket : nil)
+        if bucket && !bucket.to_s.strip.empty?
+          begin
+            uploader = AWS::S3Uploader.new(bucket: bucket, application: application)
+            uploader.upload_and_update_template(build_result)
+          rescue AWS::S3UploadError, StandardError => e
+            return handle_error("S3 upload failed: #{e.message}", EXIT_PLAN_FAILED)
+          end
+        end
+
+        begin
+          manager = AWS::ChangeSetManager.new(application: application)
+          cs_result = manager.create_and_describe_change_set(build_result.template_path)
+        rescue AWS::ChangeSetError, StandardError => e
+          return handle_error("Plan failed: #{e.message}", EXIT_PLAN_FAILED)
+        end
+
         manifest_data = Veltrunode::Compiler::Manifest.build_data(application: application)
         iam_caps = manifest_data['iam_capabilities'] || {}
+        warning_notice = 'Plan preview cannot eliminate all execution risks.'
 
         if @options[:format] == :json
-          output_success('Plan generated.', {
-                           message: 'Plan generated',
-                           iam_capabilities: iam_caps,
-                           functions_count: application.functions.size,
-                           schedules_count: application.schedules.size
-                         })
+          output = {
+            status: 'success',
+            message: "Plan generated for application '#{application.name}'.",
+            stack_name: cs_result.stack_name,
+            change_set_name: cs_result.change_set_name,
+            summary: cs_result.summary.transform_keys(&:to_s),
+            changes: cs_result.changes.map(&:to_h),
+            iam_capabilities: iam_caps,
+            functions_count: application.functions.size,
+            schedules_count: application.schedules.size,
+            warning: warning_notice
+          }
+          $stdout.puts JSON.generate(output)
         else
-          $stdout.puts "Plan generated for application '#{application.name}'."
+          $stdout.puts "Plan generated for application '#{application.name}' (Stack: #{cs_result.stack_name}, Change Set: #{cs_result.change_set_name})."
+          $stdout.puts "[NOTE] #{warning_notice}"
+          $stdout.puts ''
+          $stdout.puts "Resource Changes (Add: #{cs_result.summary[:add]}, Modify: #{cs_result.summary[:modify]}, Replace: #{cs_result.summary[:replace]}, Remove: #{cs_result.summary[:remove]}):"
+
+          if cs_result.changes.empty?
+            $stdout.puts '  (No resource changes detected)'
+          else
+            cs_result.changes.each do |change|
+              tag = case change.display_action
+                    when :add then '[ADD]'
+                    when :modify then '[MODIFY]'
+                    when :remove then '[REMOVE]'
+                    when :replace then '[REPLACE *** EMPHASIS ***]'
+                    end
+              phys_str = change.physical_resource_id ? " (#{change.physical_resource_id})" : ''
+              repl_str = change.replace? ? " [Replacement: #{change.replacement || 'Yes'}]" : ''
+              $stdout.puts "  #{tag} #{change.logical_resource_id} [#{change.resource_type}]#{phys_str}#{repl_str}"
+            end
+          end
+
+          $stdout.puts ''
           unless iam_caps.empty?
             $stdout.puts 'IAM Capabilities Expansion:'
             iam_caps.each do |fn_name, stmts|
@@ -371,8 +439,9 @@ module Veltrunode
               end
             end
           end
-          EXIT_SUCCESS
         end
+
+        EXIT_SUCCESS
       end
 
       def execute_deploy
