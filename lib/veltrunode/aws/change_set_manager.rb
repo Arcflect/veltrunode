@@ -40,9 +40,9 @@ module Veltrunode
         @logical_resource_id = logical_resource_id.to_s.freeze
         @physical_resource_id = physical_resource_id&.to_s&.freeze
         @resource_type = resource_type.to_s.freeze
-        @action = action.to_s.freeze
         @replacement = replacement&.to_s&.freeze
         @display_action = (display_action || self.class.determine_display_action(action, replacement)).to_sym
+        @action = (@display_action == :replace ? 'Replace' : action.to_s.capitalize).freeze
         @details = details.freeze
         freeze
       end
@@ -221,9 +221,9 @@ module Veltrunode
       end
 
       def stack_not_found_error?(error)
-        msg = error.message
-        error_class = error.class.name
-        error_class.include?('ValidationError') && (msg.include?('does not exist') || msg.include?('Stack with id'))
+        msg = error.message.to_s
+        error_class = error.class.name.to_s
+        msg.include?('does not exist') || msg.include?('Stack with id') || error_class.include?('ValidationError')
       end
 
       def execute_create_change_set(stack_name:, change_set_name:, template_body:, change_set_type:)
