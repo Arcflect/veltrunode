@@ -23,3 +23,4 @@ end
 
 require_relative 'aws/s3_uploader'
 require_relative 'aws/account_region_guard'
+require_relative 'aws/change_set_manager'
