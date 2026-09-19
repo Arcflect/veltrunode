@@ -122,8 +122,59 @@ module Veltrunode
       end
     end
 
+    # CloudFormation スタックイベントを表す値オブジェクト
+    class StackEvent
+      attr_reader :event_id, :logical_resource_id, :physical_resource_id,
+                  :resource_type, :resource_status, :resource_status_reason, :timestamp
+
+      def initialize(
+        event_id:,
+        logical_resource_id:,
+        resource_type:,
+        resource_status:,
+        physical_resource_id: nil,
+        resource_status_reason: nil,
+        timestamp: nil
+      )
+        @event_id = event_id.to_s.freeze
+        @logical_resource_id = logical_resource_id.to_s.freeze
+        @physical_resource_id = physical_resource_id&.to_s&.freeze
+        @resource_type = resource_type.to_s.freeze
+        @resource_status = resource_status.to_s.freeze
+        @resource_status_reason = resource_status_reason&.to_s&.freeze
+        @timestamp = timestamp
+        freeze
+      end
+
+      def to_h
+        {
+          'event_id' => @event_id,
+          'logical_resource_id' => @logical_resource_id,
+          'physical_resource_id' => @physical_resource_id,
+          'resource_type' => @resource_type,
+          'resource_status' => @resource_status,
+          'resource_status_reason' => @resource_status_reason,
+          'timestamp' => @timestamp.respond_to?(:iso8601) ? @timestamp.iso8601 : @timestamp&.to_s
+        }
+      end
+    end
+
     # CloudFormation Change Set を作成し、ステータスを監視・解析するマネージャ
     class ChangeSetManager
+      COMPLETE_STACK_STATUSES = %w[CREATE_COMPLETE UPDATE_COMPLETE].freeze
+      FAILED_STACK_STATUSES = %w[
+        CREATE_FAILED
+        ROLLBACK_IN_PROGRESS
+        ROLLBACK_FAILED
+        ROLLBACK_COMPLETE
+        UPDATE_ROLLBACK_IN_PROGRESS
+        UPDATE_ROLLBACK_FAILED
+        UPDATE_ROLLBACK_COMPLETE
+        IMPORT_ROLLBACK_IN_PROGRESS
+        IMPORT_ROLLBACK_FAILED
+        IMPORT_ROLLBACK_COMPLETE
+      ].freeze
+
       attr_reader :application, :poll_interval, :max_polls
 
       # @param application [Veltrunode::Model::Application]
@@ -164,6 +215,63 @@ module Veltrunode
 
         parse_change_set_response(describe_result, stack_name: resolved_stack_name,
                                                    change_set_name: resolved_change_set_name)
+      end
+
+      # Change Set を実行します
+      #
+      # @param stack_name [String]
+      # @param change_set_name [String]
+      def execute_change_set(stack_name:, change_set_name:)
+        client.execute_change_set(
+          stack_name: stack_name,
+          change_set_name: change_set_name
+        )
+      rescue StandardError => e
+        raise ChangeSetError.new(
+          "Failed to execute Change Set '#{change_set_name}' for stack '#{stack_name}': #{e.message}",
+          stack_name: stack_name,
+          change_set_name: change_set_name,
+          original_error: e
+        )
+      end
+
+      # スタックの完了（CREATE_COMPLETE / UPDATE_COMPLETE）を待機し、イベントを逐次通知します
+      #
+      # @param stack_name [String]
+      # @yieldparam [StackEvent] event
+      # @return [Array<StackEvent>]
+      def wait_for_stack_completion(stack_name, &on_progress)
+        seen_event_ids = fetch_initial_event_ids(stack_name)
+        collected_events = []
+
+        @max_polls.times do
+          new_events = fetch_new_stack_events(stack_name, seen_event_ids)
+          new_events.each do |event|
+            collected_events << event
+            on_progress&.call(event)
+          end
+
+          stack = describe_stack(stack_name)
+          status = stack.stack_status.to_s.upcase
+
+          if COMPLETE_STACK_STATUSES.include?(status)
+            return collected_events
+          elsif FAILED_STACK_STATUSES.include?(status)
+            reason = stack.respond_to?(:stack_status_reason) ? stack.stack_status_reason : nil
+            reason_suffix = reason && !reason.empty? ? ": #{reason}" : ''
+            raise ChangeSetError.new(
+              "Stack '#{stack_name}' deployment failed with status '#{status}'#{reason_suffix}",
+              stack_name: stack_name
+            )
+          end
+
+          sleep(@poll_interval) if @poll_interval.to_f.positive?
+        end
+
+        raise ChangeSetError.new(
+          "Timed out waiting for stack '#{stack_name}' completion.",
+          stack_name: stack_name
+        )
       end
 
       private
@@ -363,6 +471,51 @@ module Veltrunode
         else
           raise ArgumentError, "Invalid template data or path: #{template_data_or_path.inspect}"
         end
+      end
+
+      def fetch_initial_event_ids(stack_name)
+        resp = client.describe_stack_events(stack_name: stack_name)
+        events = resp.respond_to?(:stack_events) ? Array(resp.stack_events) : []
+        events.map { |e| get_val(e, :event_id) }.compact.to_set
+      rescue StandardError
+        Set.new
+      end
+
+      def fetch_new_stack_events(stack_name, seen_event_ids)
+        resp = client.describe_stack_events(stack_name: stack_name)
+        raw_events = resp.respond_to?(:stack_events) ? Array(resp.stack_events) : []
+        new_events = []
+
+        raw_events.reverse_each do |re|
+          eid = get_val(re, :event_id)
+          next unless eid
+          next unless seen_event_ids.add?(eid)
+
+          new_events << StackEvent.new(
+            event_id: eid,
+            logical_resource_id: get_val(re, :logical_resource_id),
+            physical_resource_id: get_val(re, :physical_resource_id),
+            resource_type: get_val(re, :resource_type),
+            resource_status: get_val(re, :resource_status),
+            resource_status_reason: get_val(re, :resource_status_reason),
+            timestamp: get_val(re, :timestamp)
+          )
+        end
+
+        new_events
+      rescue StandardError
+        []
+      end
+
+      def describe_stack(stack_name)
+        stacks = client.describe_stacks(stack_name: stack_name)
+        stacks.stacks.first
+      rescue StandardError => e
+        raise ChangeSetError.new(
+          "Failed to describe stack '#{stack_name}': #{e.message}",
+          stack_name: stack_name,
+          original_error: e
+        )
       end
     end
   end
