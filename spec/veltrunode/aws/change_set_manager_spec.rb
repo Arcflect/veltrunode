@@ -259,4 +259,96 @@ RSpec.describe Veltrunode::AWS::ChangeSetManager do
       end
     end
   end
+
+  describe '#execute_change_set' do
+    it 'executes the change set via cloudformation client' do
+      expect(mock_cfn_client).to receive(:execute_change_set).with(
+        stack_name: 'plan-app-dev',
+        change_set_name: 'cs-123'
+      )
+
+      manager.execute_change_set(stack_name: 'plan-app-dev', change_set_name: 'cs-123')
+    end
+
+    it 'wraps StandardError into ChangeSetError' do
+      allow(mock_cfn_client).to receive(:execute_change_set).and_raise(RuntimeError.new('Execution denied'))
+
+      msg = "Failed to execute Change Set 'cs-123' for stack 'plan-app-dev': Execution denied"
+      expect do
+        manager.execute_change_set(stack_name: 'plan-app-dev', change_set_name: 'cs-123')
+      end.to raise_error(Veltrunode::AWS::ChangeSetError, Regexp.new(Regexp.escape(msg)))
+    end
+  end
+
+  describe '#wait_for_stack_completion' do
+    let(:event1) do
+      double(
+        'StackEvent',
+        event_id: 'ev-1',
+        logical_resource_id: 'MyFunction',
+        physical_resource_id: 'arn:aws:lambda:...',
+        resource_type: 'AWS::Lambda::Function',
+        resource_status: 'CREATE_IN_PROGRESS',
+        resource_status_reason: nil,
+        timestamp: Time.now
+      )
+    end
+
+    let(:event2) do
+      double(
+        'StackEvent',
+        event_id: 'ev-2',
+        logical_resource_id: 'MyFunction',
+        physical_resource_id: 'arn:aws:lambda:...',
+        resource_type: 'AWS::Lambda::Function',
+        resource_status: 'CREATE_COMPLETE',
+        resource_status_reason: nil,
+        timestamp: Time.now
+      )
+    end
+
+    it 'polls events and completes when stack status is UPDATE_COMPLETE' do
+      # 初期イベント
+      allow(mock_cfn_client).to receive(:describe_stack_events).with(stack_name: 'plan-app-dev')
+                                                               .and_return(
+                                                                 double('EventsResp', stack_events: []),
+                                                                 double('EventsResp', stack_events: [event2, event1])
+                                                               )
+
+      stack_obj = double('Stack', stack_status: 'UPDATE_COMPLETE')
+      allow(mock_cfn_client).to receive(:describe_stacks).with(stack_name: 'plan-app-dev')
+                                                         .and_return(double('StacksResp', stacks: [stack_obj]))
+
+      yielded_events = []
+      events = manager.wait_for_stack_completion('plan-app-dev') do |ev|
+        yielded_events << ev
+      end
+
+      expect(events.size).to eq(2)
+      expect(yielded_events.map(&:logical_resource_id)).to eq(%w[MyFunction MyFunction])
+      expect(events.first.resource_status).to eq('CREATE_IN_PROGRESS')
+      expect(events.last.resource_status).to eq('CREATE_COMPLETE')
+    end
+
+    it 'raises ChangeSetError when stack deployment fails' do
+      allow(mock_cfn_client).to receive(:describe_stack_events).and_return(double('EventsResp', stack_events: []))
+      failed_stack = double('Stack', stack_status: 'UPDATE_ROLLBACK_COMPLETE',
+                                     stack_status_reason: 'Resource creation cancelled')
+      allow(mock_cfn_client).to receive(:describe_stacks).and_return(double('StacksResp', stacks: [failed_stack]))
+
+      expect do
+        manager.wait_for_stack_completion('plan-app-dev')
+      end.to raise_error(Veltrunode::AWS::ChangeSetError, /deployment failed with status 'UPDATE_ROLLBACK_COMPLETE'/)
+    end
+
+    it 'raises ChangeSetError on timeout' do
+      allow(mock_cfn_client).to receive(:describe_stack_events).and_return(double('EventsResp', stack_events: []))
+      in_progress_stack = double('Stack', stack_status: 'UPDATE_IN_PROGRESS')
+      allow(mock_cfn_client).to receive(:describe_stacks).and_return(double('StacksResp', stacks: [in_progress_stack]))
+
+      expect do
+        manager.wait_for_stack_completion('plan-app-dev')
+      end.to raise_error(Veltrunode::AWS::ChangeSetError, /Timed out waiting for stack 'plan-app-dev' completion/)
+    end
+  end
 end
