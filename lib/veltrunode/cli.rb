@@ -6,6 +6,7 @@ require_relative 'compiler'
 require_relative 'generator'
 require_relative 'runner'
 require_relative 'aws'
+require_relative 'deploy'
 
 module Veltrunode
   class CLI
@@ -154,6 +155,13 @@ module Veltrunode
         elsif (idx = @argv.find_index { |arg| arg.start_with?('--bucket=') })
           @options[:bucket] = @argv[idx].split('=', 2)[1]
           @argv.delete_at(idx)
+        end
+
+        # --yes フラグの抽出
+        if @argv.include?('--yes') || @argv.include?('-y')
+          @options[:yes] = true
+          @argv.delete('--yes')
+          @argv.delete('-y')
         end
 
         # ヘルプフラグの抽出
@@ -450,49 +458,97 @@ module Veltrunode
 
       def execute_deploy
         application = load_application!
+        source_dir = @options[:file] ? File.dirname(File.expand_path(@options[:file])) : Dir.pwd
+        source_dir = Dir.pwd if source_dir.empty? || source_dir == '.'
 
-        require_relative 'aws/account_region_guard'
-        diagnostics = Veltrunode::AWS::AccountRegionGuard.check(application)
+        on_plan = lambda do |cs_result|
+          next if @options[:format] == :json
 
-        errors = diagnostics.select { |d| d.severity == :error }
-        return handle_aws_guard_error(diagnostics) unless errors.empty?
+          $stdout.puts "Plan generated for application '#{application.name}' " \
+                       "(Stack: #{cs_result.stack_name}, Change Set: #{cs_result.change_set_name})."
+          summary = cs_result.summary
+          $stdout.puts "Resource Changes (Add: #{summary[:add]}, Modify: #{summary[:modify]}, " \
+                       "Replace: #{summary[:replace]}, Remove: #{summary[:remove]}):"
 
-        output_deploy_diagnostics(diagnostics)
+          action_tags = {
+            add: '[ADD]',
+            modify: '[MODIFY]',
+            remove: '[REMOVE]',
+            replace: '[REPLACE *** EMPHASIS ***]'
+          }.freeze
 
-        extra_json = { message: 'Deployment successful' }
-        warnings = diagnostics.select { |d| d.severity == :warning }
-        unless warnings.empty?
-          extra_json[:warnings_count] = warnings.size
-          extra_json[:diagnostics] = warnings.map(&:to_h)
+          cs_result.changes.each do |change|
+            tag = action_tags[change.display_action]
+            phys_str = change.physical_resource_id ? " (#{change.physical_resource_id})" : ''
+            repl_str = change.replace? ? " [Replacement: #{change.replacement || 'Yes'}]" : ''
+            $stdout.puts "  #{tag} #{change.logical_resource_id} [#{change.resource_type}]#{phys_str}#{repl_str}"
+          end
         end
 
-        output_success('Deployment successful.', extra_json)
+        on_progress = lambda do |event|
+          next if @options[:format] == :json
+
+          reason = event.resource_status_reason ? " (#{event.resource_status_reason})" : ''
+          $stdout.puts "[PROGRESS] #{event.logical_resource_id} [#{event.resource_type}] " \
+                       "#{event.resource_status}#{reason}"
+        end
+
+        result = Veltrunode::Deploy::Pipeline.execute(
+          application,
+          source_dir: source_dir,
+          options: @options,
+          on_plan: on_plan,
+          on_progress: on_progress
+        )
+
+        handle_deploy_result(result)
       end
 
-      def handle_aws_guard_error(diagnostics)
-        errors = diagnostics.select { |d| d.severity == :error }
-
-        if @options[:format] == :json
-          output = {
-            status: 'error',
-            error_code: EXIT_AWS_AUTH_FAILED,
-            message: "Deployment aborted: AWS verification failed with #{errors.size} error(s).",
-            errors_count: errors.size,
-            warnings_count: diagnostics.count { |d| d.severity == :warning },
-            diagnostics: diagnostics.map(&:to_h)
-          }
-          # rubocop:disable Style/StderrPuts
-          $stderr.puts JSON.generate(output)
-        else
-          diagnostics.each do |diag|
-            prefix = diag.severity == :error ? '[ERROR]' : '[WARN]'
-            $stdout.puts "#{prefix} [#{diag.code}] #{diag.summary}"
+      def handle_deploy_result(result)
+        if result.success?
+          warnings = result.diagnostics.select { |d| d.severity == :warning }
+          if @options[:format] == :json
+            output = {
+              status: 'success',
+              message: result.message,
+              stack_name: result.stack_name,
+              change_set_name: result.change_set_name,
+              summary: result.summary,
+              events: result.events.map(&:to_h)
+            }
+            unless warnings.empty?
+              output[:warnings_count] = warnings.size
+              output[:diagnostics] = warnings.map(&:to_h)
+            end
+            $stdout.puts JSON.generate(output)
+          else
+            output_deploy_diagnostics(result.diagnostics)
+            $stdout.puts result.message
           end
-          $stderr.puts "Deployment aborted: AWS verification failed with #{errors.size} error(s)."
-          # rubocop:enable Style/StderrPuts
+          EXIT_SUCCESS
+        else
+          errors = result.diagnostics.select { |d| d.severity == :error }
+          if @options[:format] == :json
+            output = {
+              status: 'error',
+              error_code: result.exit_code,
+              message: result.message,
+              errors_count: errors.size,
+              warnings_count: result.diagnostics.count { |d| d.severity == :warning },
+              diagnostics: result.diagnostics.map(&:to_h)
+            }
+            # rubocop:disable-next Style/StderrPuts
+            $stderr.puts JSON.generate(output)
+          else
+            result.diagnostics.each do |diag|
+              prefix = diag.severity == :error ? '[ERROR]' : '[WARN]'
+              $stdout.puts "#{prefix} [#{diag.code}] #{diag.summary}"
+            end
+            # rubocop:disable-next Style/StderrPuts
+            $stderr.puts result.message
+          end
+          result.exit_code
         end
-
-        EXIT_AWS_AUTH_FAILED
       end
 
       def output_deploy_diagnostics(diagnostics)
@@ -626,6 +682,7 @@ module Veltrunode
             --runtime <name>         Set function runtime (default: ruby)
             --event <path>           Path to JSON event file for invoke local
             --bucket <name>          S3 bucket for artifact upload
+            --yes, -y                Skip confirmation prompt for protected stage deployments
 
           Commands:
             init                       # Initialize a new Veltrunode project

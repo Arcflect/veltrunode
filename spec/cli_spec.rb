@@ -12,6 +12,8 @@ RSpec.describe Veltrunode::CLI::Router do
     before do
       # Avoid modifying the actual stdout/stderr streams
       allow($stdout).to receive(:puts) { |val| stdout.puts(val) }
+      allow($stdout).to receive(:print) { |val| stdout.print(val) }
+      allow($stdout).to receive(:flush)
       allow($stderr).to receive(:puts) { |val| stderr.puts(val) }
       allow(Veltrunode::SettingsLoader).to receive(:load).and_return(Veltrunode::Application.new('test-app'))
     end
@@ -564,17 +566,87 @@ RSpec.describe Veltrunode::CLI::Router do
         )
       end
 
-      before do
-        allow(Veltrunode::SettingsLoader).to receive(:load).and_return(deploy_app)
-        require 'veltrunode/aws/account_region_guard'
+      let(:mock_build_result) do
+        instance_double(
+          'Veltrunode::Build::BuildResult',
+          template_path: '/tmp/build/template.yml',
+          manifest_path: '/tmp/build/manifest.json',
+          function_results: [],
+          layer_results: []
+        )
       end
 
-      it 'runs deploy successfully when account and region match' do
+      let(:mock_change) do
+        Veltrunode::AWS::ResourceChange.new(
+          logical_resource_id: 'DeployFunction',
+          resource_type: 'AWS::Lambda::Function',
+          action: 'Add'
+        )
+      end
+
+      let(:mock_cs_result) do
+        Veltrunode::AWS::ChangeSetResult.new(
+          stack_name: 'deploy-app-prod',
+          change_set_name: 'cs-deploy',
+          changes: [mock_change]
+        )
+      end
+
+      let(:mock_stack_event) do
+        Veltrunode::AWS::StackEvent.new(
+          event_id: 'ev-1',
+          logical_resource_id: 'DeployFunction',
+          resource_type: 'AWS::Lambda::Function',
+          resource_status: 'CREATE_COMPLETE',
+          timestamp: Time.now
+        )
+      end
+
+      let(:mock_cs_manager) { instance_double(Veltrunode::AWS::ChangeSetManager) }
+
+      before do
+        allow(Veltrunode::SettingsLoader).to receive(:load).and_return(deploy_app)
+        allow(Veltrunode::Validation::Engine).to receive(:run).and_return([])
+        allow(Veltrunode::Build::Pipeline).to receive(:execute).and_return(mock_build_result)
         allow(Veltrunode::AWS::AccountRegionGuard).to receive(:check).and_return([])
+        allow(Veltrunode::AWS::ChangeSetManager).to receive(:new).and_return(mock_cs_manager)
+        allow(mock_cs_manager).to receive(:create_and_describe_change_set).and_return(mock_cs_result)
+        allow(mock_cs_manager).to receive(:execute_change_set)
+        allow(mock_cs_manager).to receive(:wait_for_stack_completion)
+          .and_yield(mock_stack_event).and_return([mock_stack_event])
+        allow($stdin).to receive(:tty?).and_return(false)
+      end
+
+      it 'runs deploy successfully when --yes is specified on protected stage' do
+        code = run_cli(['deploy', '--yes'])
+        expect(code).to eq(0)
+        expect(stdout.string).to include("Plan generated for application 'deploy-app'")
+        expect(stdout.string).to include('[PROGRESS] DeployFunction [AWS::Lambda::Function] CREATE_COMPLETE')
+        expect(stdout.string).to include("Deployment successful for stack 'deploy-app-prod'.")
+      end
+
+      it 'aborts deployment with exit code 7 on protected stage when --yes is not provided without tty' do
+        code = run_cli(['deploy'])
+        expect(code).to eq(7)
+        expect(stderr.string).to include("Deployment to protected stage 'prod' cancelled by user.")
+      end
+
+      it 'proceeds with deployment on protected stage when user approves via interactive prompt' do
+        allow($stdin).to receive(:tty?).and_return(true)
+        allow($stdin).to receive(:gets).and_return("y\n")
 
         code = run_cli(['deploy'])
         expect(code).to eq(0)
-        expect(stdout.string.strip).to eq('Deployment successful.')
+        expect(stdout.string).to include("Deployment successful for stack 'deploy-app-prod'.")
+      end
+
+      it 'aborts deployment on protected stage when user rejects via interactive prompt' do
+        allow($stdin).to receive(:tty?).and_return(true)
+        allow($stdin).to receive(:gets).and_return("n\n")
+
+        code = run_cli(['deploy'])
+        expect(code).to eq(7)
+        expect(stderr.string).to include("Deployment to protected stage 'prod' cancelled by user.")
       end
 
       it 'runs deploy with warning and exits 0 when account constraint is not specified' do
@@ -586,10 +658,10 @@ RSpec.describe Veltrunode::CLI::Router do
         )
         allow(Veltrunode::AWS::AccountRegionGuard).to receive(:check).and_return([warn_diag])
 
-        code = run_cli(['deploy'])
+        code = run_cli(['deploy', '--yes'])
         expect(code).to eq(0)
         expect(stdout.string).to include('[WARN] [VLT-AWS-ACCOUNT-002] No account constraint specified.')
-        expect(stdout.string).to include('Deployment successful.')
+        expect(stdout.string).to include("Deployment successful for stack 'deploy-app-prod'.")
       end
 
       it 'aborts deployment and returns exit code 4 on account mismatch' do
@@ -601,7 +673,7 @@ RSpec.describe Veltrunode::CLI::Router do
         )
         allow(Veltrunode::AWS::AccountRegionGuard).to receive(:check).and_return([account_error])
 
-        code = run_cli(['deploy'])
+        code = run_cli(['deploy', '--yes'])
         expect(code).to eq(4)
         expect(stdout.string).to include('[ERROR] [VLT-AWS-ACCOUNT-001]')
         expect(stderr.string).to include('Deployment aborted: AWS verification failed with 1 error(s).')
@@ -616,7 +688,7 @@ RSpec.describe Veltrunode::CLI::Router do
         )
         allow(Veltrunode::AWS::AccountRegionGuard).to receive(:check).and_return([region_error])
 
-        code = run_cli(['deploy'])
+        code = run_cli(['deploy', '--yes'])
         expect(code).to eq(4)
         expect(stdout.string).to include('[ERROR] [VLT-AWS-REGION-001]')
         expect(stderr.string).to include('Deployment aborted: AWS verification failed with 1 error(s).')
@@ -631,10 +703,59 @@ RSpec.describe Veltrunode::CLI::Router do
         )
         allow(Veltrunode::AWS::AccountRegionGuard).to receive(:check).and_return([auth_error])
 
-        code = run_cli(['deploy'])
+        code = run_cli(['deploy', '--yes'])
         expect(code).to eq(4)
         expect(stdout.string).to include('[ERROR] [VLT-AWS-AUTH-001]')
         expect(stderr.string).to include('Deployment aborted: AWS verification failed with 1 error(s).')
+      end
+
+      it 'aborts deployment and returns exit code 3 on validation failure' do
+        val_error = Veltrunode::Diagnostics::Diagnostic.new(
+          code: 'VLT-DSL-001',
+          severity: :error,
+          summary: 'Validation error.',
+          suggested_action: 'Fix syntax.'
+        )
+        allow(Veltrunode::Validation::Engine).to receive(:run).and_return([val_error])
+
+        code = run_cli(['deploy', '--yes'])
+        expect(code).to eq(3)
+        expect(stdout.string).to include('[ERROR] [VLT-DSL-001]')
+        expect(stderr.string).to include('Validation failed with 1 error(s).')
+      end
+
+      it 'aborts deployment and returns exit code 8 on policy violation' do
+        policy_error = Veltrunode::Diagnostics::Diagnostic.new(
+          code: 'VLT-IAM-001',
+          severity: :error,
+          summary: 'IAM policy violation.',
+          suggested_action: 'Remove wildcard.',
+          evidence: { 'policy_violation' => true }
+        )
+        allow(Veltrunode::Validation::Engine).to receive(:run).and_return([policy_error])
+
+        code = run_cli(['deploy', '--yes'])
+        expect(code).to eq(8)
+        expect(stdout.string).to include('[ERROR] [VLT-IAM-001]')
+        expect(stderr.string).to include('Validation failed with 1 error(s).')
+      end
+
+      it 'aborts deployment and returns exit code 5 on build failure' do
+        allow(Veltrunode::Build::Pipeline).to receive(:execute).and_raise(RuntimeError.new('Docker build failed'))
+
+        code = run_cli(['deploy', '--yes'])
+        expect(code).to eq(5)
+        expect(stderr.string).to include('Build failed: Docker build failed')
+      end
+
+      it 'aborts deployment and returns exit code 7 on change set execution failure' do
+        allow(mock_cs_manager).to receive(:execute_change_set).and_raise(
+          Veltrunode::AWS::ChangeSetError.new('Execution failed')
+        )
+
+        code = run_cli(['deploy', '--yes'])
+        expect(code).to eq(7)
+        expect(stderr.string).to include('Failed to execute Change Set')
       end
 
       it 'returns structured JSON error with exit code 4 on verification failure with --format json' do
@@ -646,7 +767,7 @@ RSpec.describe Veltrunode::CLI::Router do
         )
         allow(Veltrunode::AWS::AccountRegionGuard).to receive(:check).and_return([account_error])
 
-        code = run_cli(['deploy', '--format', 'json'])
+        code = run_cli(['deploy', '--format', 'json', '--yes'])
         expect(code).to eq(4)
         json = JSON.parse(stderr.string)
         expect(json['status']).to eq('error')
@@ -664,12 +785,14 @@ RSpec.describe Veltrunode::CLI::Router do
         )
         allow(Veltrunode::AWS::AccountRegionGuard).to receive(:check).and_return([warn_diag])
 
-        code = run_cli(['deploy', '--format', 'json'])
+        code = run_cli(['deploy', '--format', 'json', '--yes'])
         expect(code).to eq(0)
         json = JSON.parse(stdout.string)
         expect(json['status']).to eq('success')
         expect(json['warnings_count']).to eq(1)
         expect(json['diagnostics'].first['code']).to eq('VLT-AWS-ACCOUNT-002')
+        expect(json['stack_name']).to eq('deploy-app-prod')
+        expect(json['events']).not_to be_empty
       end
     end
 

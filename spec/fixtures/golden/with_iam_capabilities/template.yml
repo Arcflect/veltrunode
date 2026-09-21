@@ -1,6 +1,6 @@
 ---
 AWSTemplateFormatVersion: '2010-09-09'
-Description: iam-capabilities-app - dev (compiled by Veltrunode v0.1.42)
+Description: iam-capabilities-app - dev (compiled by Veltrunode v0.1.43)
 Parameters:
   ArtifactBucket:
     Description: S3 bucket name where function and layer zip packages are stored
