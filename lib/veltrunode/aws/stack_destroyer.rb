@@ -221,7 +221,8 @@ module Veltrunode
       def current_stack_status(stack_name)
         stacks = client.describe_stacks(stack_name: stack_name)
         stack = stacks.stacks.first
-        stack&.stack_status&.to_s&.upcase
+        status = stack&.stack_status
+        status&.to_s&.upcase
       rescue StandardError
         nil
       end
