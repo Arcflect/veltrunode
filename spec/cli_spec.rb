@@ -813,10 +813,229 @@ RSpec.describe Veltrunode::CLI::Router do
       expect(stdout.string).to include('"message": "hello"')
     end
 
-    it 'runs destroy command stub' do
-      code = run_cli(['destroy'])
-      expect(code).to eq(0)
-      expect(stdout.string.strip).to eq('Stack destroyed.')
+    describe 'destroy command' do
+      let(:destroy_app_dev) do
+        Veltrunode::Model::Application.new(
+          name: 'destroy-app',
+          region: 'ap-northeast-1',
+          stage: 'dev',
+          account_constraint: '123456789012'
+        )
+      end
+
+      let(:destroy_app_prod) do
+        Veltrunode::Model::Application.new(
+          name: 'destroy-app',
+          region: 'ap-northeast-1',
+          stage: 'prod',
+          account_constraint: '123456789012'
+        )
+      end
+
+      let(:mock_resource) do
+        Veltrunode::AWS::StackResource.new(
+          logical_resource_id: 'MyFunction',
+          physical_resource_id: 'arn:aws:lambda:ap-northeast-1:123456789012:function:destroy-app-dev-MyFunction',
+          resource_type: 'AWS::Lambda::Function',
+          resource_status: 'CREATE_COMPLETE'
+        )
+      end
+
+      let(:mock_delete_event) do
+        Veltrunode::AWS::StackEvent.new(
+          event_id: 'ev-del-1',
+          logical_resource_id: 'destroy-app-dev',
+          resource_type: 'AWS::CloudFormation::Stack',
+          resource_status: 'DELETE_COMPLETE',
+          timestamp: Time.now
+        )
+      end
+
+      let(:mock_destroyer) { instance_double(Veltrunode::AWS::StackDestroyer) }
+
+      before do
+        allow(Veltrunode::AWS::AccountRegionGuard).to receive(:check).and_return([])
+        allow(Veltrunode::AWS::StackDestroyer).to receive(:new).and_return(mock_destroyer)
+        allow(mock_destroyer).to receive(:stack_exists?).and_return(true)
+        allow(mock_destroyer).to receive(:describe_stack_resources).and_return([mock_resource])
+        allow(mock_destroyer).to receive(:delete_stack)
+        allow(mock_destroyer).to receive(:wait_for_stack_deletion)
+          .and_yield(mock_delete_event).and_return([mock_delete_event])
+        allow($stdin).to receive(:tty?).and_return(false)
+      end
+
+      context '非保護ステージ（dev）' do
+        before do
+          allow(Veltrunode::SettingsLoader).to receive(:load).and_return(destroy_app_dev)
+        end
+
+        it '--yes オプションでスタックを削除しリソースプレビューと進捗を出力する' do
+          code = run_cli(['destroy', '--yes'])
+          expect(code).to eq(0)
+          expect(stdout.string).to include("Destroy plan for stack 'destroy-app-dev'")
+          expect(stdout.string).to include('[DELETE] MyFunction [AWS::Lambda::Function]')
+          expect(stdout.string).to include('[PROGRESS] destroy-app-dev [AWS::CloudFormation::Stack] DELETE_COMPLETE')
+          expect(stdout.string).to include("Stack 'destroy-app-dev' has been successfully deleted.")
+        end
+
+        it 'TTY 非接続時に --yes なしで実行するとキャンセルされ exit_code 7 で終了する' do
+          code = run_cli(['destroy'])
+          expect(code).to eq(7)
+          expect(stderr.string).to include('cancelled by user')
+        end
+
+        it 'TTY 接続時に y を入力すると削除が成功する' do
+          allow($stdin).to receive(:tty?).and_return(true)
+          allow($stdin).to receive(:gets).and_return("y\n")
+
+          code = run_cli(['destroy'])
+          expect(code).to eq(0)
+          expect(stdout.string).to include("Stack 'destroy-app-dev' has been successfully deleted.")
+        end
+
+        it 'TTY 接続時に n を入力するとキャンセルされ exit_code 7 で終了する' do
+          allow($stdin).to receive(:tty?).and_return(true)
+          allow($stdin).to receive(:gets).and_return("n\n")
+
+          code = run_cli(['destroy'])
+          expect(code).to eq(7)
+          expect(stderr.string).to include('cancelled by user')
+        end
+
+        it '--format json で成功時に JSON を出力する' do
+          code = run_cli(['destroy', '--yes', '--format', 'json'])
+          expect(code).to eq(0)
+
+          json = JSON.parse(stdout.string)
+          expect(json['status']).to eq('success')
+          expect(json['stack_name']).to eq('destroy-app-dev')
+          expect(json['resources']).to be_an(Array)
+          expect(json['events']).to be_an(Array)
+          expect(json['stack_not_found']).to be false
+        end
+      end
+
+      context '保護ステージ（prod）' do
+        before do
+          allow(Veltrunode::SettingsLoader).to receive(:load).and_return(destroy_app_prod)
+          allow(mock_destroyer).to receive(:stack_exists?).with('destroy-app-prod').and_return(true)
+          allow(mock_destroyer).to receive(:describe_stack_resources)
+            .with('destroy-app-prod').and_return([mock_resource])
+          allow(mock_destroyer).to receive(:delete_stack).with('destroy-app-prod')
+          allow(mock_destroyer).to receive(:wait_for_stack_deletion)
+            .with('destroy-app-prod')
+            .and_yield(mock_delete_event)
+            .and_return([mock_delete_event])
+        end
+
+        it 'スタック名を正確に入力すると削除が成功する' do
+          allow($stdin).to receive(:tty?).and_return(true)
+          allow($stdin).to receive(:gets).and_return("destroy-app-prod\n")
+
+          code = run_cli(['destroy'])
+          expect(code).to eq(0)
+          expect(stdout.string).to include("This is a protected stage ('prod')")
+          expect(stdout.string).to include("Type the stack name 'destroy-app-prod' to confirm deletion")
+          expect(stdout.string).to include("Stack 'destroy-app-prod' has been successfully deleted.")
+        end
+
+        it 'スタック名が一致しない場合はキャンセルされ exit_code 7 で終了する' do
+          allow($stdin).to receive(:tty?).and_return(true)
+          allow($stdin).to receive(:gets).and_return("wrong-stack-name\n")
+
+          code = run_cli(['destroy'])
+          expect(code).to eq(7)
+          expect(stderr.string).to include('cancelled by user')
+        end
+
+        it 'TTY 非接続時は削除がキャンセルされ exit_code 7 で終了する' do
+          code = run_cli(['destroy'])
+          expect(code).to eq(7)
+          expect(stderr.string).to include('cancelled by user')
+        end
+
+        it '--yes があっても保護ステージではスタック名の手入力を要求する' do
+          allow($stdin).to receive(:tty?).and_return(true)
+          allow($stdin).to receive(:gets).and_return("destroy-app-prod\n")
+
+          code = run_cli(['destroy', '--yes'])
+          expect(code).to eq(0)
+          expect(stdout.string).to include("This is a protected stage ('prod')")
+        end
+      end
+
+      context 'スタックが存在しない場合' do
+        before do
+          allow(Veltrunode::SettingsLoader).to receive(:load).and_return(destroy_app_dev)
+          allow(mock_destroyer).to receive(:stack_exists?).and_return(false)
+        end
+
+        it 'スタック不在のメッセージを出力して exit_code 0 で終了する' do
+          code = run_cli(['destroy', '--yes'])
+          expect(code).to eq(0)
+          expect(stdout.string).to include('does not exist')
+        end
+
+        it '--format json でスタック不在の場合に JSON を出力する' do
+          code = run_cli(['destroy', '--yes', '--format', 'json'])
+          expect(code).to eq(0)
+
+          json = JSON.parse(stdout.string)
+          expect(json['status']).to eq('success')
+          expect(json['stack_not_found']).to be true
+        end
+      end
+
+      context 'AWS Guard 失敗' do
+        before do
+          allow(Veltrunode::SettingsLoader).to receive(:load).and_return(destroy_app_dev)
+          account_error = Veltrunode::Diagnostics::Diagnostic.new(
+            code: 'VLT-AWS-ACCOUNT-001',
+            severity: :error,
+            summary: 'AWS account mismatch.',
+            suggested_action: 'Switch credentials.'
+          )
+          allow(Veltrunode::AWS::AccountRegionGuard).to receive(:check).and_return([account_error])
+        end
+
+        it 'AWS Guard エラー時に exit_code 4 で終了する' do
+          code = run_cli(['destroy', '--yes'])
+          expect(code).to eq(4)
+          expect(stderr.string).to include('AWS verification failed')
+        end
+
+        it '--format json で AWS Guard エラーを JSON 出力する' do
+          code = run_cli(['destroy', '--yes', '--format', 'json'])
+          expect(code).to eq(4)
+          json = JSON.parse(stderr.string)
+          expect(json['status']).to eq('error')
+          expect(json['error_code']).to eq(4)
+        end
+      end
+
+      context '削除失敗' do
+        before do
+          allow(Veltrunode::SettingsLoader).to receive(:load).and_return(destroy_app_dev)
+        end
+
+        it 'delete_stack エラー時に exit_code 7 で終了する' do
+          allow(mock_destroyer).to receive(:delete_stack)
+            .and_raise(RuntimeError.new('Termination protection is enabled'))
+
+          code = run_cli(['destroy', '--yes'])
+          expect(code).to eq(7)
+          expect(stderr.string).to include('Failed to delete stack')
+        end
+
+        it 'wait_for_stack_deletion エラー時に exit_code 7 で終了する' do
+          allow(mock_destroyer).to receive(:wait_for_stack_deletion)
+            .and_raise(Veltrunode::AWS::StackDestroyError.new("deletion failed with status 'DELETE_FAILED'"))
+
+          code = run_cli(['destroy', '--yes'])
+          expect(code).to eq(7)
+          expect(stderr.string).to include('Stack deletion failed')
+        end
+      end
     end
 
     it 'runs efs verify command stub' do

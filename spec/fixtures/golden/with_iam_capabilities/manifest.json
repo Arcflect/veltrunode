@@ -6,7 +6,7 @@
     "stage": "dev"
   },
   "built_at": "2026-01-01T00:00:00Z",
-  "compiler_version": "0.1.43",
+  "compiler_version": "0.1.44",
   "functions": {
     "secure_worker": {
       "architecture": "arm64",
