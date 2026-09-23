@@ -198,11 +198,9 @@ RSpec.describe Veltrunode::AWS::StackDestroyer do
       stacks_call_count = 0
       allow(mock_cfn_client).to receive(:describe_stacks) do
         stacks_call_count += 1
-        if stacks_call_count == 1
-          double('Resp', stacks: [mock_stack('DELETE_IN_PROGRESS')])
-        else
-          raise RuntimeError.new('Stack with id my-app-dev does not exist')
-        end
+        raise 'Stack with id my-app-dev does not exist' unless stacks_call_count == 1
+
+        double('Resp', stacks: [mock_stack('DELETE_IN_PROGRESS')])
       end
 
       yielded_events = []

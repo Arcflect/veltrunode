@@ -919,10 +919,13 @@ RSpec.describe Veltrunode::CLI::Router do
         before do
           allow(Veltrunode::SettingsLoader).to receive(:load).and_return(destroy_app_prod)
           allow(mock_destroyer).to receive(:stack_exists?).with('destroy-app-prod').and_return(true)
-          allow(mock_destroyer).to receive(:describe_stack_resources).with('destroy-app-prod').and_return([mock_resource])
+          allow(mock_destroyer).to receive(:describe_stack_resources)
+            .with('destroy-app-prod').and_return([mock_resource])
           allow(mock_destroyer).to receive(:delete_stack).with('destroy-app-prod')
-          allow(mock_destroyer).to receive(:wait_for_stack_deletion).with('destroy-app-prod')
-            .and_yield(mock_delete_event).and_return([mock_delete_event])
+          allow(mock_destroyer).to receive(:wait_for_stack_deletion)
+            .with('destroy-app-prod')
+            .and_yield(mock_delete_event)
+            .and_return([mock_delete_event])
         end
 
         it 'スタック名を正確に入力すると削除が成功する' do

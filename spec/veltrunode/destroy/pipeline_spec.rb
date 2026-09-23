@@ -109,7 +109,7 @@ RSpec.describe Veltrunode::Destroy::Pipeline do
         allow(mock_destroyer).to receive(:describe_stack_resources).with('my-app-prod').and_return([mock_resource])
         allow(mock_destroyer).to receive(:delete_stack).with('my-app-prod')
         allow(mock_destroyer).to receive(:wait_for_stack_deletion).with('my-app-prod')
-          .and_yield(mock_event).and_return([mock_event])
+                                                                  .and_yield(mock_event).and_return([mock_event])
 
         result = described_class.execute(
           app_prod,
@@ -147,7 +147,7 @@ RSpec.describe Veltrunode::Destroy::Pipeline do
         allow(mock_destroyer).to receive(:describe_stack_resources).with('my-app-prod').and_return([mock_resource])
         allow(mock_destroyer).to receive(:delete_stack).with('my-app-prod')
         allow(mock_destroyer).to receive(:wait_for_stack_deletion).with('my-app-prod')
-          .and_return([mock_event])
+                                                                  .and_return([mock_event])
 
         # 保護ステージでは --yes があっても prompter が呼ばれることを確認
         result = described_class.execute(
