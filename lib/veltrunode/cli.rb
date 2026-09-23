@@ -7,6 +7,7 @@ require_relative 'generator'
 require_relative 'runner'
 require_relative 'aws'
 require_relative 'deploy'
+require_relative 'destroy'
 
 module Veltrunode
   class CLI
@@ -625,8 +626,100 @@ module Veltrunode
       end
 
       def execute_destroy
-        load_application!
-        output_success('Stack destroyed.', { message: 'Stack destroyed' })
+        application = load_application!
+
+        on_preview = lambda do |stack_name, resources|
+          next if @options[:format] == :json
+
+          $stdout.puts "Destroy plan for stack '#{stack_name}':"
+          $stdout.puts "  #{resources.size} resource(s) will be deleted:"
+          resources.each do |r|
+            phys_str = r.physical_resource_id ? " (#{r.physical_resource_id})" : ''
+            $stdout.puts "  [DELETE] #{r.logical_resource_id} [#{r.resource_type}]#{phys_str}"
+          end
+        end
+
+        on_progress = lambda do |event|
+          next if @options[:format] == :json
+
+          reason = event.resource_status_reason ? " (#{event.resource_status_reason})" : ''
+          $stdout.puts "[PROGRESS] #{event.logical_resource_id} [#{event.resource_type}] " \
+                       "#{event.resource_status}#{reason}"
+        end
+
+        prompter = build_destroy_prompter(application)
+
+        result = Veltrunode::Destroy::Pipeline.execute(
+          application,
+          options: @options,
+          on_preview: on_preview,
+          on_progress: on_progress,
+          prompter: prompter
+        )
+
+        handle_destroy_result(result)
+      end
+
+      def build_destroy_prompter(application)
+        pipeline_class = Veltrunode::Destroy::Pipeline
+        is_protected = pipeline_class.new(application).protected_stage?
+
+        lambda do |stage, stack_name|
+          if is_protected
+            # 保護ステージ: スタック名の手入力を要求
+            return false unless $stdin.respond_to?(:tty?) && $stdin.tty?
+
+            $stdout.puts "This is a protected stage ('#{stage}'). This action is irreversible."
+            $stdout.print "Type the stack name '#{stack_name}' to confirm deletion: "
+            $stdout.flush
+            input = $stdin.gets&.strip
+            input == stack_name
+          else
+            # 非保護ステージ: --yes でスキップ、または y/N プロンプト
+            return true if @options[:yes]
+            return false unless $stdin.respond_to?(:tty?) && $stdin.tty?
+
+            $stdout.print "Are you sure you want to delete stack '#{stack_name}'? [y/N]: "
+            $stdout.flush
+            answer = $stdin.gets&.strip&.downcase
+            %w[y yes].include?(answer)
+          end
+        rescue StandardError
+          false
+        end
+      end
+
+      def handle_destroy_result(result)
+        if result.success?
+          if @options[:format] == :json
+            output = {
+              status: 'success',
+              message: result.message,
+              stack_name: result.stack_name,
+              stack_not_found: result.stack_not_found?,
+              resources: result.resources.map(&:to_h),
+              events: result.events.map(&:to_h)
+            }
+            $stdout.puts JSON.generate(output)
+          else
+            $stdout.puts result.message
+          end
+          EXIT_SUCCESS
+        else
+          if @options[:format] == :json
+            output = {
+              status: 'error',
+              error_code: result.exit_code,
+              message: result.message
+            }
+            # rubocop:disable-next Style/StderrPuts
+            $stderr.puts JSON.generate(output)
+          else
+            # rubocop:disable-next Style/StderrPuts
+            $stderr.puts result.message
+          end
+          result.exit_code
+        end
       end
 
       def execute_efs_verify
