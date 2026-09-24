@@ -59,12 +59,13 @@ RSpec.describe 'veltrunode invoke local CLI' do
           code = run_cli(%w[invoke local json_fn --format json])
           expect(code).to eq(0)
           json = JSON.parse(stdout.string)
+          expect(json['command']).to eq('invoke local')
           expect(json['status']).to eq('success')
-          expect(json['function_name']).to eq('json_fn')
-          expect(json['result']).to eq({ 'count' => 100 })
-          expect(json['duration_ms']).to be_a(Numeric)
-          expect(json['billed_duration_ms']).to be_a(Integer)
-          expect(json['memory_size_mb']).to eq(128)
+          expect(json['data']['function_name']).to eq('json_fn')
+          expect(json['data']['result']).to eq({ 'count' => 100 })
+          expect(json['data']['duration_ms']).to be_a(Numeric)
+          expect(json['data']['billed_duration_ms']).to be_a(Integer)
+          expect(json['data']['memory_size_mb']).to eq(128)
         end
       end
     end
@@ -176,7 +177,9 @@ RSpec.describe 'veltrunode invoke local CLI' do
           code_json = run_cli(%w[invoke local efs_fn --format json])
           expect(code_json).to eq(0)
           json = JSON.parse(stdout.string)
-          expect(json['warnings']).to include(warn_msg)
+          expect(json['command']).to eq('invoke local')
+          expect(json['status']).to eq('success')
+          expect(json['data']['warnings']).to include(warn_msg)
         end
       end
     end
@@ -191,9 +194,10 @@ RSpec.describe 'veltrunode invoke local CLI' do
       code = run_cli(%w[invoke local --format json])
       expect(code).to eq(2)
       json = JSON.parse(stderr.string)
+      expect(json['command']).to eq('invoke local')
       expect(json['status']).to eq('error')
-      expect(json['error_code']).to eq(2)
-      expect(json['message']).to eq('Function name is required for invoke local.')
+      expect(json['data']['error_code']).to eq(2)
+      expect(json['data']['message']).to eq('Function name is required for invoke local.')
     end
 
     it 'returns exit code 2 when specified function is not found in application' do
