@@ -8,6 +8,7 @@ require_relative 'runner'
 require_relative 'aws'
 require_relative 'deploy'
 require_relative 'destroy'
+require_relative 'cli/json_formatter'
 
 module Veltrunode
   class CLI
