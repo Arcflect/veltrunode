@@ -46,7 +46,9 @@ RSpec.describe Veltrunode::CLI::Router do
       code = run_cli(['--version', '--format', 'json'])
       expect(code).to eq(0)
       json = JSON.parse(stdout.string)
-      expect(json['version']).to eq(Veltrunode::VERSION)
+      expect(json['command']).to eq('version')
+      expect(json['status']).to eq('success')
+      expect(json['data']['version']).to eq(Veltrunode::VERSION)
     end
 
     it 'returns exit code 2 and error message for unknown command' do
@@ -88,11 +90,12 @@ RSpec.describe Veltrunode::CLI::Router do
         code = run_cli(['init', '--format', 'json'])
         expect(code).to eq(0)
         json = JSON.parse(stdout.string)
+        expect(json['command']).to eq('init')
         expect(json['status']).to eq('success')
-        expect(json['message']).to eq('Project initialized successfully.')
-        expect(json['created_files']).to eq(%w[Veltrunodefile Gemfile .gitignore functions/app.rb])
-        expect(json['skipped_files']).to eq([])
-        expect(json['target_dir']).to eq('/path/to/app')
+        expect(json['data']['message']).to eq('Project initialized successfully.')
+        expect(json['data']['created_files']).to eq(%w[Veltrunodefile Gemfile .gitignore functions/app.rb])
+        expect(json['data']['skipped_files']).to eq([])
+        expect(json['data']['target_dir']).to eq('/path/to/app')
       end
 
       it 'displays skipped files when Generator skips existing files' do
@@ -164,9 +167,10 @@ RSpec.describe Veltrunode::CLI::Router do
         code = run_cli(['validate', '--format', 'json'])
         expect(code).to eq(0)
         json = JSON.parse(stdout.string)
+        expect(json['command']).to eq('validate')
         expect(json['status']).to eq('success')
-        expect(json['errors_count']).to eq(0)
-        expect(json['warnings_count']).to eq(0)
+        expect(json['data']['errors_count']).to eq(0)
+        expect(json['data']['warnings_count']).to eq(0)
         expect(json['diagnostics']).to eq([])
       end
 
@@ -182,9 +186,10 @@ RSpec.describe Veltrunode::CLI::Router do
         code = run_cli(['validate', '--format', 'json'])
         expect(code).to eq(3)
         json = JSON.parse(stderr.string)
+        expect(json['command']).to eq('validate')
         expect(json['status']).to eq('error')
-        expect(json['error_code']).to eq(3)
-        expect(json['errors_count']).to eq(1)
+        expect(json['data']['error_code']).to eq(3)
+        expect(json['data']['errors_count']).to eq(1)
         expect(json['diagnostics'].first['code']).to eq('VLT-BUILD-HANDLER-NOT-FOUND')
       end
 
@@ -217,8 +222,9 @@ RSpec.describe Veltrunode::CLI::Router do
         code = run_cli(['validate', '--format', 'json'])
         expect(code).to eq(8)
         json = JSON.parse(stderr.string)
+        expect(json['command']).to eq('validate')
         expect(json['status']).to eq('error')
-        expect(json['error_code']).to eq(8)
+        expect(json['data']['error_code']).to eq(8)
         expect(json['diagnostics'].first['code']).to eq('VLT-IAM-001')
       end
 
@@ -352,17 +358,18 @@ RSpec.describe Veltrunode::CLI::Router do
         code = run_cli(['build', '--format', 'json'])
         expect(code).to eq(0)
         json = JSON.parse(stdout.string)
+        expect(json['command']).to eq('build')
         expect(json['status']).to eq('success')
-        expect(json['functions_count']).to eq(1)
-        expect(json['layers_count']).to eq(1)
-        expect(json['artifacts']['functions'].first['sha256']).to eq(
+        expect(json['data']['functions_count']).to eq(1)
+        expect(json['data']['layers_count']).to eq(1)
+        expect(json['data']['artifacts']['functions'].first['sha256']).to eq(
           '9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba'
         )
-        expect(json['artifacts']['layers'].first['sha256']).to eq(
+        expect(json['data']['artifacts']['layers'].first['sha256']).to eq(
           'fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210'
         )
-        expect(json['template_path']).to end_with('template.yml')
-        expect(json['manifest_path']).to end_with('manifest.json')
+        expect(json['data']['template_path']).to end_with('template.yml')
+        expect(json['data']['manifest_path']).to end_with('manifest.json')
       end
 
       it 'runs build command with --bucket option and invokes S3Uploader' do
@@ -406,8 +413,9 @@ RSpec.describe Veltrunode::CLI::Router do
         code = run_cli(['build', '--format', 'json'])
         expect(code).to eq(3)
         json = JSON.parse(stderr.string)
+        expect(json['command']).to eq('build')
         expect(json['status']).to eq('error')
-        expect(json['error_code']).to eq(3)
+        expect(json['data']['error_code']).to eq(3)
         expect(json['diagnostics'].first['code']).to eq('VLT-LAYER-001')
       end
 
@@ -425,9 +433,10 @@ RSpec.describe Veltrunode::CLI::Router do
         code = run_cli(['build', '--format', 'json'])
         expect(code).to eq(5)
         json = JSON.parse(stderr.string)
+        expect(json['command']).to eq('build')
         expect(json['status']).to eq('error')
-        expect(json['error_code']).to eq(5)
-        expect(json['message']).to include('Build failed: Archive error')
+        expect(json['data']['error_code']).to eq(5)
+        expect(json['data']['message']).to include('Build failed: Archive error')
       end
     end
 
@@ -508,15 +517,16 @@ RSpec.describe Veltrunode::CLI::Router do
         code = run_cli(['plan', '--format', 'json'])
         expect(code).to eq(0)
         json = JSON.parse(stdout.string)
+        expect(json['command']).to eq('plan')
         expect(json['status']).to eq('success')
-        expect(json['stack_name']).to eq('plan-app-dev')
-        expect(json['change_set_name']).to eq('veltrunode-plan-12345')
-        expect(json['summary']).to eq({ 'add' => 1, 'modify' => 0, 'replace' => 1, 'remove' => 0 })
-        expect(json['changes'].size).to eq(2)
-        expect(json['changes'].last['action']).to eq('Replace')
-        expect(json['changes'].last['replacement']).to eq('Always')
-        expect(json['warning']).to eq('Plan preview cannot eliminate all execution risks.')
-        expect(json['iam_capabilities']['api_fn'].first['Action']).to eq(%w[s3:GetObject s3:ListBucket])
+        expect(json['data']['stack_name']).to eq('plan-app-dev')
+        expect(json['data']['change_set_name']).to eq('veltrunode-plan-12345')
+        expect(json['data']['summary']).to eq({ 'add' => 1, 'modify' => 0, 'replace' => 1, 'remove' => 0 })
+        expect(json['data']['changes'].size).to eq(2)
+        expect(json['data']['changes'].last['action']).to eq('Replace')
+        expect(json['data']['changes'].last['replacement']).to eq('Always')
+        expect(json['data']['warning']).to eq('Plan preview cannot eliminate all execution risks.')
+        expect(json['data']['iam_capabilities']['api_fn'].first['Action']).to eq(%w[s3:GetObject s3:ListBucket])
       end
 
       it 'runs plan command with --bucket option and invokes S3Uploader' do
@@ -550,9 +560,10 @@ RSpec.describe Veltrunode::CLI::Router do
         code = run_cli(['plan', '--format', 'json'])
         expect(code).to eq(6)
         json = JSON.parse(stderr.string)
+        expect(json['command']).to eq('plan')
         expect(json['status']).to eq('error')
-        expect(json['error_code']).to eq(6)
-        expect(json['message']).to include('Plan failed: CFN API error')
+        expect(json['data']['error_code']).to eq(6)
+        expect(json['data']['message']).to include('Plan failed: CFN API error')
       end
     end
 
@@ -770,9 +781,10 @@ RSpec.describe Veltrunode::CLI::Router do
         code = run_cli(['deploy', '--format', 'json', '--yes'])
         expect(code).to eq(4)
         json = JSON.parse(stderr.string)
+        expect(json['command']).to eq('deploy')
         expect(json['status']).to eq('error')
-        expect(json['error_code']).to eq(4)
-        expect(json['errors_count']).to eq(1)
+        expect(json['data']['error_code']).to eq(4)
+        expect(json['data']['errors_count']).to eq(1)
         expect(json['diagnostics'].first['code']).to eq('VLT-AWS-ACCOUNT-001')
       end
 
@@ -788,11 +800,12 @@ RSpec.describe Veltrunode::CLI::Router do
         code = run_cli(['deploy', '--format', 'json', '--yes'])
         expect(code).to eq(0)
         json = JSON.parse(stdout.string)
+        expect(json['command']).to eq('deploy')
         expect(json['status']).to eq('success')
-        expect(json['warnings_count']).to eq(1)
+        expect(json['data']['warnings_count']).to eq(1)
         expect(json['diagnostics'].first['code']).to eq('VLT-AWS-ACCOUNT-002')
-        expect(json['stack_name']).to eq('deploy-app-prod')
-        expect(json['events']).not_to be_empty
+        expect(json['data']['stack_name']).to eq('deploy-app-prod')
+        expect(json['data']['events']).not_to be_empty
       end
     end
 
@@ -907,11 +920,12 @@ RSpec.describe Veltrunode::CLI::Router do
           expect(code).to eq(0)
 
           json = JSON.parse(stdout.string)
+          expect(json['command']).to eq('destroy')
           expect(json['status']).to eq('success')
-          expect(json['stack_name']).to eq('destroy-app-dev')
-          expect(json['resources']).to be_an(Array)
-          expect(json['events']).to be_an(Array)
-          expect(json['stack_not_found']).to be false
+          expect(json['data']['stack_name']).to eq('destroy-app-dev')
+          expect(json['data']['resources']).to be_an(Array)
+          expect(json['data']['events']).to be_an(Array)
+          expect(json['data']['stack_not_found']).to be false
         end
       end
 
@@ -981,8 +995,9 @@ RSpec.describe Veltrunode::CLI::Router do
           expect(code).to eq(0)
 
           json = JSON.parse(stdout.string)
+          expect(json['command']).to eq('destroy')
           expect(json['status']).to eq('success')
-          expect(json['stack_not_found']).to be true
+          expect(json['data']['stack_not_found']).to be true
         end
       end
 
@@ -1008,8 +1023,9 @@ RSpec.describe Veltrunode::CLI::Router do
           code = run_cli(['destroy', '--yes', '--format', 'json'])
           expect(code).to eq(4)
           json = JSON.parse(stderr.string)
+          expect(json['command']).to eq('destroy')
           expect(json['status']).to eq('error')
-          expect(json['error_code']).to eq(4)
+          expect(json['data']['error_code']).to eq(4)
         end
       end
 
