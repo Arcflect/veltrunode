@@ -316,7 +316,7 @@ module Veltrunode
             prefix = diag.severity == :error ? '[ERROR]' : '[WARN]'
             $stdout.puts "#{prefix} [#{diag.code}] #{diag.summary}"
           end
-          # rubocop:disable-next-line Style/StderrPuts
+          # rubocop:disable-next Style/StderrPuts
           $stderr.puts "Validation failed with #{errors.size} error(s)."
         end
 
