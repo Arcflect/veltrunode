@@ -40,6 +40,7 @@ module Veltrunode
           aws: false,
           runtime: 'ruby'
         }
+        @current_command = nil
       end
 
       def run
@@ -81,7 +82,8 @@ module Veltrunode
         end
       rescue StandardError => e
         exit_code = e.respond_to?(:exit_code) ? e.exit_code : EXIT_INVALID_INPUT
-        handle_error(e.message, exit_code)
+        diags = e.respond_to?(:diagnostics) ? e.diagnostics : []
+        handle_error(e.message, exit_code, diagnostics: diags)
       end
 
       private
@@ -192,6 +194,7 @@ module Veltrunode
         end
 
         @argv.shift(prefix_words.length)
+        @current_command = prefix
         true
       end
 
@@ -203,14 +206,12 @@ module Veltrunode
         result = Veltrunode::Generator.run(target_dir, runtime: runtime)
 
         if @options[:format] == :json
-          output = {
-            status: 'success',
-            message: 'Project initialized successfully.',
-            created_files: result.created_files,
-            skipped_files: result.skipped_files,
-            target_dir: result.target_dir
-          }
-          $stdout.puts JSON.generate(output)
+          output_json_success({
+                                'message' => 'Project initialized successfully.',
+                                'created_files' => result.created_files,
+                                'skipped_files' => result.skipped_files,
+                                'target_dir' => result.target_dir
+                              })
         else
           $stdout.puts 'Project initialized successfully.'
           unless result.created_files.empty?
@@ -244,13 +245,13 @@ module Veltrunode
         return handle_validation_error(diagnostics) unless errors.empty?
 
         if @options[:format] == :json
-          output = {
-            status: 'success',
-            errors_count: 0,
-            warnings_count: diagnostics.count { |d| d.severity == :warning },
-            diagnostics: diagnostics.map(&:to_h)
-          }
-          $stdout.puts JSON.generate(output)
+          output_json_success(
+            {
+              'errors_count' => 0,
+              'warnings_count' => diagnostics.count { |d| d.severity == :warning }
+            },
+            diagnostics
+          )
         else
           diagnostics.each do |diag|
             prefix = diag.severity == :error ? '[ERROR]' : '[WARN]'
@@ -301,23 +302,21 @@ module Veltrunode
         exit_code = is_policy_violation ? EXIT_POLICY_VIOLATION : EXIT_VALIDATION_FAILED
 
         if @options[:format] == :json
-          output = {
-            status: 'error',
-            error_code: exit_code,
-            message: "Validation failed with #{errors.size} error(s).",
-            errors_count: errors.size,
-            warnings_count: diagnostics.count { |d| d.severity == :warning },
-            diagnostics: diagnostics.map(&:to_h)
-          }
-          # rubocop:disable Style/StderrPuts
-          $stderr.puts JSON.generate(output)
+          output_json_error(
+            "Validation failed with #{errors.size} error(s).",
+            exit_code,
+            diagnostics,
+            data: {
+              'errors_count' => errors.size,
+              'warnings_count' => diagnostics.count { |d| d.severity == :warning }
+            }
+          )
         else
           diagnostics.each do |diag|
             prefix = diag.severity == :error ? '[ERROR]' : '[WARN]'
             $stdout.puts "#{prefix} [#{diag.code}] #{diag.summary}"
           end
-          $stderr.puts "Validation failed with #{errors.size} error(s)."
-          # rubocop:enable Style/StderrPuts
+          warn "Validation failed with #{errors.size} error(s)."
         end
 
         exit_code
@@ -325,7 +324,7 @@ module Veltrunode
 
       def output_build_success(result)
         if @options[:format] == :json
-          $stdout.puts JSON.generate(result.to_h)
+          output_json_success(result.to_h)
         else
           $stdout.puts 'Build successful.'
           $stdout.puts 'Generated artifacts:'
@@ -397,19 +396,17 @@ module Veltrunode
         warning_notice = 'Plan preview cannot eliminate all execution risks.'
 
         if @options[:format] == :json
-          output = {
-            status: 'success',
-            message: "Plan generated for application '#{application.name}'.",
-            stack_name: cs_result.stack_name,
-            change_set_name: cs_result.change_set_name,
-            summary: cs_result.summary.transform_keys(&:to_s),
-            changes: cs_result.changes.map(&:to_h),
-            iam_capabilities: iam_caps,
-            functions_count: application.functions.size,
-            schedules_count: application.schedules.size,
-            warning: warning_notice
-          }
-          $stdout.puts JSON.generate(output)
+          output_json_success({
+                                'message' => "Plan generated for application '#{application.name}'.",
+                                'stack_name' => cs_result.stack_name,
+                                'change_set_name' => cs_result.change_set_name,
+                                'summary' => cs_result.summary.transform_keys(&:to_s),
+                                'changes' => cs_result.changes.map(&:to_h),
+                                'iam_capabilities' => iam_caps,
+                                'functions_count' => application.functions.size,
+                                'schedules_count' => application.schedules.size,
+                                'warning' => warning_notice
+                              })
         else
           $stdout.puts "Plan generated for application '#{application.name}' " \
                        "(Stack: #{cs_result.stack_name}, Change Set: #{cs_result.change_set_name})."
@@ -510,19 +507,15 @@ module Veltrunode
         if result.success?
           warnings = result.diagnostics.select { |d| d.severity == :warning }
           if @options[:format] == :json
-            output = {
-              status: 'success',
-              message: result.message,
-              stack_name: result.stack_name,
-              change_set_name: result.change_set_name,
-              summary: result.summary,
-              events: result.events.map(&:to_h)
+            data = {
+              'message' => result.message,
+              'stack_name' => result.stack_name,
+              'change_set_name' => result.change_set_name,
+              'summary' => result.summary,
+              'events' => result.events.map(&:to_h)
             }
-            unless warnings.empty?
-              output[:warnings_count] = warnings.size
-              output[:diagnostics] = warnings.map(&:to_h)
-            end
-            $stdout.puts JSON.generate(output)
+            data['warnings_count'] = warnings.size unless warnings.empty?
+            output_json_success(data, warnings)
           else
             output_deploy_diagnostics(result.diagnostics)
             $stdout.puts result.message
@@ -531,16 +524,15 @@ module Veltrunode
         else
           errors = result.diagnostics.select { |d| d.severity == :error }
           if @options[:format] == :json
-            output = {
-              status: 'error',
-              error_code: result.exit_code,
-              message: result.message,
-              errors_count: errors.size,
-              warnings_count: result.diagnostics.count { |d| d.severity == :warning },
-              diagnostics: result.diagnostics.map(&:to_h)
-            }
-            # rubocop:disable-next Style/StderrPuts
-            $stderr.puts JSON.generate(output)
+            output_json_error(
+              result.message,
+              result.exit_code,
+              result.diagnostics,
+              data: {
+                'errors_count' => errors.size,
+                'warnings_count' => result.diagnostics.count { |d| d.severity == :warning }
+              }
+            )
           else
             result.diagnostics.each do |diag|
               prefix = diag.severity == :error ? '[ERROR]' : '[WARN]'
@@ -611,7 +603,7 @@ module Veltrunode
 
       def output_invoke_local_success(result)
         if @options[:format] == :json
-          $stdout.puts JSON.generate(result.to_h)
+          output_json_success(result.to_h)
         else
           result.warnings.each do |warning|
             $stdout.puts "[WARN] #{warning}"
@@ -693,28 +685,20 @@ module Veltrunode
       def handle_destroy_result(result)
         if result.success?
           if @options[:format] == :json
-            output = {
-              status: 'success',
-              message: result.message,
-              stack_name: result.stack_name,
-              stack_not_found: result.stack_not_found?,
-              resources: result.resources.map(&:to_h),
-              events: result.events.map(&:to_h)
-            }
-            $stdout.puts JSON.generate(output)
+            output_json_success({
+                                  'message' => result.message,
+                                  'stack_name' => result.stack_name,
+                                  'stack_not_found' => result.stack_not_found?,
+                                  'resources' => result.resources.map(&:to_h),
+                                  'events' => result.events.map(&:to_h)
+                                })
           else
             $stdout.puts result.message
           end
           EXIT_SUCCESS
         else
           if @options[:format] == :json
-            output = {
-              status: 'error',
-              error_code: result.exit_code,
-              message: result.message
-            }
-            # rubocop:disable-next Style/StderrPuts
-            $stderr.puts JSON.generate(output)
+            output_json_error(result.message, result.exit_code)
           else
             # rubocop:disable-next Style/StderrPuts
             $stderr.puts result.message
@@ -753,7 +737,7 @@ module Veltrunode
 
       def print_version
         if @options[:format] == :json
-          $stdout.puts JSON.generate({ version: Veltrunode::VERSION })
+          output_json_success({ 'version' => Veltrunode::VERSION }, command: 'version')
         else
           $stdout.puts Veltrunode::VERSION
         end
@@ -804,41 +788,54 @@ module Veltrunode
             { name: 'layer inspect NAME', description: 'Inspect Lambda Layer version' },
             { name: 'schedule preview NAME', description: 'Preview future run times for schedule' }
           ]
-          $stdout.puts JSON.generate({ commands: })
+          output_json_success({ 'commands' => commands }, command: 'help')
         else
           $stdout.puts help_text
         end
       end
 
       def handle_unknown_command(command)
+        @current_command = 'unknown'
         message = "Unknown command '#{command}'."
         handle_error(message, EXIT_INVALID_INPUT)
       end
 
-      def handle_error(message, exit_code)
+      def handle_error(message, exit_code, diagnostics: [], data: {})
         if @options[:format] == :json
-          output = {
-            status: 'error',
-            error_code: exit_code,
-            message:
-          }
-          # rubocop:disable Style/StderrPuts
-          $stderr.puts JSON.generate(output)
+          output_json_error(message, exit_code, diagnostics, data: data)
         else
+          # rubocop:disable-next Style/StderrPuts
           $stderr.puts "Error: #{message}"
-          # rubocop:enable Style/StderrPuts
         end
         exit_code
       end
 
       def output_success(text, json_data = {})
         if @options[:format] == :json
-          output = { status: 'success' }.merge(json_data)
-          $stdout.puts JSON.generate(output)
+          output_json_success(json_data)
         else
           $stdout.puts text
         end
         EXIT_SUCCESS
+      end
+
+      def output_json(command: @current_command, status: 'success', diagnostics: [], data: {}, stream: $stdout)
+        json_str = JsonFormatter.format(
+          command: command || 'unknown',
+          status: status,
+          diagnostics: diagnostics,
+          data: data
+        )
+        stream.puts json_str
+      end
+
+      def output_json_success(data = {}, diagnostics = [], command: @current_command)
+        output_json(command: command, status: 'success', diagnostics: diagnostics, data: data, stream: $stdout)
+      end
+
+      def output_json_error(message, exit_code, diagnostics = [], data: {}, command: @current_command)
+        merged_data = { 'error_code' => exit_code, 'message' => message }.merge(data)
+        output_json(command: command, status: 'error', diagnostics: diagnostics, data: merged_data, stream: $stderr)
       end
     end
   end
