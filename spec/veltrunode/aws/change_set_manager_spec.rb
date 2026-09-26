@@ -341,6 +341,33 @@ RSpec.describe Veltrunode::AWS::ChangeSetManager do
       end.to raise_error(Veltrunode::AWS::ChangeSetError, /deployment failed with status 'UPDATE_ROLLBACK_COMPLETE'/)
     end
 
+    it 'attaches collected events to ChangeSetError when deployment fails' do
+      failed_event = double('StackEvent',
+                            event_id: 'ev-fail-1',
+                            logical_resource_id: 'MyFunction',
+                            physical_resource_id: 'arn:aws:lambda:...',
+                            resource_type: 'AWS::Lambda::Function',
+                            resource_status: 'CREATE_FAILED',
+                            resource_status_reason: 'User is not authorized to perform: lambda:CreateFunction',
+                            timestamp: Time.now)
+      allow(mock_cfn_client).to receive(:describe_stack_events).and_return(
+        double('EventsResp', stack_events: []),
+        double('EventsResp', stack_events: [failed_event])
+      )
+      failed_stack = double('Stack', stack_status: 'ROLLBACK_COMPLETE',
+                                     stack_status_reason: 'The following resource(s) failed to create: [MyFunction].')
+      allow(mock_cfn_client).to receive(:describe_stacks).and_return(double('StacksResp', stacks: [failed_stack]))
+
+      begin
+        manager.wait_for_stack_completion('plan-app-dev')
+        raise 'Expected ChangeSetError'
+      rescue Veltrunode::AWS::ChangeSetError => e
+        expect(e.events).not_to be_empty
+        expect(e.events.first.logical_resource_id).to eq('MyFunction')
+        expect(e.events.first.resource_status).to eq('CREATE_FAILED')
+      end
+    end
+
     it 'raises ChangeSetError on timeout' do
       allow(mock_cfn_client).to receive(:describe_stack_events).and_return(double('EventsResp', stack_events: []))
       in_progress_stack = double('Stack', stack_status: 'UPDATE_IN_PROGRESS')
@@ -349,6 +376,26 @@ RSpec.describe Veltrunode::AWS::ChangeSetManager do
       expect do
         manager.wait_for_stack_completion('plan-app-dev')
       end.to raise_error(Veltrunode::AWS::ChangeSetError, /Timed out waiting for stack 'plan-app-dev' completion/)
+    end
+
+    describe '#fetch_all_stack_events' do
+      it 'fetches and converts all stack events' do
+        raw_event = double('StackEvent',
+                           event_id: 'ev-all-1',
+                           logical_resource_id: 'MyFunction',
+                           physical_resource_id: 'arn:aws:lambda:...',
+                           resource_type: 'AWS::Lambda::Function',
+                           resource_status: 'CREATE_FAILED',
+                           resource_status_reason: 'AccessDenied',
+                           timestamp: Time.now)
+        allow(mock_cfn_client).to receive(:describe_stack_events).with(stack_name: 'plan-app-dev').and_return(
+          double('EventsResp', stack_events: [raw_event])
+        )
+
+        events = manager.fetch_all_stack_events('plan-app-dev')
+        expect(events.size).to eq(1)
+        expect(events.first.logical_resource_id).to eq('MyFunction')
+      end
     end
   end
 end

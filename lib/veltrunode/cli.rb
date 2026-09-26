@@ -538,6 +538,9 @@ module Veltrunode
             result.diagnostics.each do |diag|
               prefix = diag.severity == :error ? '[ERROR]' : '[WARN]'
               $stdout.puts "#{prefix} [#{diag.code}] #{diag.summary}"
+              if diag.suggested_action && !diag.suggested_action.empty?
+                $stdout.puts "  Suggested action: #{diag.suggested_action}"
+              end
             end
             # rubocop:disable-next Style/StderrPuts
             $stderr.puts result.message

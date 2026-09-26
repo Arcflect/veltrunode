@@ -7,13 +7,14 @@ module Veltrunode
   module AWS
     # Change Set 操作に関するエラー
     class ChangeSetError < Veltrunode::Error
-      attr_reader :stack_name, :change_set_name, :original_error
+      attr_reader :stack_name, :change_set_name, :original_error, :events
 
-      def initialize(message, stack_name: nil, change_set_name: nil, original_error: nil)
+      def initialize(message, stack_name: nil, change_set_name: nil, original_error: nil, events: [])
         super(message)
         @stack_name = stack_name
         @change_set_name = change_set_name
         @original_error = original_error
+        @events = Array(events).freeze
       end
     end
 
@@ -257,11 +258,18 @@ module Veltrunode
           if COMPLETE_STACK_STATUSES.include?(status)
             return collected_events
           elsif FAILED_STACK_STATUSES.include?(status)
+            more_events = fetch_new_stack_events(stack_name, seen_event_ids)
+            more_events.each do |event|
+              collected_events << event
+              on_progress&.call(event)
+            end
+
             reason = stack.respond_to?(:stack_status_reason) ? stack.stack_status_reason : nil
             reason_suffix = reason && !reason.empty? ? ": #{reason}" : ''
             raise ChangeSetError.new(
               "Stack '#{stack_name}' deployment failed with status '#{status}'#{reason_suffix}",
-              stack_name: stack_name
+              stack_name: stack_name,
+              events: collected_events
             )
           end
 
@@ -270,8 +278,31 @@ module Veltrunode
 
         raise ChangeSetError.new(
           "Timed out waiting for stack '#{stack_name}' completion.",
-          stack_name: stack_name
+          stack_name: stack_name,
+          events: collected_events
         )
+      end
+
+      # スタックの全イベントを取得します
+      #
+      # @param stack_name [String]
+      # @return [Array<StackEvent>]
+      def fetch_all_stack_events(stack_name)
+        resp = client.describe_stack_events(stack_name: stack_name)
+        raw_events = resp.respond_to?(:stack_events) ? Array(resp.stack_events) : []
+        raw_events.map do |re|
+          StackEvent.new(
+            event_id: get_val(re, :event_id),
+            logical_resource_id: get_val(re, :logical_resource_id),
+            physical_resource_id: get_val(re, :physical_resource_id),
+            resource_type: get_val(re, :resource_type),
+            resource_status: get_val(re, :resource_status),
+            resource_status_reason: get_val(re, :resource_status_reason),
+            timestamp: get_val(re, :timestamp)
+          )
+        end
+      rescue StandardError
+        []
       end
 
       private
