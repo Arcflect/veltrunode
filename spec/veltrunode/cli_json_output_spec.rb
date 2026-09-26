@@ -168,6 +168,45 @@ RSpec.describe 'CLI --format json output and secret masking' do
       expect(status.success?).to be true
     end
 
+    it 'deploy コマンドのロールバック失敗時に共通スキーマを満たし diagnostics にロールバック診断情報が含まれること' do
+      diag = Veltrunode::Diagnostics::Diagnostic.new(
+        code: 'VLT-CFN-ROLLBACK-IAM',
+        severity: :error,
+        summary: "Resource 'WorkerFunction' (AWS::Lambda::Function) failed: AccessDenied",
+        suggested_action: "Ensure the deployment IAM role or user has permission for 'lambda:CreateFunction'. " \
+                          'Check IAM policies and retry.',
+        evidence: {
+          'logical_resource_id' => 'WorkerFunction',
+          'resource_type' => 'AWS::Lambda::Function',
+          'resource_status' => 'CREATE_FAILED'
+        },
+        aws_resource_id: 'WorkerFunction'
+      )
+      mock_failed_deploy_result = Veltrunode::Deploy::DeployResult.new(
+        status: :error,
+        exit_code: 7,
+        message: "Stack update failed: Stack 'demo-stack' deployment failed with status 'ROLLBACK_COMPLETE'",
+        diagnostics: [diag]
+      )
+      allow(Veltrunode::Deploy::Pipeline).to receive(:execute).and_return(mock_failed_deploy_result)
+
+      code = run_cli(%w[deploy --yes --format json])
+      expect(code).to eq(7)
+
+      raw = stderr.string.strip
+      parsed = JSON.parse(raw)
+      expect(parsed.keys).to contain_exactly('command', 'status', 'diagnostics', 'data')
+      expect(parsed['command']).to eq('deploy')
+      expect(parsed['status']).to eq('error')
+      expect(parsed['diagnostics'].size).to eq(1)
+      expect(parsed['diagnostics'].first['code']).to eq('VLT-CFN-ROLLBACK-IAM')
+      expect(parsed['diagnostics'].first['suggested_action']).to include('lambda:CreateFunction')
+      expect(parsed['diagnostics'].first['aws_resource_id']).to eq('WorkerFunction')
+
+      _out, _err, status = Open3.capture3('jq .', stdin_data: raw)
+      expect(status.success?).to be true
+    end
+
     it 'destroy コマンドで共通スキーマを満たし jq でパース可能であること' do
       allow(Veltrunode::AWS::AccountRegionGuard).to receive(:check).and_return([])
       mock_destroyer = instance_double(Veltrunode::AWS::StackDestroyer)

@@ -6,6 +6,7 @@ require_relative '../aws'
 require_relative '../aws/account_region_guard'
 require_relative '../aws/change_set_manager'
 require_relative '../aws/s3_uploader'
+require_relative '../aws/rollback_diagnoser'
 
 module Veltrunode
   module Deploy
@@ -109,6 +110,8 @@ module Veltrunode
       end
 
       def execute
+        guard_diags = []
+
         # 1. バリデーション
         step_validate!
 
@@ -160,11 +163,12 @@ module Veltrunode
           diagnostics: guard_diags
         )
       rescue DeployError => e
+        all_diags = (Array(guard_diags) + Array(e.diagnostics)).uniq
         DeployResult.new(
           status: :error,
           exit_code: e.exit_code,
           message: e.message,
-          diagnostics: e.diagnostics
+          diagnostics: all_diags
         )
       end
 
@@ -282,6 +286,31 @@ module Veltrunode
         manager.wait_for_stack_completion(cs_result.stack_name) do |event|
           on_progress&.call(event)
         end
+      rescue Veltrunode::AWS::ChangeSetError => e
+        events = if e.events && !e.events.empty?
+                   e.events
+                 elsif manager.respond_to?(:fetch_all_stack_events)
+                   manager.fetch_all_stack_events(cs_result.stack_name)
+                 else
+                   []
+                 end
+        cfn_client = if manager.respond_to?(:client)
+                       begin
+                         manager.client
+                       rescue StandardError
+                         nil
+                       end
+                     end
+        diagnostics = Veltrunode::AWS::RollbackDiagnoser.diagnose(
+          stack_name: cs_result.stack_name,
+          events: events,
+          client: cfn_client
+        )
+        raise DeployError.new(
+          "Stack update failed: #{e.message}",
+          exit_code: EXIT_DEPLOY_FAILED,
+          diagnostics: diagnostics
+        )
       rescue StandardError => e
         raise DeployError.new("Stack update failed: #{e.message}", exit_code: EXIT_DEPLOY_FAILED)
       end

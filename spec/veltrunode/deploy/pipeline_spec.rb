@@ -249,5 +249,32 @@ RSpec.describe Veltrunode::Deploy::Pipeline do
       expect(result.exit_code).to eq(7)
       expect(result.message).to include('Stack update failed')
     end
+
+    it 'diagnoses rollback cause and attaches diagnostics on stack update failure' do
+      failed_event = Veltrunode::AWS::StackEvent.new(
+        event_id: 'ev-err',
+        logical_resource_id: 'WorkerFunction',
+        resource_type: 'AWS::Lambda::Function',
+        resource_status: 'CREATE_FAILED',
+        resource_status_reason: 'User is not authorized to perform: lambda:CreateFunction'
+      )
+      allow(mock_cs_manager).to receive(:wait_for_stack_completion).and_raise(
+        Veltrunode::AWS::ChangeSetError.new(
+          "deployment failed with status 'ROLLBACK_COMPLETE'",
+          events: [failed_event]
+        )
+      )
+
+      result = described_class.execute(app_dev, options: { change_set_manager: mock_cs_manager })
+
+      expect(result.success?).to be false
+      expect(result.exit_code).to eq(7)
+      expect(result.message).to include('Stack update failed')
+      expect(result.diagnostics).not_to be_empty
+      diag = result.diagnostics.find { |d| d.code == 'VLT-CFN-ROLLBACK-IAM' }
+      expect(diag).not_to be_nil
+      expect(diag.summary).to include("Resource 'WorkerFunction' (AWS::Lambda::Function) failed")
+      expect(diag.suggested_action).to include("for 'lambda:CreateFunction'")
+    end
   end
 end

@@ -769,6 +769,60 @@ RSpec.describe Veltrunode::CLI::Router do
         expect(stderr.string).to include('Failed to execute Change Set')
       end
 
+      it 'diagnoses rollback cause, displays error with suggested action, and exits 7 on stack update failure' do
+        failed_event = Veltrunode::AWS::StackEvent.new(
+          event_id: 'ev-rollback-1',
+          logical_resource_id: 'WorkerFunction',
+          resource_type: 'AWS::Lambda::Function',
+          resource_status: 'CREATE_FAILED',
+          resource_status_reason: 'User: arn:aws:iam::123:user/dev is not authorized to perform: lambda:CreateFunction'
+        )
+        allow(mock_cs_manager).to receive(:wait_for_stack_completion).and_raise(
+          Veltrunode::AWS::ChangeSetError.new(
+            "Stack 'deploy-app-prod' deployment failed with status 'ROLLBACK_COMPLETE'",
+            events: [failed_event]
+          )
+        )
+
+        code = run_cli(['deploy', '--yes'])
+        expect(code).to eq(7)
+        expect(stdout.string).to include(
+          "[ERROR] [VLT-CFN-ROLLBACK-IAM] Resource 'WorkerFunction' (AWS::Lambda::Function) failed"
+        )
+        expect(stdout.string).to include(
+          'Suggested action: Ensure the deployment IAM role or user has the necessary permissions'
+        )
+        expect(stdout.string).to include('lambda:CreateFunction')
+        expect(stderr.string).to include('Stack update failed')
+      end
+
+      it 'returns structured JSON error with rollback diagnostics on stack update failure with --format json' do
+        failed_event = Veltrunode::AWS::StackEvent.new(
+          event_id: 'ev-rollback-2',
+          logical_resource_id: 'WorkerFunction',
+          resource_type: 'AWS::Lambda::Function',
+          resource_status: 'CREATE_FAILED',
+          resource_status_reason: 'ResourceLimitExceeded: Function count limit reached'
+        )
+        allow(mock_cs_manager).to receive(:wait_for_stack_completion).and_raise(
+          Veltrunode::AWS::ChangeSetError.new(
+            "Stack 'deploy-app-prod' deployment failed with status 'ROLLBACK_COMPLETE'",
+            events: [failed_event]
+          )
+        )
+
+        code = run_cli(['deploy', '--format', 'json', '--yes'])
+        expect(code).to eq(7)
+        json = JSON.parse(stderr.string)
+        expect(json['command']).to eq('deploy')
+        expect(json['status']).to eq('error')
+        expect(json['data']['error_code']).to eq(7)
+        expect(json['diagnostics'].size).to eq(1)
+        expect(json['diagnostics'].first['code']).to eq('VLT-CFN-ROLLBACK-LIMIT')
+        expect(json['diagnostics'].first['suggested_action']).to include('Service Quotas')
+        expect(json['diagnostics'].first['aws_resource_id']).to eq('WorkerFunction')
+      end
+
       it 'returns structured JSON error with exit code 4 on verification failure with --format json' do
         account_error = Veltrunode::Diagnostics::Diagnostic.new(
           code: 'VLT-AWS-ACCOUNT-001',

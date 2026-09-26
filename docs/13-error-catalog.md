@@ -23,6 +23,11 @@
 - **VLT-IAM-001**: ステージポリシーによるワイルドカード指定の拒否 (wildcard denied by stage policy)
 - **VLT-IAM-002**: ステージポリシーによるパブリックストレージ設定の拒否 (public storage denied by stage policy)
 - **VLT-CFN-001**: 変更セット（Change Set）の作成失敗 (change set creation failed)
+- **VLT-CFN-ROLLBACK**: スタック更新失敗・ロールバックの検出 (stack update failed / rollback triggered)
+- **VLT-CFN-ROLLBACK-IAM**: IAM権限不足によるロールバック (rollback caused by IAM permission denied)
+- **VLT-CFN-ROLLBACK-LIMIT**: リソース制限またはクォータ超過によるロールバック (rollback caused by resource limit or quota exceeded)
+- **VLT-CFN-ROLLBACK-EXISTS**: リソース重複・競合によるロールバック (rollback caused by resource already exists / conflict)
+- **VLT-CFN-ROLLBACK-CONFIG**: 無効な設定・パラメータによるロールバック (rollback caused by invalid resource configuration)
 
 ## 診断情報の構造
 
