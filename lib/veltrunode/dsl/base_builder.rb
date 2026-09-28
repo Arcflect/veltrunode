@@ -1,10 +1,13 @@
 # frozen_string_literal: true
 
 require_relative '../diagnostics/diagnostic'
+require_relative '../deprecation'
 
 module Veltrunode
   module DSL
     class BaseBuilder
+      extend Deprecation::Helper
+
       def method_missing(name, *args)
         diagnostic = Diagnostics::Diagnostic.new(
           code: 'VLT-DSL-001',
