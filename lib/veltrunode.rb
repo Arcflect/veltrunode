@@ -31,6 +31,7 @@ module Veltrunode
 end
 
 require_relative 'veltrunode/version'
+require_relative 'veltrunode/deprecation'
 require_relative 'veltrunode/cli'
 require_relative 'veltrunode/dsl'
 require_relative 'veltrunode/model'
