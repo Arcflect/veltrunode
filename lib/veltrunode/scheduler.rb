@@ -5,6 +5,8 @@ require_relative 'scheduler/timezone_helper'
 require_relative 'scheduler/base_expression'
 require_relative 'scheduler/rate_expression'
 require_relative 'scheduler/at_expression'
+require_relative 'scheduler/cron_field'
+require_relative 'scheduler/cron_expression'
 
 module Veltrunode
   module Scheduler
