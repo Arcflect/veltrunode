@@ -25,5 +25,6 @@ Gem::Specification.new do |spec|
   spec.add_dependency 'ostruct', '~> 0.6'
   spec.add_dependency 'rubyzip', '>= 2.3', '< 4.0'
   spec.add_dependency 'thor', '~> 1.2'
+  spec.add_dependency 'tzinfo', '>= 2.0'
   spec.metadata['rubygems_mfa_required'] = 'true'
 end
