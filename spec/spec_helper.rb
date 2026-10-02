@@ -14,11 +14,15 @@ SimpleCov.start do
 end
 
 require 'veltrunode'
+require_relative 'support/integration_helper'
 
 RSpec.configure do |config|
   config.expect_with :rspec do |c|
     c.syntax = :expect
   end
+
+  # デフォルトでは統合テスト（--tag integration）を除外
+  config.filter_run_excluding :integration unless config.inclusion_filter[:integration]
 
   config.before do
     FileUtils.rm_rf(File.join(Dir.pwd, '.veltrunode', 'cache'))
