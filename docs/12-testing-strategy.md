@@ -67,11 +67,74 @@ bundle exec rspec
 
 ## 統合テスト (Integration Tests)
 
-- コンテナ環境内での Ruby 関数および Layer のビルド。
-- 分離されたテスト用の AWS アカウントに対する、最小限の CloudFormation スタックのデプロイ。
-- 一時的な一回限り（one-time）のスケジュールを使用した、ターゲット関数の実行テスト。
-- 実際に EFS をマウントし、ファイルの読み書き動作を検証。
-- 意図的に NFS 接続を遮断したり、無効な POSIX 構成を設定したりした状態での、エラー診断機能の動作テスト。
+分離された専用の AWS テストアカウントを用いて、ビルド、CloudFormation スタックのデプロイ・削除、Lambda 関数実行、EventBridge スケジュール連携、EFS マウント・ファイル読み書きなどのエンドツーエンド（E2E）動作を検証します。
+
+### テスト用 AWS アカウントの設定と事前準備
+
+統合テストは AWS 上で実際のリソースを作成・削除するため、本番・開発環境から完全に分離された専用の **Sandbox / テスト用 AWS アカウント** で実行します。
+
+#### 1. 必要な IAM 権限 (最小権限ポリシー)
+
+テスト実行用プリンシパル（CI の OIDC ロールまたはテスト用 IAM ユーザー）には、以下の AWS サービスに対する権限が必要です。
+
+- **AWS CloudFormation**: スタックの作成、更新、削除、変更セットの管理 (`cloudformation:*`)
+- **AWS Lambda**: 関数の作成、更新、呼び出し、削除、レイヤーの公開 (`lambda:*`)
+- **AWS IAM**: Lambda 実行ロールの作成、ポリシーのアタッチ、削除、PassRole (`iam:CreateRole`, `iam:DeleteRole`, `iam:PassRole`, `iam:PutRolePolicy`, `iam:DeleteRolePolicy`, `iam:AttachRolePolicy`, `iam:DetachRolePolicy`)
+- **Amazon S3**: デプロイパッケージ・レイヤー zip のアップロードおよび削除 (`s3:PutObject`, `s3:GetObject`, `s3:DeleteObject`, `s3:ListBucket`)
+- **Amazon EventBridge Scheduler**: スケジュールグループおよびスケジュールの作成、削除 (`scheduler:CreateSchedule`, `scheduler:DeleteSchedule`, `scheduler:GetSchedule`)
+- **Amazon CloudWatch Logs**: ロググループの作成、ログイベントの読み取り・削除 (`logs:*`)
+- **Amazon EC2 / Amazon EFS** (EFS テスト用): VPC 設定確認、ENI 作成、Access Point 参照 (`ec2:DescribeSubnets`, `ec2:DescribeSecurityGroups`, `ec2:DescribeVpcs`, `elasticfilesystem:DescribeAccessPoints`, `elasticfilesystem:ClientMount`, `elasticfilesystem:ClientWrite`)
+
+#### 2. 事前プロビジョニングが必要な共有リソース
+
+- **テスト用 S3 バケット**: Lambda アーティファクトのアップロード用バケット（例: `veltrunode-test-artifacts-<account-id>-<region>`）
+- **テスト用 VPC および EFS** (EFS 統合テスト用):
+  - プライベートサブネット（Lambda 関数配置用）
+  - EFS ファイルシステムおよびマウントターゲット
+  - POSIX UID 1000 / GID 1000 に設定された EFS Access Point（例: `arn:aws:elasticfilesystem:ap-northeast-1:123456789012:access-point/fsap-...`）
+  - Lambda 関数および EFS に適用するセキュリティグループ
+
+#### 3. 設定する環境変数
+
+統合テスト実行環境（ローカルまたは CI ランナー）に以下の環境変数を設定します。
+
+| 環境変数名 | 必須/任意 | 説明 |
+| :--- | :--- | :--- |
+| `AWS_REGION` | 必須 | テストを実行する AWS リージョン (例: `ap-northeast-1`) |
+| `AWS_ACCOUNT_ID` | 必須 | テスト用 AWS アカウント ID (12桁数値) |
+| `AWS_ACCESS_KEY_ID` | 必須* | AWS アクセスキー (*OIDC 使用時は不要) |
+| `AWS_SECRET_ACCESS_KEY` | 必須* | AWS シークレットアクセスキー (*OIDC 使用時は不要) |
+| `VELTRUNODE_TEST_ARTIFACT_BUCKET` | 必須 | アーティファクト保存用の S3 バケット名 |
+| `VELTRUNODE_TEST_EFS_ACCESS_POINT` | 任意 | EFS Access Point ARN (未設定時は EFS テストをスキップ) |
+| `VELTRUNODE_TEST_SUBNET_IDS` | 任意 | EFS 用 VPC サブネット ID (カンマ区切り) |
+| `VELTRUNODE_TEST_SECURITY_GROUP_IDS`| 任意 | EFS 用 セキュリティグループ ID (カンマ区切り) |
+
+#### 4. GitHub Actions (CI) での OIDC 連携設定
+
+GitHub Actions からテスト用 AWS アカウントへ安全にアクセスするために、OIDC（OpenID Connect）連携を使用します。
+
+1. AWS IAM で GitHub OIDC ID プロバイダ (`token.actions.githubusercontent.com`) を作成。
+2. リポジトリ (`Arcflect/veltrunode`) からの AssumeRoleWithWebIdentity を許可する IAM ロールを作成。
+3. リポジトリの Secrets に `AWS_ROLE_TO_ASSUME`、`AWS_ACCOUNT_ID`、`VELTRUNODE_TEST_ARTIFACT_BUCKET` などを設定。
+
+### 統合テストの実行方法
+
+統合テストは通常のユニットテストから分離されており、`--tag integration` を明示した場合にのみ実行されます。
+
+```bash
+# すべての統合テストを実行
+bundle exec rspec --tag integration
+
+# 特定の統合テストのみを実行
+bundle exec rspec spec/integration/stack_deploy_destroy_spec.rb --tag integration
+```
+
+### 自動クリーンアップの保証
+
+統合テストフレームワークは、テスト終了時（成功・失敗を問わず）に以下を自動的にクリーンアップします。
+- テスト実行ごとに一意のスタック名（`veltrunode-integ-<test-name>-<random-id>`）を使用し、名前衝突を防止。
+- RSpec の `after` / `around` フックにより `Veltrunode::Destroy::Pipeline` を自動実行してスタックを完全削除。
+- S3 アップローダーがテスト用にアップロードしたアーティファクトオブジェクトの削除。
 
 ## 互換性マトリクス (Compatibility Matrix)
 
