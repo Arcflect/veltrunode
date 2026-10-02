@@ -341,7 +341,7 @@ module Veltrunode
         return custom_image.to_s.freeze if custom_image && !custom_image.to_s.strip.empty?
 
         runtime_key = "#{@runtime}-#{@architecture}"
-        if (@runtime.start_with?('python') || @runtime.start_with?('node') || @runtime.start_with?('ruby')) &&
+        if (@runtime.start_with?('python') || @runtime.start_with?('node')) &&
            DEFAULT_IMAGE_DIGESTS.key?(runtime_key)
           return DEFAULT_IMAGE_DIGESTS[runtime_key].freeze
         end
