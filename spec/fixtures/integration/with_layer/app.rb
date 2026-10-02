@@ -1,15 +1,14 @@
 # frozen_string_literal: true
 
 require 'json'
-require 'base64'
+require 'rainbow'
 
 def handler(event:, context:)
-  encoded = Base64.strict_encode64('veltrunode-layer-test')
+  colored = Rainbow('Veltrunode Layer Integration Test').green.bright
   {
     statusCode: 200,
     body: JSON.generate({
-      encoded: encoded,
-      decoded: Base64.decode64(encoded),
+      message: colored.to_s,
       event: event
     })
   }

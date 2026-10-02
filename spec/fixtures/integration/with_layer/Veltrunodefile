@@ -11,8 +11,8 @@ Veltrunode.application app_name do
   layer :gem_deps do
     architectures [:x86_64]
     bundle lockfile: 'Gemfile.lock', without: %i[development test]
-    include_gems %w[base64]
-    build_on :amazon_linux_2023
+    include_gems %w[rainbow]
+    build_on :sam
     retain latest: 3
   end
 
