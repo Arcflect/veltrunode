@@ -1,0 +1,30 @@
+# frozen_string_literal: true
+
+app_name = ENV.fetch('VELTRUNODE_TEST_APP_NAME', 'integ-efs')
+region = ENV.fetch('AWS_REGION', 'ap-northeast-1')
+account = ENV.fetch('AWS_ACCOUNT_ID', '123456789012')
+access_point_arn = ENV.fetch(
+  'VELTRUNODE_TEST_EFS_ACCESS_POINT',
+  "arn:aws:elasticfilesystem:#{region}:#{account}:access-point/fsap-0123456789abcdef0"
+)
+subnet_ids = ENV.fetch('VELTRUNODE_TEST_SUBNET_IDS', 'subnet-0123456789abcdef0').split(',').map(&:strip)
+security_group_ids = ENV.fetch('VELTRUNODE_TEST_SECURITY_GROUP_IDS', 'sg-0123456789abcdef0').split(',').map(&:strip)
+
+Veltrunode.application app_name do
+  aws region: region, account: account
+  runtime ruby: '3.3', architecture: :x86_64
+
+  efs_mount :shared_data do
+    existing_access_point arn: access_point_arn
+    local_path '/mnt/shared'
+    expect_posix uid: 1000, gid: 1000
+  end
+
+  function :efs_worker do
+    handler 'app.handler'
+    memory 512
+    timeout 60
+    vpc_reference({ security_group_ids: security_group_ids, subnet_ids: subnet_ids })
+    mount :shared_data
+  end
+end

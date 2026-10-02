@@ -1,0 +1,55 @@
+name: Integration Tests
+
+on:
+  workflow_dispatch:
+    inputs:
+      aws_region:
+        description: 'AWS Region for integration tests'
+        required: false
+        default: 'ap-northeast-1'
+        type: string
+  schedule:
+    # 毎週月曜日 00:00 UTC に定期実行
+    - cron: '0 0 * * 1'
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  integration:
+    name: E2E Integration Tests (Ubuntu, Ruby 3.4)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.4'
+          bundler-cache: true
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Configure AWS Credentials (OIDC)
+        if: ${{ env.AWS_ROLE_TO_ASSUME != '' }}
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ inputs.aws_region || secrets.AWS_REGION || 'ap-northeast-1' }}
+
+      - name: Run Integration Tests
+        env:
+          AWS_REGION: ${{ inputs.aws_region || secrets.AWS_REGION || 'ap-northeast-1' }}
+          AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          VELTRUNODE_TEST_ARTIFACT_BUCKET: ${{ secrets.VELTRUNODE_TEST_ARTIFACT_BUCKET }}
+          VELTRUNODE_TEST_EFS_ACCESS_POINT: ${{ secrets.VELTRUNODE_TEST_EFS_ACCESS_POINT }}
+          VELTRUNODE_TEST_SUBNET_IDS: ${{ secrets.VELTRUNODE_TEST_SUBNET_IDS }}
+          VELTRUNODE_TEST_SECURITY_GROUP_IDS: ${{ secrets.VELTRUNODE_TEST_SECURITY_GROUP_IDS }}
+        run: |
+          bundle exec rspec --tag integration
