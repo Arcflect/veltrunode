@@ -1,0 +1,25 @@
+# frozen_string_literal: true
+
+app_name = ENV.fetch('VELTRUNODE_TEST_APP_NAME', 'integ-layer')
+region = ENV.fetch('AWS_REGION', 'ap-northeast-1')
+account = ENV.fetch('AWS_ACCOUNT_ID', '123456789012')
+
+Veltrunode.application app_name do
+  aws region: region, account: account
+  runtime ruby: '3.3', architecture: :x86_64
+
+  layer :gem_deps do
+    architectures [:x86_64]
+    bundle lockfile: 'Gemfile.lock', without: %i[development test]
+    include_gems %w[base64]
+    build_on :amazon_linux_2023
+    retain latest: 3
+  end
+
+  function :api do
+    handler 'app.handler'
+    memory 256
+    timeout 15
+    attach_layer :gem_deps
+  end
+end
