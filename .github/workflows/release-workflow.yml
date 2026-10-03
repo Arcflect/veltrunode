@@ -155,6 +155,18 @@ jobs:
                 File.write(changelog_file, changelog_content)
               end
 
+              # Update golden test fixtures with new version
+              Dir.glob("spec/fixtures/golden/**/template.yml").each do |file|
+                tpl = File.read(file)
+                updated = tpl.gsub(/(compiled by Veltrunode v)[0-9A-Za-z.\-]+/, "\\1#{new_version}")
+                File.write(file, updated)
+              end
+              Dir.glob("spec/fixtures/golden/**/manifest.json").each do |file|
+                mnf = File.read(file)
+                updated = mnf.gsub(/("compiler_version":\s*")[0-9A-Za-z.\-]+(")/, "\\1#{new_version}\\2")
+                File.write(file, updated)
+              end
+
               File.open(ENV["GITHUB_OUTPUT"], "a") do |f|
                 f.puts "action_type=bump"
                 f.puts "publish=false"
@@ -171,11 +183,11 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           author: github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>
           committer: github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>
-          commit-message: "chore: bump version to v${{ steps.release_check.outputs.new_version }} and update changelog"
+          commit-message: "chore: bump version to v${{ steps.release_check.outputs.new_version }}, update changelog and golden fixtures"
           branch: "bump-version/v${{ steps.release_check.outputs.new_version }}"
           title: "bump: version to v${{ steps.release_check.outputs.new_version }}"
           body: |
-            This PR bumps the project version to `v${{ steps.release_check.outputs.new_version }}` and updates `CHANGELOG.md` based on the merged Pull Request labels.
+            This PR bumps the project version to `v${{ steps.release_check.outputs.new_version }}`, updates `CHANGELOG.md`, and updates golden test fixtures based on the merged Pull Request labels.
             
             Please review and approve this PR to merge the version bump into `main`. After merge, this workflow will automatically create and push tag `v${{ steps.release_check.outputs.new_version }}` to trigger the release workflow.
           labels: "chore"
