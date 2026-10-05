@@ -712,10 +712,96 @@ module Veltrunode
       end
 
       def execute_efs_verify
-        load_application!
-        name = @argv.first || 'default'
-        output_success("EFS verification successful for: #{name}.",
-                       { message: "EFS verification successful for: #{name}" })
+        @current_command = 'efs verify'
+        app = load_application!
+        name = @argv.first
+
+        report = Veltrunode::AWS::Inspectors::EfsInspector.inspect(app, target_name: name)
+
+        if @options[:format] == :json
+          status_str = report.success? ? 'success' : 'error'
+          data = report.to_h
+          diags = report.diagnostics
+          output_json(command: 'efs verify', status: status_str, diagnostics: diags, data: data)
+        else
+          print_efs_verify_text_report(report)
+        end
+
+        report.success? ? EXIT_SUCCESS : EXIT_VALIDATION_FAILED
+      end
+
+      def print_efs_verify_text_report(report)
+        $stdout.puts '=' * 80
+        $stdout.puts '  Veltrunode EFS Verification Report'
+        $stdout.puts '=' * 80
+        $stdout.puts "Target:              #{report.target_name}"
+        $stdout.puts "Function:            #{report.function_name || '(none)'}"
+        $stdout.puts "Access Point ID:     #{report.access_point_id || '(none)'}"
+        $stdout.puts "File System ID:      #{report.file_system_id || '(none)'}"
+        $stdout.puts "Overall Confidence:  #{report.overall_confidence}"
+        $stdout.puts "\nChecks:"
+
+        report.checks.each do |check|
+          tag = case check.status
+                when :passed then '[PASSED]'
+                when :warning then '[WARNING]'
+                when :failed then '[FAILED]'
+                else '[SKIPPED]'
+                end
+          $stdout.puts "  #{tag.ljust(9)} #{format_check_name(check.name)} (confidence: #{check.confidence})"
+          $stdout.puts "            - #{check.summary}"
+
+          next unless check.diagnostic
+
+          diag = check.diagnostic
+          $stdout.puts "            - #{diag.code}: #{diag.summary}"
+          $stdout.puts "              Suggested action: #{diag.suggested_action}"
+        end
+
+        unattached_diags = report.diagnostics - report.checks.map(&:diagnostic).compact
+        unless unattached_diags.empty?
+          $stdout.puts "\nDiagnostics:"
+          unattached_diags.each do |diag|
+            prefix = diag.severity == :error ? '[ERROR]' : '[WARN]'
+            $stdout.puts "  #{prefix} #{diag.code}: #{diag.summary}"
+            $stdout.puts "         Suggested action: #{diag.suggested_action}"
+          end
+        end
+
+        $stdout.puts "\nDiagnostic Limitations:"
+        report.limitations.each do |lim|
+          $stdout.puts "  - #{lim}"
+        end
+
+        $stdout.puts "\n#{'-' * 80}"
+        errors_count = report.diagnostics.count { |d| d.severity == :error }
+        warnings_count = report.diagnostics.count { |d| d.severity == :warning }
+
+        if report.success?
+          status_msg = warnings_count.positive? ? "SUCCESS (#{warnings_count} warnings)" : 'SUCCESS (All checks passed)'
+          $stdout.puts "Status: #{status_msg}"
+        else
+          $stdout.puts "Status: FAILED (#{errors_count} errors, #{warnings_count} warnings)"
+        end
+        $stdout.puts '=' * 80
+      end
+
+      def format_check_name(name)
+        case name.to_s
+        when 'access_point_status' then 'Access Point Status'
+        when 'file_system_status' then 'File System Status'
+        when 'vpc_consistency' then 'VPC Configuration Consistency'
+        when 'mount_target_reachability' then 'Mount Target AZ Reachability'
+        when 'security_group_egress' then 'Lambda Security Group Outbound (TCP 2049 Egress)'
+        when 'security_group_ingress' then 'EFS Security Group Inbound (TCP 2049 Ingress)'
+        when 'subnets_and_routes' then 'Subnet State & Route Table Verification'
+        when 'posix_and_root_directory' then 'Access Point Root Directory & POSIX Identity'
+        when 'lambda_iam_permissions' then 'Lambda Execution Role EFS IAM Permissions'
+        when 'encryption_at_rest' then 'EFS Encryption at Rest'
+        when 'backup_policy' then 'EFS Automatic Backup Policy'
+        else
+          name.to_s.split('_').map(&:capitalize).join(' ')
+        end
       end
 
       def execute_layer_inspect
