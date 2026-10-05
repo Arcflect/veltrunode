@@ -1108,10 +1108,19 @@ RSpec.describe Veltrunode::CLI::Router do
       end
     end
 
-    it 'runs efs verify command stub' do
+    it 'runs efs verify command' do
+      mock_report = Veltrunode::AWS::Inspectors::EfsInspector::Report.new(
+        target_name: 'my-efs',
+        checks: [],
+        diagnostics: [],
+        overall_confidence: 'HIGH'
+      )
+      allow(Veltrunode::AWS::Inspectors::EfsInspector).to receive(:inspect).and_return(mock_report)
+
       code = run_cli(%w[efs verify my-efs])
       expect(code).to eq(0)
-      expect(stdout.string.strip).to eq('EFS verification successful for: my-efs.')
+      expect(stdout.string).to include('Veltrunode EFS Verification Report')
+      expect(stdout.string).to include('Target:              my-efs')
     end
 
     it 'runs layer inspect command stub' do
