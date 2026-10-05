@@ -38,6 +38,14 @@ RSpec.describe 'CLI --format json output and secret masking' do
 
     before do
       allow(Veltrunode::SettingsLoader).to receive(:load).and_return(mock_app)
+      allow(Veltrunode::AWS::Inspectors::EfsInspector).to receive(:inspect) do |_app, target_name:|
+        Veltrunode::AWS::Inspectors::EfsInspector::Report.new(
+          target_name: target_name || 'default',
+          checks: [],
+          diagnostics: [],
+          overall_confidence: 'HIGH'
+        )
+      end
     end
 
     it 'init コマンドで共通スキーマを満たし jq でパース可能であること' do
@@ -307,6 +315,14 @@ RSpec.describe 'CLI --format json output and secret masking' do
 
       mock_app = Veltrunode::Model::Application.new(name: 'demo_app')
       allow(Veltrunode::SettingsLoader).to receive(:load).and_return(mock_app)
+      allow(Veltrunode::AWS::Inspectors::EfsInspector).to receive(:inspect) do |_app, target_name:|
+        Veltrunode::AWS::Inspectors::EfsInspector::Report.new(
+          target_name: target_name,
+          checks: [],
+          diagnostics: [],
+          overall_confidence: 'HIGH'
+        )
+      end
 
       code = run_cli(['efs', 'verify', "efs-with-#{secret_token}", '--format', 'json'])
       expect(code).to eq(0)
@@ -316,7 +332,7 @@ RSpec.describe 'CLI --format json output and secret masking' do
       expect(raw_json).to include('[FILTERED]')
 
       parsed = JSON.parse(raw_json)
-      expect(parsed['data']['message']).to eq('EFS verification successful for: efs-with-[FILTERED]')
+      expect(parsed['data']['target']).to eq('efs-with-[FILTERED]')
 
       _out, _err, status = Open3.capture3('jq .', stdin_data: raw_json)
       expect(status.success?).to be true
