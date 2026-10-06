@@ -38,7 +38,8 @@ module Veltrunode
           format: :text,
           file: 'Veltrunodefile',
           aws: false,
-          runtime: 'ruby'
+          runtime: 'ruby',
+          count: 10
         }
         @current_command = nil
       end
@@ -158,6 +159,18 @@ module Veltrunode
           @argv.delete_at(idx)
         elsif (idx = @argv.find_index { |arg| arg.start_with?('--bucket=') })
           @options[:bucket] = @argv[idx].split('=', 2)[1]
+          @argv.delete_at(idx)
+        end
+
+        # --count オプションの抽出
+        if (idx = @argv.index('--count'))
+          if (val = @argv[idx + 1])
+            @options[:count] = val
+            @argv.delete_at(idx + 1)
+          end
+          @argv.delete_at(idx)
+        elsif (idx = @argv.find_index { |arg| arg.start_with?('--count=') })
+          @options[:count] = @argv[idx].split('=', 2)[1]
           @argv.delete_at(idx)
         end
 
@@ -811,9 +824,86 @@ module Veltrunode
       end
 
       def execute_schedule_preview
-        load_application!
-        name = @argv.first || 'default'
-        output_success("Previewed schedule: #{name}.", { message: "Previewed schedule: #{name}" })
+        @current_command = 'schedule preview'
+        name = @argv.first
+        if name.nil? || name.strip.empty?
+          return handle_error('Schedule name is required for schedule preview.', EXIT_INVALID_INPUT)
+        end
+
+        count_raw = @options[:count]
+        count = count_raw.to_s.strip.empty? ? 10 : count_raw.to_i
+        if count <= 0 || (count_raw && count_raw.to_s !~ /\A\d+\z/)
+          return handle_error("Invalid count '#{count_raw}'. Count must be a positive integer.", EXIT_INVALID_INPUT)
+        end
+
+        application = load_application!
+        schedule = application.schedules.find { |s| s.name == name }
+        unless schedule
+          return handle_error("Schedule '#{name}' not found in application '#{application.name}'.",
+                              EXIT_INVALID_INPUT)
+        end
+
+        require_relative 'scheduler'
+
+        begin
+          result = Veltrunode::Scheduler.preview(schedule, count: count)
+        rescue Veltrunode::Scheduler::ScheduleExpressionError => e
+          return handle_error(e.message, EXIT_VALIDATION_FAILED)
+        rescue StandardError => e
+          return handle_error(e.message, EXIT_INVALID_INPUT)
+        end
+
+        if @options[:format] == :json
+          output_json(
+            command: 'schedule preview',
+            status: 'success',
+            diagnostics: [],
+            data: result.to_h
+          )
+        else
+          print_schedule_preview_text(result)
+        end
+
+        EXIT_SUCCESS
+      end
+
+      def print_schedule_preview_text(result)
+        $stdout.puts '=' * 80
+        $stdout.puts '  Veltrunode Schedule Preview'
+        $stdout.puts '=' * 80
+        $stdout.puts "Schedule:         #{result.schedule_name}"
+        $stdout.puts "Target Function:  #{result.target_function || '(none)'}"
+        $stdout.puts "Expression:       #{result.expression} (#{result.expression_type})"
+        $stdout.puts "Timezone:         #{result.timezone}"
+        $stdout.puts "Count:            #{result.count}"
+        $stdout.puts "Base Time (UTC):  #{result.from_time.utc.strftime('%Y-%m-%d %H:%M:%S UTC')}"
+        $stdout.puts "\nUpcoming Occurrences:"
+
+        result.occurrences.each do |occ|
+          seq = "##{occ.sequence}".ljust(5)
+          local = occ.local_display.ljust(34)
+          utc = occ.utc_display
+          line = "  #{seq} #{local} |  #{utc}"
+          if occ.dst_transition
+            trans = occ.dst_transition
+            line += "  * [DST Transition] #{trans.from_abbr} -> #{trans.to_abbr}"
+          end
+          $stdout.puts line
+          $stdout.puts "        Notice: #{occ.shift_notice}" if occ.shift_notice
+        end
+
+        $stdout.puts "\nDST Transitions:"
+        if result.dst_transitions.empty?
+          $stdout.puts '  None in this preview window.'
+        else
+          result.dst_transitions.each do |dt|
+            $stdout.puts "  - ##{dt.sequence}: #{dt.description}"
+          end
+        end
+
+        $stdout.puts "\n#{'-' * 80}"
+        $stdout.puts "Note: #{result.disclaimer}"
+        $stdout.puts '=' * 80
       end
 
       def load_application!
