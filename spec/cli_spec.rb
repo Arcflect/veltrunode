@@ -1129,10 +1129,21 @@ RSpec.describe Veltrunode::CLI::Router do
       expect(stdout.string.strip).to eq('Inspected layer: my-layer.')
     end
 
-    it 'runs schedule preview command stub' do
+    it 'runs schedule preview command' do
+      schedule = Veltrunode::Model::Schedule.new(
+        name: 'my-schedule',
+        target_function: 'my_func',
+        expression_type: :cron,
+        expression: 'cron(0 12 * * ? *)',
+        timezone: 'UTC'
+      )
+      app = Veltrunode::Model::Application.new('test-app', schedules: [schedule])
+      allow(Veltrunode::SettingsLoader).to receive(:load).and_return(app)
+
       code = run_cli(%w[schedule preview my-schedule])
       expect(code).to eq(0)
-      expect(stdout.string.strip).to eq('Previewed schedule: my-schedule.')
+      expect(stdout.string).to include('Veltrunode Schedule Preview')
+      expect(stdout.string).to include('Schedule:         my-schedule')
     end
   end
 end

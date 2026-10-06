@@ -33,7 +33,14 @@ RSpec.describe 'CLI --format json output and secret masking' do
   describe '全コマンドでの共通スキーマ検証と jq パース可能性' do
     let(:mock_app) do
       fn = Veltrunode::Model::Function.new(:test_fn, handler: 'test.handler')
-      Veltrunode::Model::Application.new(name: 'demo_app', functions: [fn])
+      sched = Veltrunode::Model::Schedule.new(
+        name: 'my_sched',
+        target_function: 'test_fn',
+        expression_type: :cron,
+        expression: 'cron(0 12 * * ? *)',
+        timezone: 'UTC'
+      )
+      Veltrunode::Model::Application.new(name: 'demo_app', functions: [fn], schedules: [sched])
     end
 
     before do
