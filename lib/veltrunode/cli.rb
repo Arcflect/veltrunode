@@ -818,9 +818,110 @@ module Veltrunode
       end
 
       def execute_layer_inspect
-        load_application!
-        name = @argv.first || 'default'
-        output_success("Inspected layer: #{name}.", { message: "Inspected layer: #{name}" })
+        @current_command = 'layer inspect'
+        name = @argv.first
+        if name.nil? || name.strip.empty?
+          return handle_error('Layer name is required for layer inspect.', EXIT_INVALID_INPUT)
+        end
+
+        application = load_application!
+        layer = application.layers.find { |l| l.name == name }
+        unless layer
+          return handle_error("Layer '#{name}' not found in application '#{application.name}'.",
+                              EXIT_INVALID_INPUT)
+        end
+
+        source_dir = @options[:file] ? File.dirname(File.expand_path(@options[:file])) : Dir.pwd
+        source_dir = Dir.pwd if source_dir.empty? || source_dir == '.'
+
+        require_relative 'aws/inspectors'
+
+        begin
+          report = Veltrunode::AWS::Inspectors::LayerInspector.inspect(
+            application,
+            layer_name: name,
+            source_dir: source_dir
+          )
+        rescue StandardError => e
+          return handle_error(e.message, EXIT_INVALID_INPUT)
+        end
+
+        if @options[:format] == :json
+          output_json(
+            command: 'layer inspect',
+            status: 'success',
+            diagnostics: report.diagnostics,
+            data: report.to_h
+          )
+        else
+          print_layer_inspect_text(report)
+        end
+
+        EXIT_SUCCESS
+      end
+
+      def print_layer_inspect_text(report)
+        $stdout.puts '=' * 80
+        $stdout.puts '  Veltrunode Layer Inspection Report'
+        $stdout.puts '=' * 80
+        $stdout.puts "Layer Name:           #{report.layer_name}"
+        $stdout.puts "Description:          #{report.description || '(none)'}"
+        $stdout.puts "Content Hash:         #{report.content_hash}"
+        $stdout.puts "Artifact SHA256:      #{report.sha256}"
+        $stdout.puts "Compatible Runtimes:  #{report.compatible_runtimes.join(', ')}"
+        $stdout.puts "Architectures:        #{report.architectures.join(', ')}"
+        $stdout.puts "\nPackage Size:"
+        $stdout.puts "  Compressed:         #{format_bytes(report.compressed_size)}"
+        $stdout.puts "  Uncompressed:       #{format_bytes(report.uncompressed_size)}"
+        $stdout.puts "  Total Entries:      #{report.total_entries}"
+        $stdout.puts "\nReuse Status:"
+        $stdout.puts "  Reusable:           #{report.reusable? ? 'Yes' : 'No'}"
+        if report.matched_version
+          $stdout.puts "  Matched Version:    Version #{report.matched_version} (#{report.matched_arn})"
+        end
+        $stdout.puts "  Reason:             #{report.reuse_reason}"
+        $stdout.puts "\nPublished Versions (AWS):"
+        if report.published_versions.empty?
+          $stdout.puts '  (No published versions found on AWS or AWS not connected)'
+        else
+          report.published_versions.each do |v|
+            desc = v['description'].to_s.empty? ? '(no description)' : v['description']
+            $stdout.puts "  - Version #{v['version']} (#{v['created_date']}): #{desc}"
+          end
+        end
+        $stdout.puts "\nLargest Entries:"
+        if report.largest_entries.empty?
+          $stdout.puts '  (No entries)'
+        else
+          report.largest_entries.each_with_index do |entry, idx|
+            pct = "#{entry['percentage']}%".rjust(6)
+            size_str = format_bytes(entry['size']).ljust(22)
+            $stdout.puts "  ##{idx + 1}  #{pct}  #{size_str}  #{entry['path']}"
+          end
+        end
+        $stdout.puts "\nDuplicate Files Across Resources:"
+        if report.duplicate_files.empty?
+          $stdout.puts '  None detected.'
+        else
+          report.duplicate_files.each do |dup|
+            sources = Array(dup['duplicated_in']).join(', ')
+            $stdout.puts "  - #{dup['path']} (#{format_bytes(dup['size'])})"
+            $stdout.puts "    Also in:        #{sources}"
+            $stdout.puts "    Recommendation: #{dup['recommendation']}" if dup['recommendation']
+          end
+        end
+        $stdout.puts '=' * 80
+      end
+
+      def format_bytes(bytes)
+        b = bytes.to_i
+        if b >= 1_048_576
+          format('%<mb>.1f MB (%<bytes>d bytes)', mb: b / 1_048_576.0, bytes: b)
+        elsif b >= 1_024
+          format('%<kb>.1f KB (%<bytes>d bytes)', kb: b / 1_024.0, bytes: b)
+        else
+          "#{b} bytes"
+        end
       end
 
       def execute_schedule_preview
