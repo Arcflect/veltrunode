@@ -40,7 +40,11 @@ RSpec.describe 'CLI --format json output and secret masking' do
         expression: 'cron(0 12 * * ? *)',
         timezone: 'UTC'
       )
-      Veltrunode::Model::Application.new(name: 'demo_app', functions: [fn], schedules: [sched])
+      ly = Veltrunode::Model::Layer.new(
+        name: 'my_layer',
+        compatible_runtimes: ['ruby3.3']
+      )
+      Veltrunode::Model::Application.new(name: 'demo_app', functions: [fn], schedules: [sched], layers: [ly])
     end
 
     before do
@@ -51,6 +55,27 @@ RSpec.describe 'CLI --format json output and secret masking' do
           checks: [],
           diagnostics: [],
           overall_confidence: 'HIGH'
+        )
+      end
+      allow(Veltrunode::AWS::Inspectors::LayerInspector).to receive(:inspect) do |_app, layer_name:, **|
+        Veltrunode::AWS::Inspectors::LayerInspector::Report.new(
+          layer_name: layer_name || 'default',
+          description: 'mock',
+          compatible_runtimes: ['ruby3.3'],
+          architectures: ['x86_64'],
+          content_hash: 'hash',
+          sha256: 'sha',
+          zip_path: 'mock.zip',
+          compressed_size: 100,
+          uncompressed_size: 200,
+          total_entries: 1,
+          largest_entries: [],
+          published_versions: [],
+          reusable: false,
+          matched_version: nil,
+          matched_arn: nil,
+          reuse_reason: 'mock',
+          duplicate_files: []
         )
       end
     end

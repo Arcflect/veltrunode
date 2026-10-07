@@ -1123,10 +1123,39 @@ RSpec.describe Veltrunode::CLI::Router do
       expect(stdout.string).to include('Target:              my-efs')
     end
 
-    it 'runs layer inspect command stub' do
+    it 'runs layer inspect command' do
+      layer = Veltrunode::Model::Layer.new(
+        name: 'my-layer',
+        compatible_runtimes: ['ruby3.3']
+      )
+      app = Veltrunode::Model::Application.new('test-app', layers: [layer])
+      allow(Veltrunode::SettingsLoader).to receive(:load).and_return(app)
+
+      mock_report = Veltrunode::AWS::Inspectors::LayerInspector::Report.new(
+        layer_name: 'my-layer',
+        description: 'Test layer',
+        compatible_runtimes: ['ruby3.3'],
+        architectures: ['x86_64'],
+        content_hash: 'hash123',
+        sha256: 'sha123',
+        zip_path: 'build/artifacts/layers/my-layer.zip',
+        compressed_size: 1024,
+        uncompressed_size: 2048,
+        total_entries: 5,
+        largest_entries: [],
+        published_versions: [],
+        reusable: false,
+        matched_version: nil,
+        matched_arn: nil,
+        reuse_reason: 'No versions found.',
+        duplicate_files: []
+      )
+      allow(Veltrunode::AWS::Inspectors::LayerInspector).to receive(:inspect).and_return(mock_report)
+
       code = run_cli(%w[layer inspect my-layer])
       expect(code).to eq(0)
-      expect(stdout.string.strip).to eq('Inspected layer: my-layer.')
+      expect(stdout.string).to include('Veltrunode Layer Inspection Report')
+      expect(stdout.string).to include('Layer Name:           my-layer')
     end
 
     it 'runs schedule preview command' do
