@@ -42,7 +42,7 @@ RSpec.describe Veltrunode::AWS::Inspectors::LayerInspector do
   # Helper to create a dummy ZIP file with entries
   def create_test_zip(path, entries)
     FileUtils.mkdir_p(File.dirname(path))
-    Zip::File.open(path, Zip::File::CREATE) do |zip|
+    Zip::File.open(path, create: true) do |zip|
       entries.each do |entry_path, content|
         zip.get_output_stream(entry_path) { |f| f.write(content) }
       end
