@@ -354,8 +354,13 @@ module Veltrunode
           unless result.layer_results.empty?
             $stdout.puts '  Layers:'
             result.layer_results.each do |layer_res|
-              $stdout.puts "    - #{layer_res.layer_name}: #{layer_res.zip_path} " \
-                           "(SHA-256: #{layer_res.sha256}, #{layer_res.bytesize} bytes)"
+              if layer_res.respond_to?(:reused?) && layer_res.reused?
+                $stdout.puts "    - #{layer_res.layer_name}: [REUSED] #{layer_res.layer_version_arn} " \
+                             "(Content-Hash: #{layer_res.content_hash})"
+              else
+                $stdout.puts "    - #{layer_res.layer_name}: #{layer_res.zip_path} " \
+                             "(SHA-256: #{layer_res.sha256}, #{layer_res.bytesize} bytes)"
+              end
             end
           end
 
