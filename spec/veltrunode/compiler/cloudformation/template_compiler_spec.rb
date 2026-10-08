@@ -142,6 +142,32 @@ RSpec.describe Veltrunode::Compiler::CloudFormation::TemplateCompiler do
       expect(result['Resources']).to have_key('RuntimeGemsLayerVersion')
     end
 
+    it 'skips LayerVersion resource and references existing ARN directly when layer is reused' do
+      reused_arn = 'arn:aws:lambda:ap-northeast-1:123456789012:layer:runtime_gems:5'
+      result = described_class.compile(
+        full_application,
+        context: {
+          reused_layers: {
+            'runtime_gems' => reused_arn
+          }
+        }
+      )
+
+      # 1. AWS::Lambda::LayerVersion リソースはスキップされる
+      expect(result['Resources']).not_to have_key('RuntimeGemsLayerVersion')
+
+      # 2. 関数の Properties.Layers には既存 ARN が直接設定される
+      fn_layers = result['Resources']['ConvertFunction']['Properties']['Layers']
+      expect(fn_layers).to eq([reused_arn])
+
+      # 3. 関数の DependsOn にはスキップされた LayerVersion 論理ID が含まれない
+      fn_depends = result['Resources']['ConvertFunction']['DependsOn']
+      expect(fn_depends).to eq(['ConvertFunctionLogGroup'])
+
+      # 4. Outputs の LayerVersionArn には既存 ARN が設定される
+      expect(result['Outputs']['RuntimeGemsLayerVersionArn']['Value']).to eq(reused_arn)
+    end
+
     it 'wires application efs_mount into function FileSystemConfigs and execution role' do
       mount = Veltrunode::Model::EfsMount.new(
         symbolic_name: 'shared_data',

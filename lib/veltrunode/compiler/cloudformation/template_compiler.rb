@@ -112,9 +112,14 @@ module Veltrunode
         def format_resources
           resources = {}
 
+          reused_layers_map = resolve_reused_layers
+
           # 1. Compile Layers
           layer_nodes = extract_collection(:layers)
           layer_nodes.each do |layer|
+            layer_name = extract_name(layer).to_s
+            next if reused_layers_map.key?(layer_name)
+
             layer_res = LayerVersionCompiler.compile(layer, context: context)
             resources.merge!(layer_res)
           end
@@ -132,9 +137,13 @@ module Veltrunode
             name = extract_name(layer).to_s
             next if name.strip.empty?
 
-            memo[name] = { 'Ref' => LayerVersionCompiler.logical_id_for(name) }
+            memo[name] = if reused_layers_map.key?(name)
+                           reused_layers_map[name]
+                         else
+                           { 'Ref' => LayerVersionCompiler.logical_id_for(name) }
+                         end
           end
-          local_layer_names = layer_ref_map.keys
+          local_layer_names = layer_ref_map.keys.reject { |k| reused_layers_map.key?(k) }
 
           mount_nodes = extract_collection(:mounts)
           mount_map = mount_nodes.each_with_object({}) do |mount, memo|
@@ -224,14 +233,21 @@ module Veltrunode
           end
 
           # Layer Outputs
+          reused_layers_map = resolve_reused_layers
           layer_nodes = extract_collection(:layers)
           layer_nodes.each do |layer|
             layer_name = extract_name(layer)
             layer_id = LayerVersionCompiler.logical_id_for(layer_name)
 
+            output_val = if reused_layers_map.key?(layer_name.to_s)
+                           reused_layers_map[layer_name.to_s]
+                         else
+                           { 'Ref' => layer_id }
+                         end
+
             outputs["#{layer_id}Arn"] = {
               'Description' => "ARN of #{layer_name} Lambda layer version",
-              'Value' => { 'Ref' => layer_id },
+              'Value' => output_val,
               'Export' => { 'Name' => { 'Fn::Sub' => "${AWS::StackName}-#{layer_id}Arn" } }
             }
           end
@@ -360,6 +376,15 @@ module Veltrunode
             application.public_send(method_name)
           elsif application.is_a?(Hash)
             application[method_name.to_sym] || application[method_name.to_s]
+          end
+        end
+
+        def resolve_reused_layers
+          map = context[:reused_layers] || context['reused_layers']
+          return {} unless map.is_a?(Hash)
+
+          map.each_with_object({}) do |(k, v), memo|
+            memo[k.to_s] = v.to_s
           end
         end
 

@@ -304,5 +304,32 @@ RSpec.describe Veltrunode::Compiler::Manifest do
         expect(result['application']['name']).to eq('demo-app')
       end
     end
+
+    it 'includes reused status and layer_version_arn in layers section when layer was reused' do
+      reused_layer_result = Veltrunode::Build::LayerPackageResult.new(
+        layer_name: 'gem_deps',
+        zip_path: '/tmp/build/artifacts/layers/gem_deps.zip',
+        content_hash: 'f0e1d2c3b4a59876543210fedcba9876543210fedcba9876543210fedcba9876',
+        sha256: '11223344556677889900aabbccddeeff11223344556677889900aabbccddeeff',
+        compressed_size: 2048,
+        uncompressed_size: 4096,
+        size_diagnostics: {},
+        entries: [],
+        reused: true,
+        layer_version_arn: 'arn:aws:lambda:ap-northeast-1:123456789012:layer:gem_deps:3'
+      )
+
+      manifest = described_class.to_h(
+        application: app,
+        function_results: [fn_result],
+        layer_results: [reused_layer_result],
+        built_at: fixed_time
+      )
+
+      layer_entry = manifest['layers']['gem_deps']
+      expect(layer_entry['reused']).to be true
+      expect(layer_entry['layer_version_arn']).to eq('arn:aws:lambda:ap-northeast-1:123456789012:layer:gem_deps:3')
+      expect(layer_entry['content_hash']).to eq('f0e1d2c3b4a59876543210fedcba9876543210fedcba9876543210fedcba9876')
+    end
   end
 end

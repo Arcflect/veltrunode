@@ -214,6 +214,11 @@ module Veltrunode
             layer_info['sha256'] = sha if sha
             layer_info['artifact_hash'] = sha if sha
             layer_info['zip_path'] = File.basename(zip) if zip
+
+            reused_val = extract_val(res, :reused) || (res.respond_to?(:reused?) && res.reused?)
+            layer_info['reused'] = true if reused_val
+            arn = extract_val(res, :layer_version_arn)
+            layer_info['layer_version_arn'] = arn.to_s if present?(arn)
           end
 
           memo[layer_name] = layer_info
