@@ -1257,4 +1257,43 @@ RSpec.describe Veltrunode::Build::LayerPackager do
       end
     end
   end
+
+  describe '.calculate_hash' do
+    it 'calculates deterministic content hash without building zip archives' do
+      with_tmpdir do |tmpdir|
+        lockfile_path = File.join(tmpdir, 'Gemfile.lock')
+        File.write(lockfile_path, sample_lockfile_content)
+
+        hash1 = described_class.calculate_hash(
+          layer: layer,
+          gemfile_lock_path: lockfile_path,
+          source_dir: tmpdir
+        )
+        hash2 = described_class.calculate_hash(
+          layer: layer,
+          gemfile_lock_path: lockfile_path,
+          source_dir: tmpdir
+        )
+
+        expect(hash1).to be_a(String)
+        expect(hash1.length).to eq(64)
+        expect(hash1).to eq(hash2)
+      end
+    end
+
+    it 'returns different hash when Gemfile.lock content changes' do
+      with_tmpdir do |tmpdir|
+        lockfile_path1 = File.join(tmpdir, 'Gemfile.lock')
+        File.write(lockfile_path1, sample_lockfile_content)
+        hash1 = described_class.calculate_hash(layer: layer, gemfile_lock_path: lockfile_path1, source_dir: tmpdir)
+
+        lockfile_path2 = File.join(tmpdir, 'Gemfile.lock.mod')
+        File.write(lockfile_path2, "#{sample_lockfile_content}\n# modified")
+        hash2 = described_class.calculate_hash(layer: layer, gemfile_lock_path: lockfile_path2, source_dir: tmpdir)
+
+        expect(hash1).not_to eq(hash2)
+      end
+    end
+  end
 end
+
