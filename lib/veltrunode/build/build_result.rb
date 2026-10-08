@@ -10,7 +10,8 @@ module Veltrunode
                   :template_data,
                   :manifest_path,
                   :manifest_data,
-                  :diagnostics
+                  :diagnostics,
+                  :build_logs
 
       def initialize(
         application:,
@@ -20,7 +21,8 @@ module Veltrunode
         template_data:,
         manifest_path:,
         manifest_data:,
-        diagnostics: []
+        diagnostics: [],
+        build_logs: []
       )
         @application = application
         @function_results = Array(function_results).freeze
@@ -30,6 +32,7 @@ module Veltrunode
         @manifest_path = manifest_path.to_s.freeze
         @manifest_data = (manifest_data || {}).freeze
         @diagnostics = Array(diagnostics).freeze
+        @build_logs = Array(build_logs).map(&:to_s).freeze
 
         freeze
       end
@@ -55,7 +58,7 @@ module Veltrunode
             }
           end,
           'layers' => @layer_results.map do |res|
-            {
+            entry = {
               'name' => res.layer_name,
               'zip_path' => res.zip_path,
               'sha256' => res.sha256,
@@ -63,6 +66,11 @@ module Veltrunode
               'bytesize' => res.bytesize,
               'cached' => res.cached?
             }
+            if res.respond_to?(:reused?) && res.reused?
+              entry['reused'] = true
+              entry['layer_version_arn'] = res.layer_version_arn
+            end
+            entry
           end,
           'template' => {
             'path' => @template_path

@@ -12,7 +12,10 @@ module Veltrunode
                   :size_diagnostics,
                   :entries,
                   :diagnostics,
-                  :cached
+                  :cached,
+                  :reused,
+                  :layer_version_arn,
+                  :reuse_decision
 
       def initialize(
         layer_name:,
@@ -24,7 +27,10 @@ module Veltrunode
         size_diagnostics:,
         entries:,
         diagnostics: [],
-        cached: false
+        cached: false,
+        reused: false,
+        layer_version_arn: nil,
+        reuse_decision: nil
       )
         @layer_name = layer_name.to_s.freeze
         @zip_path = zip_path.to_s.freeze
@@ -36,8 +42,15 @@ module Veltrunode
         @entries = Array(entries).map(&:to_s).freeze
         @diagnostics = Array(diagnostics).freeze
         @cached = cached ? true : false
+        @reused = reused ? true : false
+        @layer_version_arn = layer_version_arn&.to_s&.freeze
+        @reuse_decision = reuse_decision
 
         freeze
+      end
+
+      def reused?
+        @reused
       end
 
       def digest

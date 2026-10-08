@@ -74,6 +74,49 @@ module Veltrunode
             cache_dir: cache_dir
           ).package
         end
+
+        def calculate_hash(
+          layer:,
+          gemfile_lock_path: nil,
+          requirements_path: nil,
+          package_json_path: nil,
+          package_lock_path: nil,
+          source_dir: nil,
+          output_dir: DEFAULT_OUTPUT_DIR,
+          without_groups: %w[development test],
+          groups: nil,
+          include_gems: nil,
+          build_image_id: nil,
+          allow_missing_gems: false,
+          allow_missing_packages: nil,
+          build_on: nil,
+          native_builder: NativeBuilder,
+          container_runner: ContainerRunner,
+          includes: nil,
+          excludes: nil,
+          skip_container_build: true
+        )
+          new(
+            layer: layer,
+            gemfile_lock_path: gemfile_lock_path,
+            requirements_path: requirements_path,
+            package_json_path: package_json_path,
+            package_lock_path: package_lock_path,
+            source_dir: source_dir,
+            output_dir: output_dir,
+            without_groups: without_groups,
+            groups: groups,
+            include_gems: include_gems,
+            build_image_id: build_image_id,
+            allow_missing_gems: allow_missing_gems,
+            allow_missing_packages: allow_missing_packages,
+            build_on: build_on,
+            native_builder: native_builder,
+            container_runner: container_runner,
+            includes: includes,
+            excludes: excludes
+          ).calculate_hash(skip_container_build: skip_container_build)
+        end
       end
 
       def initialize(
@@ -118,6 +161,21 @@ module Veltrunode
         @user_excludes = excludes ? Array(excludes).map(&:to_s) : []
         @no_cache = no_cache
         @cache_dir = cache_dir ? File.expand_path(cache_dir.to_s) : File.join(@source_dir, '.veltrunode', 'cache')
+      end
+
+      def calculate_hash(skip_container_build: false)
+        image_digest = skip_container_build ? nil : resolve_container_build_if_needed
+        case layer_runtime_family
+        when :python
+          req_content = read_requirements_file
+          calculate_python_content_hash(req_content, image_digest: image_digest)
+        when :nodejs
+          pkg_content = read_package_json_file
+          calculate_nodejs_content_hash(pkg_content, image_digest: image_digest)
+        else
+          lock_content = read_gemfile_lock
+          calculate_content_hash(lock_content, image_digest: image_digest)
+        end
       end
 
       def package
