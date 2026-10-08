@@ -132,13 +132,15 @@ module Veltrunode
             # ハッシュ不一致または検証不可能な場合は新規発行
             log_reuse_decision(layer_name, decision)
 
-            LayerPackager.package(
+            pkg_opts = {
               layer: layer,
               source_dir: source_dir,
               output_dir: layer_output_dir,
-              no_cache: no_cache,
-              allow_missing_gems: resolve_allow_missing_gems(layer)
-            )
+              no_cache: no_cache
+            }
+            pkg_opts[:allow_missing_gems] = true if resolve_allow_missing_gems(layer)
+
+            LayerPackager.package(**pkg_opts)
           end
         end
 

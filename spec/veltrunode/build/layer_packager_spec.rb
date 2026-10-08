@@ -1296,4 +1296,3 @@ RSpec.describe Veltrunode::Build::LayerPackager do
     end
   end
 end
-
