@@ -393,6 +393,11 @@ module Veltrunode
 
           $stdout.puts "  Template:\n    - #{result.template_path}"
           $stdout.puts "  Manifest:\n    - #{result.manifest_path}"
+
+          if result.respond_to?(:size_diagnostics) && result.size_diagnostics
+            $stdout.puts ''
+            $stdout.puts result.size_diagnostics.to_text
+          end
         end
 
         EXIT_SUCCESS

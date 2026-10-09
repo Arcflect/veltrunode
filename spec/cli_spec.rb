@@ -371,6 +371,45 @@ RSpec.describe Veltrunode::CLI::Router do
         )
         expect(json['data']['template_path']).to end_with('template.yml')
         expect(json['data']['manifest_path']).to end_with('manifest.json')
+        expect(json['data']).to have_key('size_diagnostics')
+        expect(json['data']['size_diagnostics']).to have_key('artifacts')
+        expect(json['data']['size_diagnostics']).to have_key('top_largest_entries')
+        expect(json['data']['size_diagnostics']).to have_key('duplicates')
+        expect(json['data']['size_diagnostics']).to have_key('placement_recommendations')
+      end
+
+      it 'outputs package size diagnostics in text format' do
+        code = run_cli(['build'])
+        expect(code).to eq(0)
+        expect(stdout.string).to include('Package Size Diagnostics:')
+        expect(stdout.string).to include('50.0 MB')
+        expect(stdout.string).to include('250.0 MB')
+        expect(stdout.string).to include('Placement Recommendations:')
+      end
+
+      it 'displays warnings when package size limit is exceeded during build' do
+        warning_diag = Veltrunode::Diagnostics::Diagnostic.new(
+          code: 'VLT-BUILD-SIZE-LIMIT',
+          severity: :warning,
+          summary: "Package 'func1' uncompressed size (260.0 MB) exceeds AWS Lambda limit of 250 MB (104.0%).",
+          suggested_action: 'Move large dependencies to EFS.'
+        )
+        mock_report = instance_double(
+          Veltrunode::Build::SizeDiagnostics::Report,
+          to_text: <<~TEXT.strip,
+            Package Size Diagnostics:
+              Warnings:
+                - [VLT-BUILD-SIZE-LIMIT] Package 'func1' uncompressed size exceeds limit
+          TEXT
+          to_h: { 'diagnostics' => [warning_diag.to_h] },
+          diagnostics: [warning_diag]
+        )
+        allow(Veltrunode::Build::SizeDiagnostics).to receive(:analyze).and_return(mock_report)
+
+        code = run_cli(['build'])
+        expect(code).to eq(0)
+        expect(stdout.string).to include('Package Size Diagnostics:')
+        expect(stdout.string).to include('[VLT-BUILD-SIZE-LIMIT]')
       end
 
       it 'runs build command with --bucket option and invokes S3Uploader' do

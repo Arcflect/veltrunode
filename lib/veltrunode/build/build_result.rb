@@ -11,7 +11,8 @@ module Veltrunode
                   :manifest_path,
                   :manifest_data,
                   :diagnostics,
-                  :build_logs
+                  :build_logs,
+                  :size_diagnostics
 
       def initialize(
         application:,
@@ -22,7 +23,8 @@ module Veltrunode
         manifest_path:,
         manifest_data:,
         diagnostics: [],
-        build_logs: []
+        build_logs: [],
+        size_diagnostics: nil
       )
         @application = application
         @function_results = Array(function_results).freeze
@@ -33,6 +35,7 @@ module Veltrunode
         @manifest_data = (manifest_data || {}).freeze
         @diagnostics = Array(diagnostics).freeze
         @build_logs = Array(build_logs).map(&:to_s).freeze
+        @size_diagnostics = size_diagnostics
 
         freeze
       end
@@ -82,7 +85,7 @@ module Veltrunode
       end
 
       def to_h
-        {
+        res = {
           'status' => 'success',
           'message' => 'Build successful',
           'artifacts' => artifacts,
@@ -91,6 +94,8 @@ module Veltrunode
           'template_path' => @template_path,
           'manifest_path' => @manifest_path
         }
+        res['size_diagnostics'] = @size_diagnostics.to_h if @size_diagnostics.respond_to?(:to_h)
+        res
       end
     end
   end
