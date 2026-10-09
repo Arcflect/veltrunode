@@ -76,6 +76,8 @@ module Veltrunode
           execute_efs_verify
         elsif match_command?('layer inspect')
           execute_layer_inspect
+        elsif match_command?('layer prune') || match_command?('layer cleanup')
+          execute_layer_prune
         elsif match_command?('schedule preview')
           execute_schedule_preview
         else
@@ -177,8 +179,33 @@ module Veltrunode
         # --yes フラグの抽出
         if @argv.include?('--yes') || @argv.include?('-y')
           @options[:yes] = true
+          @options[:confirm] = true
           @argv.delete('--yes')
           @argv.delete('-y')
+        end
+
+        # --confirm フラグの抽出
+        if @argv.include?('--confirm')
+          @options[:confirm] = true
+          @argv.delete('--confirm')
+        end
+
+        # --dry-run フラグの抽出
+        if @argv.include?('--dry-run')
+          @options[:dry_run] = true
+          @argv.delete('--dry-run')
+        end
+
+        # --retain オプションの抽出
+        if (idx = @argv.index('--retain'))
+          if (val = @argv[idx + 1])
+            @options[:retain] = val.to_i
+            @argv.delete_at(idx + 1)
+          end
+          @argv.delete_at(idx)
+        elsif (idx = @argv.find_index { |arg| arg.start_with?('--retain=') })
+          @options[:retain] = @argv[idx].split('=', 2)[1].to_i
+          @argv.delete_at(idx)
         end
 
         # ヘルプフラグの抽出
@@ -918,6 +945,94 @@ module Veltrunode
         $stdout.puts '=' * 80
       end
 
+      def execute_layer_prune
+        @current_command = 'layer prune'
+        name = @argv.first
+        if name.nil? || name.strip.empty?
+          return handle_error('Layer name is required for layer prune.', EXIT_INVALID_INPUT)
+        end
+
+        application = load_application!
+        layer = application.layers.find { |l| l.name == name }
+        unless layer
+          return handle_error("Layer '#{name}' not found in application '#{application.name}'.",
+                              EXIT_INVALID_INPUT)
+        end
+
+        require_relative 'aws/layer_cleaner'
+
+        dry_run = @options[:dry_run] || false
+        retain_limit = @options[:retain]
+        confirm = @options[:confirm] || @options[:yes] || false
+
+        begin
+          report = Veltrunode::AWS::LayerCleaner.prune(
+            application: application,
+            layer_name: name,
+            retain_limit: retain_limit,
+            dry_run: dry_run,
+            confirm: confirm
+          )
+        rescue Veltrunode::AWS::LayerCleaner::ConfirmationRequiredError, StandardError => e
+          return handle_error(e.message, EXIT_INVALID_INPUT)
+        end
+
+        if @options[:format] == :json
+          output_json(
+            command: 'layer prune',
+            status: 'success',
+            diagnostics: [],
+            data: report.to_h
+          )
+        else
+          print_layer_prune_text(report)
+        end
+
+        EXIT_SUCCESS
+      end
+
+      def print_layer_prune_text(report)
+        title = report.dry_run? ? 'Veltrunode Layer Prune Report [DRY-RUN]' : 'Veltrunode Layer Prune Report'
+        $stdout.puts '=' * 80
+        $stdout.puts "  #{title}"
+        $stdout.puts '=' * 80
+        $stdout.puts "Layer Name:           #{report.layer_name}"
+        $stdout.puts "Retention Policy:     Retain latest #{report.retained_limit} version(s)"
+        $stdout.puts "Stage:                #{report.stage || '(default)'}"
+        $stdout.puts "\nSummary:"
+        $stdout.puts "  Total Versions:       #{report.summary['total_versions']}"
+        $stdout.puts "  Retained Versions:    #{report.summary['retained_count']}"
+        $stdout.puts "  Protected References: #{report.summary['referenced_count']}"
+        action_label = report.dry_run? ? 'To Prune (Candidates):' : 'Pruned Versions:      '
+        $stdout.puts "  #{action_label} #{report.summary['pruned_count']}"
+
+        if report.pruned_versions.any?
+          header = report.dry_run? ? "\nPrune Candidates:" : "\nPruned Versions:"
+          $stdout.puts header
+          report.pruned_versions.each do |item|
+            $stdout.puts "  - Version #{item['version']}: #{item['layer_version_arn']} (#{item['created_date']})"
+          end
+        end
+
+        if report.retained_versions.any?
+          $stdout.puts "\nRetained Versions:"
+          report.retained_versions.each do |item|
+            reason_str = if item['status'] == 'retained_as_latest'
+                           'Latest'
+                         else
+                           "Referenced by #{Array(item['references']).join(', ')}"
+                         end
+            $stdout.puts "  - Version #{item['version']} [#{reason_str}]: #{item['layer_version_arn']}"
+          end
+        end
+
+        if report.summary['total_versions'].zero?
+          $stdout.puts "\nNo published versions found for layer '#{report.layer_name}'."
+        end
+
+        $stdout.puts '=' * 80
+      end
+
       def format_bytes(bytes)
         b = bytes.to_i
         if b >= 1_048_576
@@ -1047,6 +1162,9 @@ module Veltrunode
             --event <path>           Path to JSON event file for invoke local
             --bucket <name>          S3 bucket for artifact upload
             --yes, -y                Skip confirmation prompt for protected stage deployments
+            --confirm                Explicitly confirm production cleanup / destroy
+            --dry-run                Perform trial run without changing AWS resources
+            --retain <num>           Number of latest layer versions to keep
 
           Commands:
             init                       # Initialize a new Veltrunode project
@@ -1058,6 +1176,7 @@ module Veltrunode
             destroy                    # Destroy application stack
             efs verify NAME            # Verify EFS access and configuration
             layer inspect NAME         # Inspect Lambda Layer version
+            layer prune NAME           # Prune old Lambda Layer versions
             schedule preview NAME      # Preview future run times for schedule
         HELP
 
@@ -1072,6 +1191,7 @@ module Veltrunode
             { name: 'destroy', description: 'Destroy application stack' },
             { name: 'efs verify NAME', description: 'Verify EFS access and configuration' },
             { name: 'layer inspect NAME', description: 'Inspect Lambda Layer version' },
+            { name: 'layer prune NAME', description: 'Prune old Lambda Layer versions' },
             { name: 'schedule preview NAME', description: 'Preview future run times for schedule' }
           ]
           output_json_success({ 'commands' => commands }, command: 'help')

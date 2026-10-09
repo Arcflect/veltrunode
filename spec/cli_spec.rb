@@ -2,6 +2,7 @@
 
 require 'spec_helper'
 require 'veltrunode/cli'
+require 'veltrunode/aws/layer_cleaner'
 require 'stringio'
 
 RSpec.describe Veltrunode::CLI::Router do
@@ -1173,6 +1174,120 @@ RSpec.describe Veltrunode::CLI::Router do
       expect(code).to eq(0)
       expect(stdout.string).to include('Veltrunode Schedule Preview')
       expect(stdout.string).to include('Schedule:         my-schedule')
+    end
+
+    it 'runs layer prune command with --dry-run' do
+      layer = Veltrunode::Model::Layer.new(
+        name: 'my-layer',
+        compatible_runtimes: ['ruby3.3'],
+        retention_policy: { latest: 3 }
+      )
+      app = Veltrunode::Model::Application.new('test-app', layers: [layer])
+      allow(Veltrunode::SettingsLoader).to receive(:load).and_return(app)
+
+      mock_report = Veltrunode::AWS::LayerCleaner::Report.new(
+        layer_name: 'my-layer',
+        retained_limit: 3,
+        dry_run: true,
+        stage: 'dev',
+        versions: [
+          { 'version' => 4, 'layer_version_arn' => 'arn:aws:layer:4', 'status' => 'retained_as_latest' },
+          { 'version' => 3, 'layer_version_arn' => 'arn:aws:layer:3', 'status' => 'retained_as_latest' },
+          { 'version' => 2, 'layer_version_arn' => 'arn:aws:layer:2', 'status' => 'retained_as_latest' },
+          { 'version' => 1, 'layer_version_arn' => 'arn:aws:layer:1', 'status' => 'to_prune' }
+        ],
+        pruned_versions: [
+          { 'version' => 1, 'layer_version_arn' => 'arn:aws:layer:1', 'created_date' => '2026-10-01' }
+        ],
+        retained_versions: [
+          { 'version' => 4, 'status' => 'retained_as_latest' },
+          { 'version' => 3, 'status' => 'retained_as_latest' },
+          { 'version' => 2, 'status' => 'retained_as_latest' }
+        ],
+        referenced_versions: [],
+        summary: {
+          'total_versions' => 4,
+          'retained_count' => 3,
+          'referenced_count' => 0,
+          'pruned_count' => 1,
+          'dry_run' => true
+        }
+      )
+      allow(Veltrunode::AWS::LayerCleaner).to receive(:prune).and_return(mock_report)
+
+      code = run_cli(%w[layer prune my-layer --dry-run])
+      expect(code).to eq(0)
+      expect(stdout.string).to include('Veltrunode Layer Prune Report [DRY-RUN]')
+      expect(stdout.string).to include('Layer Name:           my-layer')
+      expect(stdout.string).to include('Total Versions:       4')
+      expect(stdout.string).to include('To Prune (Candidates): 1')
+      expect(Veltrunode::AWS::LayerCleaner).to have_received(:prune).with(
+        hash_including(layer_name: 'my-layer', dry_run: true)
+      )
+    end
+
+    it 'runs layer prune command with --format json' do
+      layer = Veltrunode::Model::Layer.new(
+        name: 'my-layer',
+        compatible_runtimes: ['ruby3.3']
+      )
+      app = Veltrunode::Model::Application.new('test-app', layers: [layer])
+      allow(Veltrunode::SettingsLoader).to receive(:load).and_return(app)
+
+      mock_report = Veltrunode::AWS::LayerCleaner::Report.new(
+        layer_name: 'my-layer',
+        retained_limit: 5,
+        dry_run: false,
+        stage: 'dev',
+        versions: [],
+        pruned_versions: [],
+        retained_versions: [],
+        referenced_versions: [],
+        summary: {
+          'total_versions' => 0, 'pruned_count' => 0, 'retained_count' => 0, 'referenced_count' => 0,
+          'dry_run' => false
+        }
+      )
+      allow(Veltrunode::AWS::LayerCleaner).to receive(:prune).and_return(mock_report)
+
+      code = run_cli(%w[layer prune my-layer --format json])
+      expect(code).to eq(0)
+      parsed = JSON.parse(stdout.string)
+      expect(parsed['command']).to eq('layer prune')
+      expect(parsed['status']).to eq('success')
+      expect(parsed['data']['layer_name']).to eq('my-layer')
+    end
+
+    it 'runs layer cleanup alias' do
+      layer = Veltrunode::Model::Layer.new(name: 'my-layer', compatible_runtimes: ['ruby3.3'])
+      app = Veltrunode::Model::Application.new('test-app', layers: [layer])
+      allow(Veltrunode::SettingsLoader).to receive(:load).and_return(app)
+
+      mock_report = Veltrunode::AWS::LayerCleaner::Report.new(
+        layer_name: 'my-layer',
+        retained_limit: 5,
+        dry_run: true,
+        stage: 'dev',
+        versions: [],
+        pruned_versions: [],
+        retained_versions: [],
+        referenced_versions: [],
+        summary: {
+          'total_versions' => 0, 'pruned_count' => 0, 'retained_count' => 0, 'referenced_count' => 0,
+          'dry_run' => true
+        }
+      )
+      allow(Veltrunode::AWS::LayerCleaner).to receive(:prune).and_return(mock_report)
+
+      code = run_cli(%w[layer cleanup my-layer --dry-run])
+      expect(code).to eq(0)
+      expect(stdout.string).to include('Veltrunode Layer Prune Report [DRY-RUN]')
+    end
+
+    it 'fails layer prune when layer name is missing' do
+      code = run_cli(%w[layer prune])
+      expect(code).to eq(2)
+      expect(stderr.string).to include('Layer name is required for layer prune.')
     end
   end
 end
