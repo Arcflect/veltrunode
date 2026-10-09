@@ -161,6 +161,7 @@ module Veltrunode
           append_artifacts_text(lines, 'Layers', layers) unless layers.empty?
           append_artifacts_text(lines, 'Functions', functions) unless functions.empty?
 
+          append_overall_largest_entries_text(lines)
           append_duplicates_text(lines)
           append_recommendations_text(lines)
           append_warnings_text(lines)
@@ -185,11 +186,22 @@ module Veltrunode
 
             next if item.largest_entries.empty?
 
-            lines << '      Top entries:'
-            item.largest_entries.first(5).each_with_index do |entry, idx|
+            lines << '      Top 10 entries:'
+            item.largest_entries.first(10).each_with_index do |entry, idx|
               lines << "        #{idx + 1}. #{entry['path']} (#{SizeDiagnostics.format_bytes(entry['size'])}, " \
                        "#{entry['percentage']}%)"
             end
+          end
+        end
+
+        def append_overall_largest_entries_text(lines)
+          return if largest_entries.empty?
+
+          lines << '  Top 10 Largest Entries (Overall):'
+          largest_entries.first(10).each_with_index do |entry, idx|
+            art_info = entry['artifact_name'] ? " [#{entry['artifact_name']}]" : ''
+            lines << "    #{idx + 1}. #{entry['path']} (#{SizeDiagnostics.format_bytes(entry['size'])}, " \
+                     "#{entry['percentage']}%)#{art_info}"
           end
         end
 
