@@ -21,7 +21,7 @@ RSpec.describe Veltrunode::Build::SizeDiagnostics do
 
   def create_test_zip(path, entries)
     FileUtils.mkdir_p(File.dirname(path))
-    Zip::File.open(path, Zip::File::CREATE) do |zip|
+    Zip::File.open(path, create: true) do |zip|
       entries.each do |name, content|
         zip.get_output_stream(name) { |f| f.write(content) }
       end
