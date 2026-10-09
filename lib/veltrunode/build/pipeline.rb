@@ -7,6 +7,7 @@ require_relative 'function_packager'
 require_relative 'layer_packager'
 require_relative 'layer_reuse_evaluator'
 require_relative 'build_result'
+require_relative 'size_diagnostics'
 require_relative '../compiler/cloudformation'
 require_relative '../compiler/manifest'
 require_relative '../validation/engine'
@@ -173,10 +174,19 @@ module Veltrunode
           output_path: manifest_path
         )
 
+        # 6. Size Diagnostics
+        size_diagnostics = SizeDiagnostics.analyze(
+          application,
+          function_results: function_results,
+          layer_results: layer_results,
+          source_dir: source_dir
+        )
+
         # Combine diagnostics
         all_diagnostics = Array(diagnostics)
         layer_results.each { |res| all_diagnostics.concat(res.diagnostics) if res.respond_to?(:diagnostics) }
         function_results.each { |res| all_diagnostics.concat(res.diagnostics) if res.respond_to?(:diagnostics) }
+        all_diagnostics.concat(size_diagnostics.diagnostics) if size_diagnostics.respond_to?(:diagnostics)
 
         BuildResult.new(
           application: application,
@@ -187,7 +197,8 @@ module Veltrunode
           manifest_path: manifest_path,
           manifest_data: manifest_data,
           diagnostics: all_diagnostics,
-          build_logs: @build_logs
+          build_logs: @build_logs,
+          size_diagnostics: size_diagnostics
         )
       rescue Veltrunode::ValidationError
         raise

@@ -115,6 +115,9 @@ RSpec.describe Veltrunode::Build::Pipeline do
         output_dir: File.join(output_dir, 'artifacts', 'functions'),
         no_cache: false
       )
+
+      expect(result.size_diagnostics).to be_a(Veltrunode::Build::SizeDiagnostics::Report)
+      expect(result.to_h).to have_key('size_diagnostics')
     end
 
     it 'passes no_cache: true to packagers when specified' do
