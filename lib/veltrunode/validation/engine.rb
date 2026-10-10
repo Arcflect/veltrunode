@@ -6,6 +6,7 @@ require_relative '../diagnostics/diagnostic'
 require_relative '../graph/resource_graph'
 require_relative '../build/secret_scanner'
 require_relative '../model/capability_expander'
+require_relative '../model/policy_pack'
 
 module Veltrunode
   module Validation
@@ -224,6 +225,8 @@ module Veltrunode
           p.respond_to?(:applies_to?) && p.applies_to?(application.stage)
         end
 
+        active_policies = [Model::PolicyPack.production(application.stage)] if active_policies.empty? && is_prod
+
         validate_stage_account_constraint(diagnostics, is_prod)
         validate_policy_wildcard_actions(diagnostics, active_policies)
         validate_policy_dlq_requirement(diagnostics, active_policies)
@@ -249,7 +252,10 @@ module Veltrunode
       end
 
       def validate_policy_wildcard_actions(diagnostics, active_policies)
-        return unless active_policies.any?(&:deny_wildcard_actions?)
+        matching_policies = active_policies.select(&:deny_wildcard_actions?)
+        return if matching_policies.empty?
+
+        pack_name = matching_policies.map(&:pack_name).compact.first
 
         expander = Model::CapabilityExpander.new(
           stage: 'dev',
@@ -265,18 +271,21 @@ module Veltrunode
               wildcards = actions.select { |a| a.to_s == '*' || a.to_s.end_with?(':*') }
               next if wildcards.empty?
 
+              ev = {
+                'function' => fn.logical_name,
+                'actions' => wildcards,
+                'stage' => application.stage,
+                'policy_violation' => true
+              }
+              ev['policy_pack'] = pack_name if pack_name
+
               diagnostics << Diagnostics::Diagnostic.new(
                 code: 'VLT-IAM-001',
                 severity: :error,
                 summary: "Wildcard IAM action '#{wildcards.first}' is denied by stage policy " \
                          "for function '#{fn.logical_name}'.",
                 suggested_action: 'Specify explicit IAM actions instead of wildcards.',
-                evidence: {
-                  'function' => fn.logical_name,
-                  'actions' => wildcards,
-                  'stage' => application.stage,
-                  'policy_violation' => true
-                }
+                evidence: ev
               )
             end
           rescue ValidationError => e
@@ -286,11 +295,21 @@ module Veltrunode
       end
 
       def validate_policy_dlq_requirement(diagnostics, active_policies)
-        return unless active_policies.any?(&:require_dlq?)
+        matching_policies = active_policies.select(&:require_dlq?)
+        return if matching_policies.empty?
+
+        pack_name = matching_policies.map(&:pack_name).compact.first
 
         Array(application.schedules).each do |sched|
           dlq_val = sched.respond_to?(:dlq) ? sched.dlq : nil
           next unless dlq_val.nil? || dlq_val.to_s.strip.empty?
+
+          ev = {
+            'schedule' => sched.name,
+            'stage' => application.stage,
+            'policy_violation' => true
+          }
+          ev['policy_pack'] = pack_name if pack_name
 
           diagnostics << Diagnostics::Diagnostic.new(
             code: 'VLT-SCHED-002',
@@ -298,17 +317,16 @@ module Veltrunode
             summary: "Schedule '#{sched.name}' must have a dead-letter queue (DLQ) configured " \
                      "under stage policy for '#{application.stage}'.",
             suggested_action: "Configure a DLQ for schedule '#{sched.name}' to capture failed invocations.",
-            evidence: {
-              'schedule' => sched.name,
-              'stage' => application.stage,
-              'policy_violation' => true
-            }
+            evidence: ev
           )
         end
       end
 
       def validate_policy_log_retention(diagnostics, active_policies)
-        return unless active_policies.any?(&:require_log_retention?)
+        matching_policies = active_policies.select(&:require_log_retention?)
+        return if matching_policies.empty?
+
+        pack_name = matching_policies.map(&:pack_name).compact.first
 
         runtime_defs = if application.respond_to?(:runtime_defaults) && application.runtime_defaults
                          application.runtime_defaults
@@ -319,20 +337,26 @@ module Veltrunode
         retention = defaults_logs && (defaults_logs[:retention_days] || defaults_logs['retention_days'])
         return if retention.to_i.positive?
 
+        ev = {
+          'stage' => application.stage,
+          'policy_violation' => true
+        }
+        ev['policy_pack'] = pack_name if pack_name
+
         diagnostics << Diagnostics::Diagnostic.new(
           code: 'VLT-LOG-001',
           severity: :error,
           summary: "Log retention period must be configured under stage policy for stage '#{application.stage}'.",
           suggested_action: 'Specify retention_days in application defaults (e.g. logs retention_days: 30).',
-          evidence: {
-            'stage' => application.stage,
-            'policy_violation' => true
-          }
+          evidence: ev
         )
       end
 
       def validate_policy_public_storage(diagnostics, active_policies)
-        return unless active_policies.any?(&:deny_public_storage?)
+        matching_policies = active_policies.select(&:deny_public_storage?)
+        return if matching_policies.empty?
+
+        pack_name = matching_policies.map(&:pack_name).compact.first
 
         Array(application.functions).each do |fn|
           Array(fn.iam_capabilities).each do |cap|
@@ -349,16 +373,19 @@ module Veltrunode
                         %w[public-read public-read-write].include?(params[:acl] || params['acl'])
             next unless is_public
 
+            ev = {
+              'function' => fn.logical_name,
+              'stage' => application.stage,
+              'policy_violation' => true
+            }
+            ev['policy_pack'] = pack_name if pack_name
+
             diagnostics << Diagnostics::Diagnostic.new(
               code: 'VLT-IAM-002',
               severity: :error,
               summary: "Public storage access is denied by stage policy for function '#{fn.logical_name}'.",
               suggested_action: "Disable public access for storage capability in stage '#{application.stage}'.",
-              evidence: {
-                'function' => fn.logical_name,
-                'stage' => application.stage,
-                'policy_violation' => true
-              }
+              evidence: ev
             )
           end
         end
