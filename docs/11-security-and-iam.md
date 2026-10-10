@@ -8,30 +8,69 @@
 - 付与されるすべての権限は、plan（計画）およびマニフェストファイルにて視認可能な状態にします。
 - 本番ステージのポリシーでは、アクションに対するワイルドカードの指定、パブリックストレージの使用、ログ保持期間の設定漏れ、および DLQ の未設定に対して拒否（エラー）を設定できます。
 
-## ステージポリシー (Stage Policies)
+## ステージポリシーと本番ポリシーパック (Stage Policies & Production Policy Pack)
 
-ステージ（`production`, `staging` 等）に応じて厳格なセキュリティ要件を強制するための `StagePolicy` を定義できます。バリデーションフェーズにおいてポリシー違反が検出された場合、エラー Diagnostic（`VLT-IAM-001`, `VLT-IAM-002`, `VLT-SCHED-002`, `VLT-LOG-001` 等）が出力され、CLI は終了コード `8`（`EXIT_POLICY_VIOLATION`）で停止します。
+ステージ（`production`, `staging` 等）に応じて厳格なセキュリティ要件を強制するための `StagePolicy` および組み込みの **本番ポリシーパック (Production Policy Pack)** を提供します。
+`production`（または `prod`）ステージでは、デフォルトで本番ポリシーパックが自動適用され、セキュリティのベストプラクティスが強制されます。
 
-### ポリシールール一覧
+バリデーションフェーズにおいてポリシー違反が検出された場合、エラー Diagnostic（`VLT-IAM-001`, `VLT-IAM-002`, `VLT-SCHED-002`, `VLT-LOG-001` 等）および明確な修正ガイド（`Suggested action`）が出力され、CLI は終了コード `8`（`EXIT_POLICY_VIOLATION`）で安全に停止します。
 
-| ルール名 | 設定型 | 説明 |
-| :--- | :--- | :--- |
-| `deny_wildcard_actions` | boolean | IAM アクションに対するワイルドカード（`*`, `:*`）の指定を拒否します |
-| `require_dlq` | boolean | すべてのスケジュール定義に対して DLQ（デッドレターキュー）の指定を必須とします |
-| `require_log_retention` | boolean | CloudWatch Logs のログ保持期間（`retention_days`）の設定を必須とします |
-| `deny_public_storage` | boolean | S3 等のストレージ定義におけるパブリックアクセス設定を拒否します |
+### 本番ポリシーパック (Production Policy Pack) のルール一覧
+
+本番ポリシーパックでは、以下の4つのセキュリティルールがデフォルトで有効化（`true`）されます。
+
+| ルール名 | 設定型 | デフォルト（production） | 説明 | 違反時コード | 修正ガイドの例 |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| `deny_wildcard_actions` | boolean | `true` | IAM アクションに対するワイルドカード（`*`, `:*`）の指定を拒否します | `VLT-IAM-001` | 明示的な IAM アクションを指定する |
+| `require_dlq` | boolean | `true` | すべてのスケジュール定義に対して DLQ（デッドレターキュー）の指定を必須とします | `VLT-SCHED-002` | スケジュールに `dlq`（SQS キュー ARN）を設定する |
+| `require_log_retention` | boolean | `true` | CloudWatch Logs のログ保持期間（`retention_days`）の設定を必須とします | `VLT-LOG-001` | defaults に `logs retention_days: 30` 等を指定する |
+| `deny_public_storage` | boolean | `true` | S3 等のストレージ定義におけるパブリックアクセス設定を拒否します | `VLT-IAM-002` | ストレージのケーパビリティからパブリックアクセス設定を削除する |
 
 ### DSL での設定例
+
+#### 1. 本番ステージでのデフォルト適用（追加設定不要）
+
+`stage "production"` を指定するだけで、本番ポリシーパックが自動的に有効になります。
 
 ```ruby
 Veltrunode.application "my-secure-app" do
   stage "production"
+  account_constraint "123456789012"
+  region "ap-northeast-1"
 
-  stage_policy :production do
+  # defaults でログ保持期間を設定（require_log_retention 準拠）
+  defaults do
+    logs retention_days: 30
+  end
+end
+```
+
+#### 2. ポリシーパックの明示的指定とカスタマイズ (`policy_pack`)
+
+別のステージに本番ポリシーパックを適用したり、特定のルールのみをオーバーライド（例外許可）できます。
+
+```ruby
+Veltrunode.application "staging-secure-app" do
+  stage "staging"
+
+  # staging 環境に本番ポリシーパックを適用しつつ、パブリックストレージのみ例外許可
+  policy_pack :production do
+    deny_public_storage false
+  end
+end
+```
+
+#### 3. カスタムポリシーの定義 (`stage_policy` / `custom_policy`)
+
+ステージごとに独自のポリシールールを定義することも可能です。
+
+```ruby
+Veltrunode.application "custom-app" do
+  stage "qa"
+
+  stage_policy :qa do
     deny_wildcard_actions true
-    require_dlq true
     require_log_retention true
-    deny_public_storage true
   end
 end
 ```
