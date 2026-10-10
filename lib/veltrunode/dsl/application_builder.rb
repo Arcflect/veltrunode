@@ -83,10 +83,11 @@ module Veltrunode
         @schedule_builders << builder
       end
 
-      def stage_policy(stage, deny_wildcard_actions: false, require_dlq: false, require_log_retention: false,
-                       deny_public_storage: false, &)
+      def stage_policy(stage, pack: nil, deny_wildcard_actions: nil, require_dlq: nil,
+                       require_log_retention: nil, deny_public_storage: nil, &)
         builder = StagePolicyBuilder.new(
           stage,
+          pack: pack,
           deny_wildcard_actions: deny_wildcard_actions,
           require_dlq: require_dlq,
           require_log_retention: require_log_retention,
@@ -96,6 +97,12 @@ module Veltrunode
         @policies << builder.build
       end
       alias policy stage_policy
+      alias custom_policy stage_policy
+
+      def policy_pack(name = :production, stage: nil, **, &)
+        target_stage = stage || @stage || name.to_s
+        stage_policy(target_stage, pack: name, **, &)
+      end
 
       def build
         layers = @layer_builders.map(&:build)
@@ -152,14 +159,27 @@ module Veltrunode
     end
 
     class StagePolicyBuilder < BaseBuilder
-      def initialize(stage, deny_wildcard_actions: false, require_dlq: false, require_log_retention: false,
-                     deny_public_storage: false)
+      def initialize(stage, pack: nil, deny_wildcard_actions: nil, require_dlq: nil,
+                     require_log_retention: nil, deny_public_storage: nil)
         super()
         @stage = stage
-        @deny_wildcard_actions = deny_wildcard_actions
-        @require_dlq = require_dlq
-        @require_log_retention = require_log_retention
-        @deny_public_storage = deny_public_storage
+        @pack_name = pack&.to_s
+
+        base_rules = if pack
+                       Model::PolicyPack.builtin(pack).to_rules_hash
+                     else
+                       {
+                         deny_wildcard_actions: false,
+                         require_dlq: false,
+                         require_log_retention: false,
+                         deny_public_storage: false
+                       }
+                     end
+
+        @deny_wildcard_actions = deny_wildcard_actions.nil? ? base_rules[:deny_wildcard_actions] : deny_wildcard_actions
+        @require_dlq = require_dlq.nil? ? base_rules[:require_dlq] : require_dlq
+        @require_log_retention = require_log_retention.nil? ? base_rules[:require_log_retention] : require_log_retention
+        @deny_public_storage = deny_public_storage.nil? ? base_rules[:deny_public_storage] : deny_public_storage
       end
 
       def deny_wildcard_actions(val = true) # rubocop:disable Style/OptionalBooleanParameter
@@ -184,7 +204,8 @@ module Veltrunode
           deny_wildcard_actions: @deny_wildcard_actions,
           require_dlq: @require_dlq,
           require_log_retention: @require_log_retention,
-          deny_public_storage: @deny_public_storage
+          deny_public_storage: @deny_public_storage,
+          pack_name: @pack_name
         )
       end
     end

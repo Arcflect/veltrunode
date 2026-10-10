@@ -207,6 +207,7 @@ RSpec.describe Veltrunode::CLI::Router do
         code = run_cli(['validate'])
         expect(code).to eq(8)
         expect(stdout.string).to include('[ERROR] [VLT-IAM-001] Wildcard IAM action is denied by stage policy.')
+        expect(stdout.string).to include('Suggested action: Specify explicit IAM actions.')
         expect(stderr.string).to include('Validation failed with 1 error(s).')
       end
 

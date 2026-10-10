@@ -499,6 +499,112 @@ RSpec.describe Veltrunode::Validation::Engine do
         expect(storage_error).not_to be_nil
         expect(storage_error.severity).to eq(:error)
       end
+
+      it 'applies built-in production policy pack by default when stage is production and no policy is given' do
+        cap = Veltrunode::Model::Capability.new(
+          type: :custom,
+          params: { actions: ['dynamodb:*'], resources: ['*'] }
+        )
+        storage_cap = Veltrunode::Model::Capability.new(
+          type: :write_to_s3,
+          params: { bucket: 'prod-bucket', public: true }
+        )
+        fn = Veltrunode::Model::Function.new(
+          logical_name: 'prod_fn',
+          handler: 'app.handler',
+          iam_capabilities: [cap, storage_cap]
+        )
+        sched = Veltrunode::Model::Schedule.new(
+          name: 'prod_sched',
+          target_function: 'prod_fn',
+          expression_type: :rate,
+          expression: 'rate(1 hour)'
+        )
+        app = Veltrunode::Model::Application.new(
+          name: 'default-prod-app',
+          stage: 'production',
+          account_constraint: '123456789012',
+          functions: [fn],
+          schedules: [sched]
+        )
+
+        diagnostics = described_class.run(app)
+
+        iam_err = diagnostics.find { |d| d.code == 'VLT-IAM-001' }
+        storage_err = diagnostics.find { |d| d.code == 'VLT-IAM-002' }
+        sched_err = diagnostics.find { |d| d.code == 'VLT-SCHED-002' }
+        log_err = diagnostics.find { |d| d.code == 'VLT-LOG-001' }
+
+        expect(iam_err).not_to be_nil
+        expect(iam_err.evidence['policy_pack']).to eq('production')
+        expect(storage_err).not_to be_nil
+        expect(storage_err.evidence['policy_pack']).to eq('production')
+        expect(sched_err).not_to be_nil
+        expect(sched_err.evidence['policy_pack']).to eq('production')
+        expect(log_err).not_to be_nil
+        expect(log_err.evidence['policy_pack']).to eq('production')
+      end
+
+      it 'allows custom policy in production to override specific rules' do
+        cap = Veltrunode::Model::Capability.new(
+          type: :custom,
+          params: { actions: ['s3:*'], resources: ['*'] }
+        )
+        fn = Veltrunode::Model::Function.new(
+          logical_name: 'custom_fn',
+          handler: 'app.handler',
+          iam_capabilities: [cap]
+        )
+        custom_policy = Veltrunode::Model::StagePolicy.new(
+          :production,
+          deny_wildcard_actions: false,
+          require_dlq: false,
+          require_log_retention: true,
+          deny_public_storage: false
+        )
+        app = Veltrunode::Model::Application.new(
+          name: 'custom-prod-app',
+          stage: 'production',
+          account_constraint: '123456789012',
+          policies: [custom_policy],
+          runtime_defaults: { logs: { retention_days: 30 } },
+          functions: [fn]
+        )
+
+        diagnostics = described_class.run(app)
+        policy_errors = diagnostics.select { |d| d.evidence['policy_violation'] }
+
+        expect(policy_errors).to be_empty
+      end
+
+      it 'does not apply production policy pack by default in non-production stages' do
+        cap = Veltrunode::Model::Capability.new(
+          type: :custom,
+          params: { actions: ['s3:*'], resources: ['*'] }
+        )
+        fn = Veltrunode::Model::Function.new(
+          logical_name: 'dev_fn',
+          handler: 'app.handler',
+          iam_capabilities: [cap]
+        )
+        sched = Veltrunode::Model::Schedule.new(
+          name: 'dev_sched',
+          target_function: 'dev_fn',
+          expression_type: :rate,
+          expression: 'rate(1 hour)'
+        )
+        app = Veltrunode::Model::Application.new(
+          name: 'dev-app',
+          stage: 'dev',
+          functions: [fn],
+          schedules: [sched]
+        )
+
+        diagnostics = described_class.run(app)
+        policy_errors = diagnostics.select { |d| d.evidence['policy_violation'] }
+
+        expect(policy_errors).to be_empty
+      end
     end
 
     it 'deduplicates identical diagnostics produced across validation phases' do
