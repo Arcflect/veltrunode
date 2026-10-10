@@ -7,7 +7,19 @@ module Veltrunode
                   :deny_wildcard_actions,
                   :require_dlq,
                   :require_log_retention,
-                  :deny_public_storage
+                  :deny_public_storage,
+                  :pack_name
+
+      PRODUCTION_RULES = {
+        deny_wildcard_actions: true,
+        require_dlq: true,
+        require_log_retention: true,
+        deny_public_storage: true
+      }.freeze
+
+      def self.production_default(stage = 'production', **overrides)
+        new(stage, pack_name: 'production', **PRODUCTION_RULES.merge(overrides))
+      end
 
       def initialize(
         stage = nil,
@@ -15,7 +27,8 @@ module Veltrunode
         deny_wildcard_actions: false,
         require_dlq: false,
         require_log_retention: false,
-        deny_public_storage: false
+        deny_public_storage: false,
+        pack_name: nil
       )
         target_stage = stage || stage_name
         validate_stage!(target_stage)
@@ -25,6 +38,7 @@ module Veltrunode
         @require_dlq = !require_dlq.nil? && !(!require_dlq)
         @require_log_retention = !require_log_retention.nil? && !(!require_log_retention)
         @deny_public_storage = !deny_public_storage.nil? && !(!deny_public_storage)
+        @pack_name = pack_name ? pack_name.to_s.freeze : nil
 
         freeze
       end
@@ -43,6 +57,15 @@ module Veltrunode
 
       def deny_public_storage?
         @deny_public_storage
+      end
+
+      def to_rules_hash
+        {
+          deny_wildcard_actions: @deny_wildcard_actions,
+          require_dlq: @require_dlq,
+          require_log_retention: @require_log_retention,
+          deny_public_storage: @deny_public_storage
+        }.freeze
       end
 
       def applies_to?(target_stage)

@@ -21,6 +21,7 @@ require_relative 'model/efs_mount'
 require_relative 'model/capability'
 require_relative 'model/capability_expander'
 require_relative 'model/stage_policy'
+require_relative 'model/policy_pack'
 
 module Veltrunode
   module Model
@@ -34,4 +35,5 @@ module Veltrunode
   Capability = Model::Capability
   CapabilityExpander = Model::CapabilityExpander
   StagePolicy = Model::StagePolicy
+  PolicyPack = Model::PolicyPack
 end
