@@ -149,6 +149,60 @@ RSpec.describe Veltrunode::DSL do
       expect(policy.require_log_retention?).to be(false)
       expect(policy.deny_public_storage?).to be(false)
     end
+
+    it 'supports policy_pack DSL with default production pack' do
+      code = <<~RUBY
+        Veltrunode.application "pack-app" do
+          stage "production"
+          policy_pack :production
+        end
+      RUBY
+
+      app = Veltrunode.parse(code)
+      expect(app.policies.size).to eq(1)
+      policy = app.policies.first
+      expect(policy.stage).to eq('production')
+      expect(policy.pack_name).to eq('production')
+      expect(policy.deny_wildcard_actions?).to be(true)
+      expect(policy.require_dlq?).to be(true)
+      expect(policy.require_log_retention?).to be(true)
+      expect(policy.deny_public_storage?).to be(true)
+    end
+
+    it 'supports policy_pack DSL with block overrides' do
+      code = <<~RUBY
+        Veltrunode.application "override-pack-app" do
+          policy_pack :production, stage: :staging do
+            deny_public_storage false
+          end
+        end
+      RUBY
+
+      app = Veltrunode.parse(code)
+      policy = app.policies.first
+      expect(policy.stage).to eq('staging')
+      expect(policy.pack_name).to eq('production')
+      expect(policy.deny_wildcard_actions?).to be(true)
+      expect(policy.require_dlq?).to be(true)
+      expect(policy.require_log_retention?).to be(true)
+      expect(policy.deny_public_storage?).to be(false)
+    end
+
+    it 'supports custom_policy as an alias for custom stage policies' do
+      code = <<~RUBY
+        Veltrunode.application "custom-policy-app" do
+          custom_policy "qa" do
+            require_log_retention true
+          end
+        end
+      RUBY
+
+      app = Veltrunode.parse(code)
+      policy = app.policies.first
+      expect(policy.stage).to eq('qa')
+      expect(policy.require_log_retention?).to be(true)
+      expect(policy.require_dlq?).to be(false)
+    end
   end
 
   describe 'undefined method handling' do
