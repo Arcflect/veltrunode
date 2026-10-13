@@ -2,9 +2,36 @@
 
 ## サポートされるマウントモード (Supported Modes)
 
-1. 既存のアクセスポイントおよび既存のネットワークリソースを使用するモード。
-2. 既存のファイルシステムを使用し、アクセスポイントはVeltrunode側で管理・生成するモード。
-3. 完全に管理されたEFSおよびネットワーク設定を新規生成するモード（初期フェーズ以降に計画）。
+1. **モード1 (Existing Access Point)**: 既存のアクセスポイントおよび既存のネットワークリソースを使用するモード。
+2. **モード2 (Managed Access Point)**: 既存のファイルシステムを使用し、アクセスポイント（`AWS::EFS::AccessPoint`）はVeltrunode側で自動管理・生成するモード。
+3. **モード3 (Fully Managed)**: 完全に管理されたEFSおよびネットワーク設定を新規生成するモード（初期フェーズ以降に計画）。
+
+### モード2: 管理対象アクセスポイント (Managed Access Point) の定義
+
+既存のファイルシステムID（`fs-xxxx`）を指定し、アクセスポイントのPOSIX UID/GIDおよびルートディレクトリ（作成時パーミッション・所有者）を宣言的に管理できます。
+
+```ruby
+efs_mount :shared_data do
+  local_path "/mnt/shared"
+  managed_access_point "fs-0123456789abcdef0" do
+    root_directory path: "/lambda", owner_uid: 1000, owner_gid: 1000, permissions: "0755"
+    posix_user uid: 1000, gid: 1000
+  end
+end
+
+# またはトップレベルDSL
+managed_access_point :workspace, "fs-0123456789abcdef0" do
+  local_path "/mnt/workspace"
+  posix_user uid: 1001, gid: 1001
+end
+```
+
+コンパイル時に以下が自動実行されます：
+- `AWS::EFS::AccessPoint` リソースの生成（POSIXユーザー、RootDirectory.Path、CreationInfo、タグ）
+- Lambda Function の `FileSystemConfigs` への自動紐付け（`Fn::GetAtt: [AccessPointLogicalId, Arn]`）
+- Lambda Function の `DependsOn` へのアクセスポイント依存関係の追加
+- Lambda Execution Role への EFS クライアントIAMポリシー（`elasticfilesystem:ClientMount`, `ClientWrite`）の付与
+- CloudFormation スタックの Outputs への AccessPoint ARN の出力
 
 ## 静的チェック項目 (Static Checks)
 
