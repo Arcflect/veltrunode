@@ -10,7 +10,8 @@ module Veltrunode
                   :local_path,
                   :vpc_expectations,
                   :posix_expectations,
-                  :diagnostic_policy
+                  :diagnostic_policy,
+                  :managed_access_point
 
       alias name symbolic_name
 
@@ -37,17 +38,20 @@ module Veltrunode
 
       def initialize(
         symbolic_name:,
-        access_point_source:,
         local_path:,
+        access_point_source: nil,
+        managed_access_point: nil,
         vpc_expectations: {},
         posix_expectations: {},
         diagnostic_policy: {}
       )
-        validate!(symbolic_name:, access_point_source:, local_path:)
+        resolved_source = access_point_source || (managed_access_point ? symbolic_name : nil)
+        validate!(symbolic_name:, access_point_source: resolved_source, local_path:, managed_access_point:)
 
         @symbolic_name = symbolic_name.to_s.freeze
-        @access_point_source = freeze_value(access_point_source)
+        @access_point_source = freeze_value(resolved_source)
         @local_path = local_path.to_s.freeze
+        @managed_access_point = normalize_managed_access_point(managed_access_point)
         @vpc_expectations = freeze_value(vpc_expectations)
         @posix_expectations = freeze_value(posix_expectations)
         @diagnostic_policy = freeze_value(diagnostic_policy)
@@ -55,15 +59,29 @@ module Veltrunode
         freeze
       end
 
+      def managed_access_point?
+        !@managed_access_point.nil?
+      end
+
       private
 
-      def validate!(symbolic_name:, access_point_source:, local_path:)
+      def validate!(symbolic_name:, access_point_source:, local_path:, managed_access_point: nil)
         raise ValidationError, 'EfsMount symbolic_name is required' if blank?(symbolic_name)
-        raise ValidationError, 'EfsMount access_point_source is required' if blank?(access_point_source)
+        if blank?(access_point_source) && managed_access_point.nil?
+          raise ValidationError, 'EfsMount access_point_source or managed_access_point is required'
+        end
         raise ValidationError, 'EfsMount local_path is required' if blank?(local_path)
 
         validate_local_path!(local_path)
-        validate_access_point_source!(access_point_source)
+        validate_access_point_source!(access_point_source) if access_point_source
+      end
+
+      def normalize_managed_access_point(map)
+        return nil if map.nil?
+        return map if map.is_a?(ManagedAccessPoint)
+        return ManagedAccessPoint.new(**map) if map.is_a?(Hash)
+
+        map
       end
 
       def validate_local_path!(path)
