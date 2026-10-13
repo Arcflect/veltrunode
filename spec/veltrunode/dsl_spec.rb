@@ -367,4 +367,57 @@ RSpec.describe Veltrunode::DSL do
       expect(app.functions.find { |f| f.logical_name == 'handler_fn3' }.runtime).to eq('nodejs18.x')
     end
   end
+
+  describe 'managed_access_point DSL' do
+    it 'supports efs_mount with managed_access_point block' do
+      code = <<~RUBY
+        Veltrunode.application "efs-app" do
+          efs_mount :shared_data do
+            local_path "/mnt/shared"
+            managed_access_point "fs-0123456789abcdef0" do
+              root_directory path: "/lambda", owner_uid: 1000, owner_gid: 1000, permissions: "0755"
+              posix_user uid: 1000, gid: 1000
+            end
+          end
+        end
+      RUBY
+
+      app = Veltrunode.parse(code)
+      expect(app.mounts.size).to eq(1)
+      mount = app.mounts.first
+      expect(mount.symbolic_name).to eq('shared_data')
+      expect(mount.local_path).to eq('/mnt/shared')
+      expect(mount.managed_access_point?).to be(true)
+
+      ap = mount.managed_access_point
+      expect(ap.file_system_id).to eq('fs-0123456789abcdef0')
+      expect(ap.root_directory_path).to eq('/lambda')
+      expect(ap.creation_info).to eq(
+        'owner_uid' => 1000,
+        'owner_gid' => 1000,
+        'permissions' => '0755'
+      )
+      expect(ap.posix_user).to eq('uid' => 1000, 'gid' => 1000)
+    end
+
+    it 'supports top-level managed_access_point method' do
+      code = <<~RUBY
+        Veltrunode.application "top-level-efs-app" do
+          managed_access_point :workspace, "fs-0123456789abcdef0" do
+            local_path "/mnt/workspace"
+            posix_user uid: 1001, gid: 1001
+          end
+        end
+      RUBY
+
+      app = Veltrunode.parse(code)
+      expect(app.mounts.size).to eq(1)
+      mount = app.mounts.first
+      expect(mount.symbolic_name).to eq('workspace')
+      expect(mount.local_path).to eq('/mnt/workspace')
+      expect(mount.managed_access_point?).to be(true)
+      expect(mount.managed_access_point.file_system_id).to eq('fs-0123456789abcdef0')
+      expect(mount.managed_access_point.posix_user).to eq('uid' => 1001, 'gid' => 1001)
+    end
+  end
 end

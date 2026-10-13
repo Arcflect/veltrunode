@@ -67,6 +67,12 @@ module Veltrunode
         @efs_mount_builders << builder
       end
 
+      def managed_access_point(name, file_system_id = nil, **, &)
+        builder = EfsMountBuilder.new(name)
+        builder.managed_access_point(file_system_id, **, &)
+        @efs_mount_builders << builder
+      end
+
       def function(name, &)
         builder = FunctionBuilder.new(
           name,
