@@ -1,0 +1,22 @@
+# frozen_string_literal: true
+
+Veltrunode.application "managed-efs-app" do
+  aws region: "ap-northeast-1", account: "123456789012"
+  runtime ruby: "3.3", architecture: :arm64
+
+  efs_mount :shared_data do
+    local_path "/mnt/shared"
+    managed_access_point "fs-0123456789abcdef0" do
+      root_directory path: "/lambda", owner_uid: 1000, owner_gid: 1000, permissions: "0755"
+      posix_user uid: 1000, gid: 1000
+    end
+  end
+
+  function :processor do
+    handler "app.handler"
+    memory 512
+    timeout 60
+    vpc_reference({ security_group_ids: ["sg-12345678"], subnet_ids: ["subnet-12345678"] })
+    mount :shared_data
+  end
+end
