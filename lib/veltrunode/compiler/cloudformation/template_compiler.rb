@@ -2,6 +2,7 @@
 
 require 'fileutils'
 require 'yaml'
+require_relative 'access_point_compiler'
 require_relative 'function_compiler'
 require_relative 'layer_version_compiler'
 require_relative 'log_group_compiler'
@@ -131,7 +132,23 @@ module Veltrunode
             resources.merge!(queue_res)
           end
 
-          # 3. Compile Functions (Role, LogGroup, Function with DependsOn)
+          # 3. Compile EFS Access Points (AWS::EFS::AccessPoint)
+          mount_nodes = extract_collection(:mounts)
+          mount_map = mount_nodes.each_with_object({}) do |mount, memo|
+            name = extract_name(mount).to_s
+            next if name.strip.empty?
+
+            memo[name] = mount
+          end
+
+          mount_nodes.each do |mount|
+            next unless mount.respond_to?(:managed_access_point?) && mount.managed_access_point?
+
+            ap_res = AccessPointCompiler.compile(mount, context: context)
+            resources.merge!(ap_res)
+          end
+
+          # 4. Compile Functions (Role, LogGroup, Function with DependsOn)
           fn_nodes = extract_collection(:functions)
           layer_ref_map = layer_nodes.each_with_object({}) do |layer, memo|
             name = extract_name(layer).to_s
@@ -144,14 +161,6 @@ module Veltrunode
                          end
           end
           local_layer_names = layer_ref_map.keys.reject { |k| reused_layers_map.key?(k) }
-
-          mount_nodes = extract_collection(:mounts)
-          mount_map = mount_nodes.each_with_object({}) do |mount, memo|
-            name = extract_name(mount).to_s
-            next if name.strip.empty?
-
-            memo[name] = mount
-          end
 
           fn_nodes.each do |fn|
             # Lambda Execution Role
@@ -171,7 +180,7 @@ module Veltrunode
             resources.merge!(log_res)
 
             # Lambda Function with Graph-aware DependsOn
-            depends_on = resolve_function_dependencies(fn, local_layer_names)
+            depends_on = resolve_function_dependencies(fn, local_layer_names, mount_map)
             fn_res = FunctionCompiler.compile(
               fn,
               context: context,
@@ -182,7 +191,7 @@ module Veltrunode
             resources.merge!(fn_res)
           end
 
-          # 4. Compile Schedules (Role, Schedule)
+          # 5. Compile Schedules (Role, Schedule)
           sched_nodes = extract_collection(:schedules)
           sched_nodes.each do |sched|
             role_res = RoleCompiler.compile_scheduler_role(sched, context: context)
@@ -265,10 +274,25 @@ module Veltrunode
             }
           end
 
+          # EFS Access Point Outputs
+          mount_nodes = extract_collection(:mounts)
+          mount_nodes.each do |mount|
+            next unless mount.respond_to?(:managed_access_point?) && mount.managed_access_point?
+
+            mount_name = extract_name(mount)
+            ap_id = AccessPointCompiler.logical_id_for(mount_name)
+
+            outputs["#{ap_id}Arn"] = {
+              'Description' => "ARN of #{mount_name} managed EFS access point",
+              'Value' => { 'Fn::GetAtt' => [ap_id, 'Arn'] },
+              'Export' => { 'Name' => { 'Fn::Sub' => "${AWS::StackName}-#{ap_id}Arn" } }
+            }
+          end
+
           deep_sort_keys(outputs)
         end
 
-        def resolve_function_dependencies(fn, local_layer_names)
+        def resolve_function_dependencies(fn, local_layer_names, mount_map = {})
           fn_name = extract_name(fn)
           fn_id = FunctionCompiler.logical_id_for(fn_name)
 
@@ -281,7 +305,31 @@ module Veltrunode
             deps << LayerVersionCompiler.logical_id_for(l_name) if local_layer_names.include?(l_name)
           end
 
+          # If attached mounts are managed access points, add their AccessPoint logical IDs
+          attached_mounts = fn.respond_to?(:mounts) ? Array(fn.mounts) : []
+          attached_mounts.each do |m_ref|
+            m_name = extract_mount_name(m_ref)
+            next if m_name.nil?
+
+            mount_obj = mount_map[m_name.to_s]
+            if mount_obj.respond_to?(:managed_access_point?) && mount_obj.managed_access_point?
+              deps << AccessPointCompiler.logical_id_for(m_name)
+            end
+          end
+
           deps.uniq.sort
+        end
+
+        def extract_mount_name(m_ref)
+          if m_ref.respond_to?(:symbolic_name)
+            m_ref.symbolic_name
+          elsif m_ref.respond_to?(:name)
+            m_ref.name
+          elsif m_ref.is_a?(Hash)
+            m_ref[:name] || m_ref['name'] || m_ref[:symbolic_name] || m_ref['symbolic_name']
+          else
+            m_ref.to_s.split(':', 2).first
+          end
         end
 
         def discover_generated_queues

@@ -132,12 +132,24 @@ module Veltrunode
           for_lambda_role(name)
         when :scheduler_role
           for_scheduler_role(name)
+        when :access_point
+          for_access_point(name)
         else
           suffix = pascalize(type)
           base = pascalize(name)
           base = suffix if base.empty?
           base.end_with?(suffix) ? base : "#{base}#{suffix}"
         end
+      end
+
+      # EFS AccessPoint の論理IDを生成します（サフィックス: AccessPoint）
+      #
+      # @param name [String, Symbol] アクセスポイント名またはシンボリック名 (例: :shared_data)
+      # @return [String] 論理ID (例: "SharedDataAccessPoint")
+      def for_access_point(name)
+        base = pascalize(name)
+        base = 'AccessPoint' if base.empty?
+        base.end_with?('AccessPoint') ? base : "#{base}AccessPoint"
       end
     end
   end
