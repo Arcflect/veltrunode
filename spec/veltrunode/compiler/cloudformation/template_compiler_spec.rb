@@ -211,6 +211,66 @@ RSpec.describe Veltrunode::Compiler::CloudFormation::TemplateCompiler do
                                          ])
     end
 
+    it 'compiles managed EFS access point, wires Fn::GetAtt into function and role, and sets DependsOn and Outputs' do
+      mount = Veltrunode::Model::EfsMount.new(
+        symbolic_name: 'shared_data',
+        local_path: '/mnt/shared',
+        managed_access_point: {
+          file_system_id: 'fs-0123456789abcdef0',
+          root_directory_path: '/lambda',
+          posix_user: { uid: 1000, gid: 1000 },
+          creation_info: { owner_uid: 1000, owner_gid: 1000, permissions: '0755' }
+        }
+      )
+      fn = Veltrunode::Model::Function.new(
+        logical_name: 'processor',
+        handler: 'app.handler',
+        runtime: 'ruby3.3',
+        vpc_reference: { security_group_ids: ['sg-12345678'], subnet_ids: ['subnet-12345678'] },
+        mounts: [:shared_data]
+      )
+      app = Veltrunode::Model::Application.new(
+        name: 'managed-efs-test-app',
+        region: 'ap-northeast-1',
+        stage: 'dev',
+        mounts: [mount],
+        functions: [fn]
+      )
+
+      result = described_class.compile(app)
+
+      # 1. Access point resource
+      expect(result['Resources']).to have_key('SharedDataAccessPoint')
+      ap_res = result['Resources']['SharedDataAccessPoint']
+      expect(ap_res['Type']).to eq('AWS::EFS::AccessPoint')
+      expect(ap_res['Properties']['FileSystemId']).to eq('fs-0123456789abcdef0')
+      expect(ap_res['Properties']['PosixUser']).to eq({ 'Gid' => '1000', 'Uid' => '1000' })
+
+      # 2. Function FileSystemConfigs and DependsOn
+      fn_res = result['Resources']['ProcessorFunction']
+      expect(fn_res['Properties']['FileSystemConfigs']).to eq([
+                                                                {
+                                                                  'Arn' => { 'Fn::GetAtt' => %w[SharedDataAccessPoint
+                                                                                                Arn] },
+                                                                  'LocalMountPath' => '/mnt/shared'
+                                                                }
+                                                              ])
+      expect(fn_res['DependsOn']).to include('SharedDataAccessPoint')
+
+      # 3. Execution Role IAM Statement
+      role_policies = result['Resources']['ProcessorFunctionRole']['Properties']['Policies']
+      statements = role_policies.first['PolicyDocument']['Statement']
+      efs_stmt = statements.find do |s|
+        s['Action'] == %w[elasticfilesystem:ClientMount elasticfilesystem:ClientWrite]
+      end
+      expect(efs_stmt['Resource']).to eq([{ 'Fn::GetAtt' => %w[SharedDataAccessPoint Arn] }])
+
+      # 4. Outputs
+      expect(result['Outputs']).to have_key('SharedDataAccessPointArn')
+      expect(result['Outputs']['SharedDataAccessPointArn']['Value']).to eq({ 'Fn::GetAtt' => %w[SharedDataAccessPoint
+                                                                                                Arn] })
+    end
+
     it 'passes application region and account to IAM capability expansion in execution role' do
       fn = Veltrunode::Model::Function.new(
         logical_name: 'param_reader',

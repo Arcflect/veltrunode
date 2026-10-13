@@ -18,7 +18,7 @@ S3アーティファクトのアップロード、変更セット（Change Set�
 
 ## フェーズ 4 - アクセスポイントの自動管理 (Phase 4 - Managed Access Points)
 
-任意のEFSアクセスポイント自動作成機能、セキュリティグループ作成ヘルパー、インポートしたインフラ構成との契約管理。
+任意のEFSアクセスポイント自動作成機能（`managed_access_point` DSL、POSIX UID/GID・ルートディレクトリ設定、Lambda自動紐付け）、セキュリティグループ作成ヘルパー、インポートしたインフラ構成との契約管理。
 
 ## 正式リリース基準 (Criteria for Official Release)
 
