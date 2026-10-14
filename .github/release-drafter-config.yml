@@ -10,65 +10,60 @@ tag-template: "v$RESOLVED_VERSION"
 tag-prefix: "v"
 
 # --- バージョン解決ルール ---
-# PRに付与されたラベルに基づいてセマンティックバージョンを自動計算する
-#
-# semver:major  → MAJOR (例: 0.1.0 → 1.0.0)
-# semver:minor  → MINOR (例: 0.1.0 → 0.2.0)
-# semver:patch  → PATCH (例: 0.1.0 → 0.1.1)
-#
 # ラベルが未指定の場合はデフォルトで patch increment
 version-resolver:
-  major:
-    labels:
-      - "semver:major"
-  minor:
-    labels:
-      - "semver:minor"
-      - "type:feature"
-  patch:
-    labels:
-      - "semver:patch"
-      - "type:bugfix"
   default: patch
 
-# --- 除外ラベル（Changelogから除外するPRに付与するラベル） ---
-exclude-labels:
-  - "skip-changelog"
-
-# --- カテゴリ分類 ---
+# --- カテゴリ分類および除外設定 ---
 categories:
+  # --- 除外ラベル（Changelogから除外するPRに付与するラベル） ---
+  - type: "pre-exclude"
+    when:
+      labels:
+        - "skip-changelog"
+
   - title: "💥 Breaking Changes"
-    labels:
-      - "semver:major"
+    semver-increment: "major"
+    when:
+      labels:
+        - "semver:major"
 
   - title: "🚀 Features"
-    labels:
-      - "type:feature"
-      - "semver:minor"
+    semver-increment: "minor"
+    when:
+      labels:
+        - "type:feature"
+        - "semver:minor"
 
   - title: "🐛 Bug Fixes"
-    labels:
-      - "type:bugfix"
-      - "semver:patch"
+    semver-increment: "patch"
+    when:
+      labels:
+        - "type:bugfix"
+        - "semver:patch"
 
   - title: "🧰 Maintenance"
-    labels:
-      - "type:chore"
-      - "area:infra"
-      - "area:ci"
+    when:
+      labels:
+        - "type:chore"
+        - "area:infra"
+        - "area:ci"
 
   - title: "📖 Documentation"
-    labels:
-      - "type:docs"
-      - "area:docs"
+    when:
+      labels:
+        - "type:docs"
+        - "area:docs"
 
   - title: "🔒 Security"
-    labels:
-      - "area:security"
+    when:
+      labels:
+        - "area:security"
 
   - title: "🧪 Testing"
-    labels:
-      - "area:testing"
+    when:
+      labels:
+        - "area:testing"
 
 # --- テンプレート ---
 change-template: "- $TITLE (#$NUMBER) @$AUTHOR"
