@@ -19,6 +19,7 @@ module Veltrunode
       BUILD_SCHEMA_VERSION = '1.0'
 
       RUNTIME_ABI_MAP = {
+        'ruby3.4' => '3.4.0',
         'ruby3.3' => '3.3.0',
         'ruby3.2' => '3.2.0',
         'ruby3.1' => '3.1.0',
