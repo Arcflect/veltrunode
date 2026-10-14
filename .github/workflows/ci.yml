@@ -25,7 +25,7 @@ jobs:
       fail-fast: false
       matrix:
         os:
-          - ubuntu-latest
+          - ubuntu-24.04
           - macos-latest
         ruby:
           - '3.2'
@@ -38,7 +38,7 @@ jobs:
           - 'ruby3.3'
           - 'ruby3.4'
         include:
-          - os: ubuntu-latest
+          - os: ubuntu-24.04
             arch: x86_64
           - os: macos-latest
             arch: arm64
@@ -144,7 +144,7 @@ jobs:
 
   rubocop:
     name: RuboCop
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout code
@@ -163,7 +163,7 @@ jobs:
 
   gem-build:
     name: Gem Build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout code
@@ -188,7 +188,7 @@ jobs:
 
   matrix-summary:
     name: Compatibility Matrix Summary
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [rspec]
     if: always()
     steps:
@@ -210,8 +210,8 @@ jobs:
 
           | 検証軸 | 対象・設定 | 備考 |
           | :--- | :--- | :--- |
-          | **ホストOS** | \`ubuntu-latest\`, \`macos-latest\` | Linux および macOS 環境 |
-          | **CPUアーキテクチャ** | \`x86_64\`, \`arm64\` | ubuntu-latest (x86_64), macos-latest (Apple Silicon arm64) |
+          | **ホストOS** | \`ubuntu-24.04\`, \`macos-latest\` | Linux および macOS 環境 |
+          | **CPUアーキテクチャ** | \`x86_64\`, \`arm64\` | ubuntu-24.04 (x86_64), macos-latest (Apple Silicon arm64) |
           | **Ruby バージョン** | \`3.2\`, \`3.3\`, \`3.4\` | 各安定版 Ruby |
           | **Bundler バージョン** | 最新の 2.x (\`2\`) | \`ruby/setup-ruby\` による自動キャッシュ |
           | **Lambda ランタイム** | \`ruby3.2\`, \`ruby3.3\`, \`ruby3.4\` | AWS Lambda 提供ランタイム |

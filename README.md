@@ -80,7 +80,7 @@ veltrunode efs verify NAME
 
 Pull Request と `main` ブランチへの push では、GitHub Actions の CI が自動実行されます。CI では以下を検証します。
 
-- `rspec`: Ruby 3.2, 3.3, 3.4, 4.0 を `ubuntu-latest` と `macos-latest` のマトリクスで実行
+- `rspec`: Ruby 3.2, 3.3, 3.4 を `ubuntu-24.04` と `macos-latest` のマトリクスで実行
 - `rubocop`: 静的解析の実行
 - `gem-build`: `veltrunode.gemspec` からの Gem ビルド検証
 
