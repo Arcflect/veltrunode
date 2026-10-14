@@ -19,7 +19,7 @@ permissions:
 jobs:
   integration:
     name: E2E Integration Tests (Ubuntu, Ruby 3.4)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout code

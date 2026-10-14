@@ -13,7 +13,7 @@ permissions:
 jobs:
   release-pr:
     if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
       pull-requests: read
@@ -23,12 +23,13 @@ jobs:
         with:
           config-name: release-drafter-config.yml
           publish: false
+          dry-run: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   release-push:
     if: github.event_name == 'push'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       actions: write
       contents: write

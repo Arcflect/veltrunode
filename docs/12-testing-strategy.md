@@ -144,8 +144,8 @@ Veltrunode では、マルチプラットフォームおよび複数のランタ
 
 | 検証軸 | サポート対象・検証バージョン | 説明・備考 |
 | :--- | :--- | :--- |
-| **ホスト OS** | `ubuntu-latest`, `macos-latest` | Linux および macOS の開発者環境・CIランナー環境を網羅 |
-| **ホスト CPU アーキテクチャ** | `x86_64`, `arm64` | `ubuntu-latest`（x86_64）および `macos-latest`（Apple Silicon arm64）で検証 |
+| **ホスト OS** | `ubuntu-24.04`, `macos-latest` | Linux および macOS の開発者環境・CIランナー環境を網羅 |
+| **ホスト CPU アーキテクチャ** | `x86_64`, `arm64` | `ubuntu-24.04`（x86_64）および `macos-latest`（Apple Silicon arm64）で検証 |
 | **Ruby バージョン** | `3.2`, `3.3`, `3.4` | サポート対象の安定版 Ruby 系列（ABI: `3.2.0`, `3.3.0`, `3.4.0`） |
 | **Bundler バージョン** | 最新の `2.x` | `ruby/setup-ruby` の `bundler: 2` 設定により最新の Bundler 2.x を自動導入・キャッシュ |
 | **AWS Lambda ランタイム** | `ruby3.2`, `ruby3.3`, `ruby3.4` | AWS Lambda が提供するマネージド Ruby ランタイム |
@@ -155,7 +155,7 @@ Veltrunode では、マルチプラットフォームおよび複数のランタ
 `.github/workflows/ci.yml` において、`strategy.matrix` により各軸の組み合わせが並列実行されます。
 
 - **フェイルファスト無効化 (`fail-fast: false`)**: いずれかのプラットフォームやランタイムでテストが失敗した場合でも、他のすべてのマトリクスジョブの実行を継続し、全組み合わせの互換性状態を一度に把握可能。
-- **アーキテクチャの明示的割り当て (`include`)**: `ubuntu-latest` に対して `x86_64`、`macos-latest` に対して `arm64` をマッピングし、ランナーが備える CPU アーキテクチャを正確にテストへ伝達。
+- **アーキテクチャの明示的割り当て (`include`)**: `ubuntu-24.04` に対して `x86_64`、`macos-latest` に対して `arm64` をマッピングし、ランナーが備える CPU アーキテクチャを正確にテストへ伝達。
 - **環境変数の受け渡し**: 各ジョブで `VELTRUNODE_TEST_LAMBDA_RUNTIME`（`ruby3.2`, `ruby3.3`, `ruby3.4`）および `VELTRUNODE_TEST_ARCH`（`x86_64`, `arm64`）を設定し、テストスイート（`spec/compatibility_spec.rb`）が対象環境でのモデル生成、ABI 解決、CloudFormation テンプレート生成の整合性を自動検証。
 
 ### テスト結果サマリーの出力
