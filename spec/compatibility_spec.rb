@@ -99,9 +99,7 @@ RSpec.describe 'Compatibility Matrix' do
 
       expect(supported_runtimes).to include(ci_lambda_runtime)
 
-      if ci_arch
-        expect(%w[x86_64 arm64]).to include(ci_arch)
-      end
+      expect(%w[x86_64 arm64]).to include(ci_arch) if ci_arch
 
       # Validate building an app with the exact CI target configuration
       version_str = ci_lambda_runtime.sub(/^ruby/, '')
