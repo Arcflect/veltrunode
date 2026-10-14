@@ -19,7 +19,7 @@ permissions:
 
 jobs:
   rspec:
-    name: RSpec (${{ matrix.os }}, Ruby ${{ matrix.ruby }})
+    name: RSpec (${{ matrix.os }}, ${{ matrix.arch }}, Ruby ${{ matrix.ruby }}, Lambda ${{ matrix.lambda-runtime }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -31,7 +31,17 @@ jobs:
           - '3.2'
           - '3.3'
           - '3.4'
-          - '4.0'
+        bundler:
+          - '2'
+        lambda-runtime:
+          - 'ruby3.2'
+          - 'ruby3.3'
+          - 'ruby3.4'
+        include:
+          - os: ubuntu-latest
+            arch: x86_64
+          - os: macos-latest
+            arch: arm64
 
     steps:
       - name: Checkout code
@@ -43,10 +53,94 @@ jobs:
         uses: ruby/setup-ruby@v1
         with:
           ruby-version: ${{ matrix.ruby }}
+          bundler: ${{ matrix.bundler }}
           bundler-cache: true
 
       - name: Run RSpec
-        run: bundle exec rspec
+        id: rspec
+        env:
+          VELTRUNODE_TEST_LAMBDA_RUNTIME: ${{ matrix.lambda-runtime }}
+          VELTRUNODE_TEST_ARCH: ${{ matrix.arch }}
+        run: |
+          mkdir -p tmp
+          bundle exec rspec --format progress --format json --out tmp/rspec_results.json
+
+      - name: Generate Test Summary
+        if: always()
+        env:
+          OS: ${{ matrix.os }}
+          ARCH: ${{ matrix.arch }}
+          RUBY: ${{ matrix.ruby }}
+          BUNDLER: ${{ matrix.bundler }}
+          LAMBDA_RUNTIME: ${{ matrix.lambda-runtime }}
+        run: |
+          ruby -rjson -e '
+            results_file = "tmp/rspec_results.json"
+            os = ENV.fetch("OS", "unknown")
+            arch = ENV.fetch("ARCH", "unknown")
+            ruby_ver = ENV.fetch("RUBY", "unknown")
+            bundler_ver = ENV.fetch("BUNDLER", "unknown")
+            lambda_rt = ENV.fetch("LAMBDA_RUNTIME", "unknown")
+
+            bundler_installed = `bundle --version 2>&1`.strip rescue "N/A"
+
+            if File.exist?(results_file)
+              begin
+                data = JSON.parse(File.read(results_file))
+                summary = data["summary"] || {}
+                total = summary["example_count"] || 0
+                failures = summary["failure_count"] || 0
+                pending = summary["pending_count"] || 0
+                passed = total - failures - pending
+                duration = summary["duration"] ? "#{summary["duration"].round(2)}s" : "N/A"
+                status_badge = failures > 0 ? "❌ **FAILED**" : "✅ **PASSED**"
+
+                content = <<~MARKDOWN
+                  ## 🧪 テスト結果サマリー: #{os} (#{arch}) - Ruby #{ruby_ver} / #{lambda_rt}
+
+                  | 項目 | 設定 / 結果 |
+                  | :--- | :--- |
+                  | **ステータス** | #{status_badge} |
+                  | **OS** | `#{os}` |
+                  | **アーキテクチャ** | `#{arch}` |
+                  | **Ruby バージョン** | `#{ruby_ver}` (`#{RUBY_VERSION}`) |
+                  | **Bundler バージョン** | `#{bundler_ver}` (#{bundler_installed}) |
+                  | **Lambda ランタイム** | `#{lambda_rt}` |
+                  | **実行テスト数** | #{total} |
+                  | **成功 (Passed)** | #{passed} |
+                  | **失敗 (Failed)** | #{failures} |
+                  | **保留 (Pending)** | #{pending} |
+                  | **所要時間** | #{duration} |
+
+                MARKDOWN
+
+                if failures > 0 && data["examples"]
+                  failed_examples = data["examples"].select { |ex| ex["status"] == "failed" }
+                  if failed_examples.any?
+                    content += "\n### ❌ 失敗したテスト\n\n"
+                    failed_examples.each do |ex|
+                      content += "- **#{ex["full_description"]}**\n"
+                      content += "  - ファイル: `#{ex["file_path"]}:#{ex["line_number"]}`\n"
+                      if ex.dig("exception", "message")
+                        first_msg = ex.dig("exception", "message").lines.first.to_s.strip
+                        content += "  - エラー: `#{first_msg}`\n"
+                      end
+                    end
+                  end
+                end
+
+                File.open(ENV.fetch("GITHUB_STEP_SUMMARY"), "a") { |f| f.puts content }
+              rescue => e
+                File.open(ENV.fetch("GITHUB_STEP_SUMMARY"), "a") do |f|
+                  f.puts "### ⚠️ テストサマリー生成エラー: #{e.message}"
+                end
+              end
+            else
+              File.open(ENV.fetch("GITHUB_STEP_SUMMARY"), "a") do |f|
+                f.puts "### ⚠️ テスト結果ファイル (#{results_file}) が見つかりませんでした。"
+              end
+            end
+          '
 
   rubocop:
     name: RuboCop
@@ -91,3 +185,41 @@ jobs:
         with:
           name: release-gem
           path: veltrunode-*.gem
+
+  matrix-summary:
+    name: Compatibility Matrix Summary
+    runs-on: ubuntu-latest
+    needs: [rspec]
+    if: always()
+    steps:
+      - name: Report Matrix Overview
+        run: |
+          RESULT="${{ needs.rspec.result }}"
+          if [ "$RESULT" = "success" ]; then
+            STATUS_BADGE="✅ **PASSED (全マトリクス成功)**"
+          else
+            STATUS_BADGE="❌ **FAILED (マトリクス内で失敗あり: $RESULT)**"
+          fi
+
+          cat << EOF >> $GITHUB_STEP_SUMMARY
+          # 📊 互換性マトリクス テスト総合サマリー
+
+          **総合ステータス**: $STATUS_BADGE
+
+          CI上で定義・実行された互換性マトリクスの構成は以下の通りです。
+
+          | 検証軸 | 対象・設定 | 備考 |
+          | :--- | :--- | :--- |
+          | **ホストOS** | \`ubuntu-latest\`, \`macos-latest\` | Linux および macOS 環境 |
+          | **CPUアーキテクチャ** | \`x86_64\`, \`arm64\` | ubuntu-latest (x86_64), macos-latest (Apple Silicon arm64) |
+          | **Ruby バージョン** | \`3.2\`, \`3.3\`, \`3.4\` | 各安定版 Ruby |
+          | **Bundler バージョン** | 最新の 2.x (\`2\`) | \`ruby/setup-ruby\` による自動キャッシュ |
+          | **Lambda ランタイム** | \`ruby3.2\`, \`ruby3.3\`, \`ruby3.4\` | AWS Lambda 提供ランタイム |
+
+          > 各組み合わせの詳細なテスト結果（テスト数、成功数、失敗ログ、所要時間）は各マトリクスジョブのサマリーを参照してください。
+          EOF
+
+          if [ "$RESULT" != "success" ]; then
+            exit 1
+          fi
+

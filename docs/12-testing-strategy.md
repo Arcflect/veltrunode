@@ -138,7 +138,47 @@ bundle exec rspec spec/integration/stack_deploy_destroy_spec.rb --tag integratio
 
 ## 互換性マトリクス (Compatibility Matrix)
 
-サポート対象の Ruby バージョン、Bundler バージョン、CPUアーキテクチャ（`x86_64` / `arm64`）、サポート対象の Lambda ランタイム、LinuxおよびmacOSの開発者環境、ならびに CI ランナー環境を対象にテストを実行します。
+Veltrunode では、マルチプラットフォームおよび複数のランタイム環境での安定稼働を保証するため、CI（GitHub Actions）上で互換性マトリクス（Matrix Strategy）を用いた自動テストを実行しています。
+
+### 検証対象マトリクス
+
+| 検証軸 | サポート対象・検証バージョン | 説明・備考 |
+| :--- | :--- | :--- |
+| **ホスト OS** | `ubuntu-latest`, `macos-latest` | Linux および macOS の開発者環境・CIランナー環境を網羅 |
+| **ホスト CPU アーキテクチャ** | `x86_64`, `arm64` | `ubuntu-latest`（x86_64）および `macos-latest`（Apple Silicon arm64）で検証 |
+| **Ruby バージョン** | `3.2`, `3.3`, `3.4` | サポート対象の安定版 Ruby 系列（ABI: `3.2.0`, `3.3.0`, `3.4.0`） |
+| **Bundler バージョン** | 最新の `2.x` | `ruby/setup-ruby` の `bundler: 2` 設定により最新の Bundler 2.x を自動導入・キャッシュ |
+| **AWS Lambda ランタイム** | `ruby3.2`, `ruby3.3`, `ruby3.4` | AWS Lambda が提供するマネージド Ruby ランタイム |
+
+### CI（GitHub Actions）でのマトリクス実行仕様
+
+`.github/workflows/ci.yml` において、`strategy.matrix` により各軸の組み合わせが並列実行されます。
+
+- **フェイルファスト無効化 (`fail-fast: false`)**: いずれかのプラットフォームやランタイムでテストが失敗した場合でも、他のすべてのマトリクスジョブの実行を継続し、全組み合わせの互換性状態を一度に把握可能。
+- **アーキテクチャの明示的割り当て (`include`)**: `ubuntu-latest` に対して `x86_64`、`macos-latest` に対して `arm64` をマッピングし、ランナーが備える CPU アーキテクチャを正確にテストへ伝達。
+- **環境変数の受け渡し**: 各ジョブで `VELTRUNODE_TEST_LAMBDA_RUNTIME`（`ruby3.2`, `ruby3.3`, `ruby3.4`）および `VELTRUNODE_TEST_ARCH`（`x86_64`, `arm64`）を設定し、テストスイート（`spec/compatibility_spec.rb`）が対象環境でのモデル生成、ABI 解決、CloudFormation テンプレート生成の整合性を自動検証。
+
+### テスト結果サマリーの出力
+
+テスト結果を素早く確認できるよう、以下の2階層でサマリーを提供します。
+
+1. **個別ジョブサマリー (`$GITHUB_STEP_SUMMARY`)**:
+   - 各マトリクスジョブ完了時、実行された OS・アーキテクチャ・Ruby・Bundler・Lambda ランタイムと、テスト総数、成功数、失敗数、保留数、所要時間を Markdown テーブル形式で出力。
+   - 失敗が発生した場合は、対象のテストケース名・ファイルパス・エラーメッセージを自動抽出してリスト表示。
+2. **全体集約サマリージョブ (`matrix-summary`)**:
+   - 全マトリクスの実行完了後に動作し、全体の成否ステータスおよび対象マトリクス一覧をサマリーとして可視化。
+
+### ローカル環境でのマトリクス検証
+
+ローカル開発環境でも、環境変数を指定することで特定のマトリクス条件をエミュレートしてテストを実行できます。
+
+```bash
+# Ruby 3.4 / arm64 向けの互換性テストを実行
+VELTRUNODE_TEST_LAMBDA_RUNTIME=ruby3.4 VELTRUNODE_TEST_ARCH=arm64 bundle exec rspec spec/compatibility_spec.rb
+
+# Ruby 3.2 / x86_64 向けの互換性テストを実行
+VELTRUNODE_TEST_LAMBDA_RUNTIME=ruby3.2 VELTRUNODE_TEST_ARCH=x86_64 bundle exec rspec spec/compatibility_spec.rb
+```
 
 ## リリース基準 (Release Gates)
 
