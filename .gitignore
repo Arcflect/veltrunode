@@ -20,3 +20,6 @@ Thumbs.db
 
 # cache
 .veltrunode/
+
+# Temporary files
+/tmp/
