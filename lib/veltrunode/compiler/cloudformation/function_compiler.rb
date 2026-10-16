@@ -162,16 +162,56 @@ module Veltrunode
           end
 
           sg_ids = vpc_ref[:security_group_ids] || vpc_ref['security_group_ids'] || vpc_ref['SecurityGroupIds']
+          if sg_ids.nil?
+            sg_ref = vpc_ref[:security_group] || vpc_ref['security_group'] ||
+                     vpc_ref[:security_groups] || vpc_ref['security_groups']
+            sg_ids = sg_ref if sg_ref
+          end
+
           sub_ids = vpc_ref[:subnet_ids] || vpc_ref['subnet_ids'] || vpc_ref['SubnetIds']
+
+          # 自動補完: sg_ids が未指定で context[:security_groups] が存在する場合
+          sgs_in_context = context[:security_groups] || context['security_groups']
+          if (sg_ids.nil? || (sg_ids.respond_to?(:empty?) && sg_ids.empty?)) && sgs_in_context
+            matching_sgs = Array(sgs_in_context)
+            if !matching_sgs.empty?
+              sg_name = matching_sgs.first.respond_to?(:symbolic_name) ? matching_sgs.first.symbolic_name : matching_sgs.first
+              sg_ids = [{ 'Ref' => LogicalId.for_lambda_security_group(sg_name) }]
+            end
+          end
 
           cfg = {}
           if sg_ids
-            cfg['SecurityGroupIds'] = sg_ids.is_a?(Hash) ? sg_ids : Array(sg_ids).map(&:to_s)
+            cfg['SecurityGroupIds'] = format_security_group_ids(sg_ids)
           end
           if sub_ids
             cfg['SubnetIds'] = sub_ids.is_a?(Hash) ? sub_ids : Array(sub_ids).map(&:to_s)
           end
           cfg
+        end
+
+        def format_security_group_ids(sg_ids)
+          return sg_ids if sg_ids.is_a?(Hash)
+
+          Array(sg_ids).map do |id|
+            if id.is_a?(Hash)
+              id
+            elsif id.respond_to?(:name)
+              base = LogicalId.pascalize(id.name)
+              ref_name = base.end_with?('SecurityGroup') ? base : "#{base}LambdaSecurityGroup"
+              { 'Ref' => ref_name }
+            elsif id.is_a?(Symbol)
+              base = LogicalId.pascalize(id)
+              ref_name = base.end_with?('SecurityGroup') ? base : "#{base}LambdaSecurityGroup"
+              { 'Ref' => ref_name }
+            elsif id.to_s.start_with?('sg-')
+              id.to_s
+            elsif id.to_s.end_with?('SecurityGroup')
+              { 'Ref' => id.to_s }
+            else
+              id.to_s
+            end
+          end
         end
 
         def format_layers(layers_array)
