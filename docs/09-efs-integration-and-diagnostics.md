@@ -33,6 +33,34 @@ end
 - Lambda Execution Role への EFS クライアントIAMポリシー（`elasticfilesystem:ClientMount`, `ClientWrite`）の付与
 - CloudFormation スタックの Outputs への AccessPoint ARN の出力
 
+### セキュリティグループ作成ヘルパー (Security Group Helper)
+
+Lambda 関数と EFS 間の NFS 通信に必要なセキュリティグループおよび通信許可ルール（TCP 2049）を自動生成できます。
+
+```ruby
+# トップレベルDSL
+security_group_helper :shared_storage do
+  vpc_id ref(:vpc_id) # パラメータ参照または既存リソース "vpc-xxxx"
+  description "Security groups for shared storage" # 任意
+end
+
+# または efs_mount 内での定義
+efs_mount :shared_data do
+  local_path "/mnt/shared"
+  managed_access_point "fs-0123456789abcdef0"
+  security_group_helper vpc_id: "vpc-0123456789abcdef0"
+end
+```
+
+コンパイル時に以下が自動実行されます：
+- Lambda 側セキュリティグループ (`AWS::EC2::SecurityGroup`) の生成
+- EFS 側セキュリティグループ (`AWS::EC2::SecurityGroup`) の生成
+- Lambda → EFS: TCP 2049（NFS）アウトバウンド（Egress）許可ルール (`AWS::EC2::SecurityGroupEgress`) の生成
+- EFS ← Lambda: TCP 2049（NFS）インバウンド（Ingress）許可ルール (`AWS::EC2::SecurityGroupIngress`) の生成
+- VPC ID のパラメータ参照（`Ref: VpcId`）または既存リソース参照（リテラル `vpc-xxxx`、`Fn::ImportValue` 等）の解決
+- Lambda Function の `VpcConfig.SecurityGroupIds` への自動紐付け
+- CloudFormation スタックの Outputs への各セキュリティグループ ID の出力
+
 ## 静的チェック項目 (Static Checks)
 
 - ローカルのマウントパスが `/mnt/` で始まっていること。
