@@ -134,6 +134,14 @@ module Veltrunode
           for_scheduler_role(name)
         when :access_point
           for_access_point(name)
+        when :lambda_security_group
+          for_lambda_security_group(name)
+        when :efs_security_group
+          for_efs_security_group(name)
+        when :security_group_ingress
+          for_security_group_ingress(name)
+        when :security_group_egress
+          for_security_group_egress(name)
         else
           suffix = pascalize(type)
           base = pascalize(name)
@@ -150,6 +158,56 @@ module Veltrunode
         base = pascalize(name)
         base = 'AccessPoint' if base.empty?
         base.end_with?('AccessPoint') ? base : "#{base}AccessPoint"
+      end
+
+      # Lambda 側 SecurityGroup の論理IDを生成します
+      #
+      # @param name [String, Symbol] シンボリック名 (例: :storage, :default)
+      # @return [String] 論理ID (例: "StorageLambdaSecurityGroup", "LambdaSecurityGroup")
+      def for_lambda_security_group(name)
+        base = pascalize(name)
+        return 'LambdaSecurityGroup' if base.empty? || base == 'Default'
+        return base if base.end_with?('LambdaSecurityGroup')
+
+        "#{base}LambdaSecurityGroup"
+      end
+
+      # EFS 側 SecurityGroup の論理IDを生成します
+      #
+      # @param name [String, Symbol] シンボリック名 (例: :storage, :default)
+      # @return [String] 論理ID (例: "StorageEfsSecurityGroup", "EfsSecurityGroup")
+      def for_efs_security_group(name)
+        base = pascalize(name)
+        return 'EfsSecurityGroup' if base.empty? || base == 'Default' || base == 'Efs'
+        return base if base.end_with?('EfsSecurityGroup')
+
+        if base.end_with?('SecurityGroup')
+          "#{base.sub(/SecurityGroup\z/, '')}EfsSecurityGroup"
+        else
+          "#{base}EfsSecurityGroup"
+        end
+      end
+
+      # EFS SecurityGroup Ingress ルールの論理IDを生成します
+      #
+      # @param name [String, Symbol] シンボリック名 (例: :storage, :default)
+      # @return [String] 論理ID (例: "StorageEfsSecurityGroupIngress", "EfsSecurityGroupIngress")
+      def for_security_group_ingress(name)
+        base = pascalize(name)
+        return 'EfsSecurityGroupIngress' if base.empty? || base == 'Default' || base == 'Efs'
+
+        "#{base}EfsSecurityGroupIngress"
+      end
+
+      # Lambda SecurityGroup Egress ルールの論理IDを生成します
+      #
+      # @param name [String, Symbol] シンボリック名 (例: :storage, :default)
+      # @return [String] 論理ID (例: "StorageLambdaSecurityGroupEgress", "LambdaSecurityGroupEgress")
+      def for_security_group_egress(name)
+        base = pascalize(name)
+        return 'LambdaSecurityGroupEgress' if base.empty? || base == 'Default' || base == 'Efs'
+
+        "#{base}LambdaSecurityGroupEgress"
       end
     end
   end

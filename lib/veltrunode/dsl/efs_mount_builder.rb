@@ -2,6 +2,7 @@
 
 require_relative 'base_builder'
 require_relative 'managed_access_point_builder'
+require_relative 'security_group_helper_builder'
 require_relative '../model/efs_mount'
 
 module Veltrunode
@@ -12,6 +13,7 @@ module Veltrunode
         @symbolic_name = symbolic_name.to_s
         @access_point_source = nil
         @managed_access_point = nil
+        @security_group_helper = nil
         @local_path = nil
         @vpc_expectations = {}
         @posix_expectations = {}
@@ -86,11 +88,30 @@ module Veltrunode
         @diagnostic_policy = hash
       end
 
+      def security_group_helper(name = nil, vpc_id: nil, **, &)
+        builder = if name.is_a?(Hash)
+                    opts = name
+                    target_name = @symbolic_name
+                    target_vpc_id = opts[:vpc_id] || opts['vpc_id']
+                    extra_opts = opts.reject { |k, _| k.to_s == 'vpc_id' }
+                    SecurityGroupHelperBuilder.new(target_name, vpc_id: target_vpc_id, **extra_opts)
+                  else
+                    target_name = name || @symbolic_name
+                    SecurityGroupHelperBuilder.new(target_name, vpc_id: vpc_id, **)
+                  end
+        builder.instance_eval(&) if block_given?
+        @security_group_helper = builder.build
+        @security_group_helper
+      end
+      alias efs_security_groups security_group_helper
+      alias efs_security_group security_group_helper
+
       def build
         Model::EfsMount.new(
           symbolic_name: @symbolic_name,
           access_point_source: @access_point_source || @symbolic_name,
           managed_access_point: @managed_access_point,
+          security_group_helper: @security_group_helper,
           local_path: @local_path,
           vpc_expectations: @vpc_expectations,
           posix_expectations: @posix_expectations,

@@ -420,4 +420,75 @@ RSpec.describe Veltrunode::DSL do
       expect(mount.managed_access_point.posix_user).to eq('uid' => 1001, 'gid' => 1001)
     end
   end
+
+  describe 'security_group_helper DSL' do
+    it 'supports top-level security_group_helper block definition' do
+      code = <<~RUBY
+        Veltrunode.application "sg-app" do
+          security_group_helper :storage do
+            vpc_id "vpc-0123456789abcdef0"
+            description "EFS security group pair"
+            tags Environment: "production"
+          end
+        end
+      RUBY
+
+      app = Veltrunode.parse(code)
+      expect(app.security_groups.size).to eq(1)
+      sg = app.security_groups.first
+      expect(sg.symbolic_name).to eq(:storage)
+      expect(sg.vpc_id).to eq('vpc-0123456789abcdef0')
+      expect(sg.description).to eq('EFS security group pair')
+      expect(sg.tags).to eq('Environment' => 'production')
+    end
+
+    it 'supports top-level security_group_helper with hash arguments and ref' do
+      code = <<~RUBY
+        Veltrunode.application "sg-app" do
+          security_group_helper vpc_id: ref(:vpc_id)
+        end
+      RUBY
+
+      app = Veltrunode.parse(code)
+      expect(app.security_groups.size).to eq(1)
+      sg = app.security_groups.first
+      expect(sg.symbolic_name).to eq(:default)
+      expect(sg.vpc_id).to eq(Veltrunode::DSL::Reference.new(:vpc_id))
+    end
+
+    it 'supports efs_security_groups alias' do
+      code = <<~RUBY
+        Veltrunode.application "sg-app" do
+          efs_security_groups :storage, vpc_id: "vpc-12345678"
+        end
+      RUBY
+
+      app = Veltrunode.parse(code)
+      expect(app.security_groups.size).to eq(1)
+      expect(app.security_groups.first.symbolic_name).to eq(:storage)
+      expect(app.security_groups.first.vpc_id).to eq('vpc-12345678')
+    end
+
+    it 'supports security_group_helper within efs_mount block and collects to application' do
+      code = <<~RUBY
+        Veltrunode.application "mount-sg-app" do
+          efs_mount :shared_data do
+            local_path "/mnt/shared"
+            existing_access_point arn: "arn:aws:elasticfilesystem:ap-northeast-1:123456789012:access-point/fsap-0123456789abcdef0"
+            security_group_helper vpc_id: "vpc-98765432"
+          end
+        end
+      RUBY
+
+      app = Veltrunode.parse(code)
+      mount = app.mounts.first
+      expect(mount.security_group_helper?).to be(true)
+      expect(mount.security_group_helper.symbolic_name).to eq(:shared_data)
+      expect(mount.security_group_helper.vpc_id).to eq('vpc-98765432')
+
+      expect(app.security_groups.size).to eq(1)
+      expect(app.security_groups.first.symbolic_name).to eq(:shared_data)
+      expect(app.security_groups.first.vpc_id).to eq('vpc-98765432')
+    end
+  end
 end

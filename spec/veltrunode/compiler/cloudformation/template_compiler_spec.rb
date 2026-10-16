@@ -428,5 +428,69 @@ RSpec.describe Veltrunode::Compiler::CloudFormation::TemplateCompiler do
                                              RuntimeGemsLayerVersionArn
                                            ])
     end
+
+    it 'compiles security groups and wires them to Lambda function VpcConfig when security_group_helper is used' do
+      sg_code = <<~RUBY
+        Veltrunode.application "efs-sg-app" do
+          aws region: "ap-northeast-1", account: "123456789012"
+          runtime ruby: "3.3"
+
+          security_group_helper :storage do
+            vpc_id ref(:vpc_id)
+          end
+
+          efs_mount :shared_data do
+            local_path "/mnt/shared"
+            managed_access_point "fs-0123456789abcdef0"
+          end
+
+          function :processor do
+            handler "app.handler"
+            vpc_reference subnet_ids: ["subnet-12345678"]
+            mount :shared_data
+          end
+        end
+      RUBY
+
+      app = Veltrunode.parse(sg_code)
+      yaml_output = described_class.to_yaml(app)
+      parsed = YAML.safe_load(yaml_output)
+
+      # Parameters auto-discovery
+      expected_vpc_param = {
+        'Description' => 'VPC ID for EFS and Lambda security groups',
+        'Type' => 'AWS::EC2::VPC::Id'
+      }
+      expect(parsed['Parameters']['VpcId']).to eq(expected_vpc_param)
+
+      # Resources
+      resources = parsed['Resources']
+      expect(resources).to have_key('StorageLambdaSecurityGroup')
+      expect(resources).to have_key('StorageEfsSecurityGroup')
+      expect(resources).to have_key('StorageEfsSecurityGroupIngress')
+      expect(resources).to have_key('StorageLambdaSecurityGroupEgress')
+      expect(resources).to have_key('SharedDataAccessPoint')
+
+      # Egress/Ingress rules
+      ingress = resources['StorageEfsSecurityGroupIngress']
+      expect(ingress['Properties']['GroupId']).to eq({ 'Ref' => 'StorageEfsSecurityGroup' })
+      expect(ingress['Properties']['SourceSecurityGroupId']).to eq({ 'Ref' => 'StorageLambdaSecurityGroup' })
+      expect(ingress['Properties']['FromPort']).to eq(2049)
+
+      egress = resources['StorageLambdaSecurityGroupEgress']
+      expect(egress['Properties']['GroupId']).to eq({ 'Ref' => 'StorageLambdaSecurityGroup' })
+      expect(egress['Properties']['DestinationSecurityGroupId']).to eq({ 'Ref' => 'StorageEfsSecurityGroup' })
+      expect(egress['Properties']['FromPort']).to eq(2049)
+
+      # Lambda function VpcConfig auto wiring
+      fn = resources['ProcessorFunction']
+      expect(fn['Properties']['VpcConfig']['SecurityGroupIds']).to eq([{ 'Ref' => 'StorageLambdaSecurityGroup' }])
+      expect(fn['Properties']['VpcConfig']['SubnetIds']).to eq(['subnet-12345678'])
+
+      # Outputs
+      outputs = parsed['Outputs']
+      expect(outputs).to have_key('StorageLambdaSecurityGroupId')
+      expect(outputs).to have_key('StorageEfsSecurityGroupId')
+    end
   end
 end

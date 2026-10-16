@@ -23,6 +23,7 @@ module Veltrunode
         @layer_builders = []
         @schedule_builders = []
         @efs_mount_builders = []
+        @security_group_builders = []
         @policies = []
         @tags = {}
       end
@@ -73,6 +74,24 @@ module Veltrunode
         @efs_mount_builders << builder
       end
 
+      def security_group_helper(name = nil, vpc_id: nil, **, &)
+        builder = if name.is_a?(Hash)
+                    opts = name
+                    target_name = :default
+                    target_vpc_id = opts[:vpc_id] || opts['vpc_id']
+                    extra_opts = opts.reject { |k, _| k.to_s == 'vpc_id' }
+                    SecurityGroupHelperBuilder.new(target_name, vpc_id: target_vpc_id, **extra_opts)
+                  else
+                    target_name = name || :default
+                    SecurityGroupHelperBuilder.new(target_name, vpc_id: vpc_id, **)
+                  end
+        builder.instance_eval(&) if block_given?
+        @security_group_builders << builder
+        builder
+      end
+      alias efs_security_groups security_group_helper
+      alias efs_security_group security_group_helper
+
       def function(name, &)
         builder = FunctionBuilder.new(
           name,
@@ -116,6 +135,10 @@ module Veltrunode
         functions = @function_builders.map(&:build)
         schedules = @schedule_builders.map(&:build)
 
+        mount_sgs = mounts.map(&:security_group_helper).compact
+        explicit_sgs = @security_group_builders.map(&:build)
+        all_sgs = (explicit_sgs + mount_sgs).uniq(&:symbolic_name)
+
         Model::Application.new(
           name: @name,
           region: @region,
@@ -127,6 +150,7 @@ module Veltrunode
           layers: layers,
           schedules: schedules,
           mounts: mounts,
+          security_groups: all_sgs,
           policies: @policies,
           tags: @tags
         )

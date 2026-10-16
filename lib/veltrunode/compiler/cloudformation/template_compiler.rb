@@ -9,6 +9,7 @@ require_relative 'log_group_compiler'
 require_relative 'queue_compiler'
 require_relative 'role_compiler'
 require_relative 'schedule_compiler'
+require_relative 'security_group_compiler'
 require_relative '../../graph/resource_graph'
 require_relative '../../version'
 
@@ -107,6 +108,19 @@ module Veltrunode
             params[k.to_s] = param_def
           end
 
+          # Include referenced VPC ID parameters from security group helpers
+          sg_nodes = extract_collection(:security_groups)
+          sg_nodes.each do |sg|
+            v_id = extract_vpc_id_from_sg(sg)
+            param_key = resolve_vpc_param_key(v_id)
+            next if param_key.nil? || params.key?(param_key)
+
+            params[param_key] = {
+              'Description' => 'VPC ID for EFS and Lambda security groups',
+              'Type' => 'AWS::EC2::VPC::Id'
+            }
+          end
+
           deep_sort_keys(params)
         end
 
@@ -148,7 +162,14 @@ module Veltrunode
             resources.merge!(ap_res)
           end
 
-          # 4. Compile Functions (Role, LogGroup, Function with DependsOn)
+          # 4. Compile Security Groups (AWS::EC2::SecurityGroup, Ingress, Egress)
+          sg_nodes = extract_collection(:security_groups)
+          sg_nodes.each do |sg|
+            sg_res = SecurityGroupCompiler.compile(sg, context: context)
+            resources.merge!(sg_res)
+          end
+
+          # 5. Compile Functions (Role, LogGroup, Function with DependsOn)
           fn_nodes = extract_collection(:functions)
           layer_ref_map = layer_nodes.each_with_object({}) do |layer, memo|
             name = extract_name(layer).to_s
@@ -183,7 +204,7 @@ module Veltrunode
             depends_on = resolve_function_dependencies(fn, local_layer_names, mount_map)
             fn_res = FunctionCompiler.compile(
               fn,
-              context: context,
+              context: context.merge(security_groups: sg_nodes),
               depends_on: depends_on,
               layer_map: layer_ref_map,
               mount_map: mount_map
@@ -191,7 +212,7 @@ module Veltrunode
             resources.merge!(fn_res)
           end
 
-          # 5. Compile Schedules (Role, Schedule)
+          # 6. Compile Schedules (Role, Schedule)
           sched_nodes = extract_collection(:schedules)
           sched_nodes.each do |sched|
             role_res = RoleCompiler.compile_scheduler_role(sched, context: context)
@@ -286,6 +307,26 @@ module Veltrunode
               'Description' => "ARN of #{mount_name} managed EFS access point",
               'Value' => { 'Fn::GetAtt' => [ap_id, 'Arn'] },
               'Export' => { 'Name' => { 'Fn::Sub' => "${AWS::StackName}-#{ap_id}Arn" } }
+            }
+          end
+
+          # Security Group Outputs
+          sg_nodes = extract_collection(:security_groups)
+          sg_nodes.each do |sg|
+            sg_name = extract_name(sg)
+            lambda_sg_id = SecurityGroupCompiler.lambda_security_group_id_for(sg_name)
+            efs_sg_id = SecurityGroupCompiler.efs_security_group_id_for(sg_name)
+
+            outputs["#{lambda_sg_id}Id"] = {
+              'Description' => "Security group ID of #{sg_name} Lambda function",
+              'Value' => { 'Ref' => lambda_sg_id },
+              'Export' => { 'Name' => { 'Fn::Sub' => "${AWS::StackName}-#{lambda_sg_id}Id" } }
+            }
+
+            outputs["#{efs_sg_id}Id"] = {
+              'Description' => "Security group ID of #{sg_name} EFS mount target",
+              'Value' => { 'Ref' => efs_sg_id },
+              'Export' => { 'Name' => { 'Fn::Sub' => "${AWS::StackName}-#{efs_sg_id}Id" } }
             }
           end
 
@@ -442,6 +483,25 @@ module Veltrunode
           hash.each_with_object({}) do |(k, v), memo|
             memo[k.to_s] = v
           end.freeze
+        end
+
+        def extract_vpc_id_from_sg(sg)
+          if sg.respond_to?(:vpc_id)
+            sg.vpc_id
+          elsif sg.is_a?(Hash)
+            sg[:vpc_id] || sg['vpc_id']
+          end
+        end
+
+        def resolve_vpc_param_key(v_id)
+          if v_id.is_a?(Hash) && v_id['Ref']
+            v_id['Ref'].to_s
+          elsif v_id.respond_to?(:name) || v_id.is_a?(Symbol)
+            name = v_id.respond_to?(:name) ? v_id.name : v_id
+            LogicalId.pascalize(name)
+          elsif v_id.is_a?(String) && !v_id.start_with?('vpc-')
+            v_id
+          end
         end
       end
     end
