@@ -174,16 +174,15 @@ module Veltrunode
           sgs_in_context = context[:security_groups] || context['security_groups']
           if (sg_ids.nil? || (sg_ids.respond_to?(:empty?) && sg_ids.empty?)) && sgs_in_context
             matching_sgs = Array(sgs_in_context)
-            if !matching_sgs.empty?
-              sg_name = matching_sgs.first.respond_to?(:symbolic_name) ? matching_sgs.first.symbolic_name : matching_sgs.first
+            unless matching_sgs.empty?
+              first_sg = matching_sgs.first
+              sg_name = first_sg.respond_to?(:symbolic_name) ? first_sg.symbolic_name : first_sg
               sg_ids = [{ 'Ref' => LogicalId.for_lambda_security_group(sg_name) }]
             end
           end
 
           cfg = {}
-          if sg_ids
-            cfg['SecurityGroupIds'] = format_security_group_ids(sg_ids)
-          end
+          cfg['SecurityGroupIds'] = format_security_group_ids(sg_ids) if sg_ids
           if sub_ids
             cfg['SubnetIds'] = sub_ids.is_a?(Hash) ? sub_ids : Array(sub_ids).map(&:to_s)
           end
@@ -196,17 +195,12 @@ module Veltrunode
           Array(sg_ids).map do |id|
             if id.is_a?(Hash)
               id
-            elsif id.respond_to?(:name)
-              base = LogicalId.pascalize(id.name)
+            elsif id.respond_to?(:name) || id.is_a?(Symbol)
+              name = id.respond_to?(:name) ? id.name : id
+              base = LogicalId.pascalize(name)
               ref_name = base.end_with?('SecurityGroup') ? base : "#{base}LambdaSecurityGroup"
               { 'Ref' => ref_name }
-            elsif id.is_a?(Symbol)
-              base = LogicalId.pascalize(id)
-              ref_name = base.end_with?('SecurityGroup') ? base : "#{base}LambdaSecurityGroup"
-              { 'Ref' => ref_name }
-            elsif id.to_s.start_with?('sg-')
-              id.to_s
-            elsif id.to_s.end_with?('SecurityGroup')
+            elsif id.to_s.end_with?('SecurityGroup') && !id.to_s.start_with?('sg-')
               { 'Ref' => id.to_s }
             else
               id.to_s

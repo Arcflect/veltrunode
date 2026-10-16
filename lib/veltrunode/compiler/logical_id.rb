@@ -181,7 +181,11 @@ module Veltrunode
         return 'EfsSecurityGroup' if base.empty? || base == 'Default' || base == 'Efs'
         return base if base.end_with?('EfsSecurityGroup')
 
-        base.end_with?('SecurityGroup') ? "#{base.sub(/SecurityGroup\z/, '')}EfsSecurityGroup" : "#{base}EfsSecurityGroup"
+        if base.end_with?('SecurityGroup')
+          "#{base.sub(/SecurityGroup\z/, '')}EfsSecurityGroup"
+        else
+          "#{base}EfsSecurityGroup"
+        end
       end
 
       # EFS SecurityGroup Ingress ルールの論理IDを生成します

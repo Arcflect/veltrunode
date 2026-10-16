@@ -457,10 +457,11 @@ RSpec.describe Veltrunode::Compiler::CloudFormation::TemplateCompiler do
       parsed = YAML.safe_load(yaml_output)
 
       # Parameters auto-discovery
-      expect(parsed['Parameters']['VpcId']).to eq({
+      expected_vpc_param = {
         'Description' => 'VPC ID for EFS and Lambda security groups',
         'Type' => 'AWS::EC2::VPC::Id'
-      })
+      }
+      expect(parsed['Parameters']['VpcId']).to eq(expected_vpc_param)
 
       # Resources
       resources = parsed['Resources']
@@ -483,9 +484,7 @@ RSpec.describe Veltrunode::Compiler::CloudFormation::TemplateCompiler do
 
       # Lambda function VpcConfig auto wiring
       fn = resources['ProcessorFunction']
-      expect(fn['Properties']['VpcConfig']['SecurityGroupIds']).to eq([
-        { 'Ref' => 'StorageLambdaSecurityGroup' }
-      ])
+      expect(fn['Properties']['VpcConfig']['SecurityGroupIds']).to eq([{ 'Ref' => 'StorageLambdaSecurityGroup' }])
       expect(fn['Properties']['VpcConfig']['SubnetIds']).to eq(['subnet-12345678'])
 
       # Outputs

@@ -79,7 +79,8 @@ module Veltrunode
                     opts = name
                     target_name = :default
                     target_vpc_id = opts[:vpc_id] || opts['vpc_id']
-                    SecurityGroupHelperBuilder.new(target_name, vpc_id: target_vpc_id, **opts.reject { |k, _| k.to_s == 'vpc_id' })
+                    extra_opts = opts.reject { |k, _| k.to_s == 'vpc_id' }
+                    SecurityGroupHelperBuilder.new(target_name, vpc_id: target_vpc_id, **extra_opts)
                   else
                     target_name = name || :default
                     SecurityGroupHelperBuilder.new(target_name, vpc_id: vpc_id, **)

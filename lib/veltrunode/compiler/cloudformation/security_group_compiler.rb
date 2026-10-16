@@ -92,7 +92,8 @@ module Veltrunode
         private
 
         def lambda_security_group_definition
-          desc = extract_prop(:description) || "Security group for Lambda function to communicate with EFS (#{symbolic_name})"
+          default_desc = "Security group for Lambda function to communicate with EFS (#{symbolic_name})"
+          desc = extract_prop(:description) || default_desc
           props = {
             'GroupDescription' => desc,
             'VpcId' => format_vpc_id(extract_prop(:vpc_id))
@@ -163,9 +164,7 @@ module Veltrunode
             return { 'Ref' => LogicalId.pascalize(raw_vpc_id.name) }
           end
 
-          if raw_vpc_id.is_a?(Symbol)
-            return { 'Ref' => LogicalId.pascalize(raw_vpc_id) }
-          end
+          return { 'Ref' => LogicalId.pascalize(raw_vpc_id) } if raw_vpc_id.is_a?(Symbol)
 
           str = raw_vpc_id.to_s.strip
           if str.start_with?('vpc-')

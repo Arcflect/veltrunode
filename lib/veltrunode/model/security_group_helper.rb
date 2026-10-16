@@ -10,8 +10,8 @@ module Veltrunode
                   :tags
 
       def initialize(
-        symbolic_name: :default,
         vpc_id:,
+        symbolic_name: :default,
         description: nil,
         tags: nil
       )
@@ -19,7 +19,7 @@ module Veltrunode
 
         @symbolic_name = (symbolic_name || :default).to_sym
         @vpc_id = normalize_vpc_id(vpc_id)
-        @description = description&.to_s&.strip&.freeze
+        @description = description ? description.to_s.strip.freeze : nil
         @tags = tags ? freeze_hash(tags) : {}.freeze
 
         freeze
@@ -32,18 +32,15 @@ module Veltrunode
           raise ValidationError, 'SecurityGroupHelper symbolic_name is required'
         end
 
-        if vpc_id.nil? || (vpc_id.is_a?(String) && vpc_id.strip.empty?)
-          raise ValidationError, 'SecurityGroupHelper vpc_id is required'
-        end
+        return unless vpc_id.nil? || (vpc_id.is_a?(String) && vpc_id.strip.empty?)
+
+        raise ValidationError, 'SecurityGroupHelper vpc_id is required'
       end
 
       def normalize_vpc_id(raw)
         if raw.is_a?(Hash)
           freeze_hash(raw)
-        elsif raw.respond_to?(:name)
-          # DSL::Reference 等
-          raw
-        elsif raw.is_a?(Symbol)
+        elsif raw.respond_to?(:name) || raw.is_a?(Symbol)
           raw
         else
           raw.to_s.strip.freeze

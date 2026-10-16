@@ -35,10 +35,11 @@ RSpec.describe Veltrunode::Compiler::CloudFormation::SecurityGroupCompiler do
         expect(lambda_sg['Type']).to eq('AWS::EC2::SecurityGroup')
         expect(lambda_sg['Properties']['GroupDescription']).to eq('EFS NFS communication security group pair')
         expect(lambda_sg['Properties']['VpcId']).to eq(valid_vpc_id)
-        expect(lambda_sg['Properties']['Tags']).to eq([
+        expected_lambda_tags = [
           { 'Key' => 'Environment', 'Value' => 'prod' },
           { 'Key' => 'Name', 'Value' => 'storage-lambda-sg' }
-        ])
+        ]
+        expect(lambda_sg['Properties']['Tags']).to eq(expected_lambda_tags)
       end
 
       it 'compiles EFS Security Group correctly' do
@@ -46,10 +47,12 @@ RSpec.describe Veltrunode::Compiler::CloudFormation::SecurityGroupCompiler do
         expect(efs_sg['Type']).to eq('AWS::EC2::SecurityGroup')
         expect(efs_sg['Properties']['GroupDescription']).to eq('EFS NFS communication security group pair')
         expect(efs_sg['Properties']['VpcId']).to eq(valid_vpc_id)
-        expect(efs_sg['Properties']['Tags']).to eq([
+
+        expected_efs_tags = [
           { 'Key' => 'Environment', 'Value' => 'prod' },
           { 'Key' => 'Name', 'Value' => 'storage-efs-sg' }
-        ])
+        ]
+        expect(efs_sg['Properties']['Tags']).to eq(expected_efs_tags)
       end
 
       it 'compiles EFS Ingress rule allowing TCP 2049 from Lambda Security Group' do

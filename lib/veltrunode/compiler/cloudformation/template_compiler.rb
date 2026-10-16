@@ -111,24 +111,14 @@ module Veltrunode
           # Include referenced VPC ID parameters from security group helpers
           sg_nodes = extract_collection(:security_groups)
           sg_nodes.each do |sg|
-            v_id = sg.respond_to?(:vpc_id) ? sg.vpc_id : (sg.is_a?(Hash) ? (sg[:vpc_id] || sg['vpc_id']) : nil)
-            param_key = nil
-            if v_id.is_a?(Hash) && v_id['Ref']
-              param_key = v_id['Ref'].to_s
-            elsif v_id.respond_to?(:name)
-              param_key = LogicalId.pascalize(v_id.name)
-            elsif v_id.is_a?(Symbol)
-              param_key = LogicalId.pascalize(v_id)
-            elsif v_id.is_a?(String) && !v_id.start_with?('vpc-')
-              param_key = v_id
-            end
+            v_id = extract_vpc_id_from_sg(sg)
+            param_key = resolve_vpc_param_key(v_id)
+            next if param_key.nil? || params.key?(param_key)
 
-            if param_key && !params.key?(param_key)
-              params[param_key] = {
-                'Description' => 'VPC ID for EFS and Lambda security groups',
-                'Type' => 'AWS::EC2::VPC::Id'
-              }
-            end
+            params[param_key] = {
+              'Description' => 'VPC ID for EFS and Lambda security groups',
+              'Type' => 'AWS::EC2::VPC::Id'
+            }
           end
 
           deep_sort_keys(params)
@@ -493,6 +483,25 @@ module Veltrunode
           hash.each_with_object({}) do |(k, v), memo|
             memo[k.to_s] = v
           end.freeze
+        end
+
+        def extract_vpc_id_from_sg(sg)
+          if sg.respond_to?(:vpc_id)
+            sg.vpc_id
+          elsif sg.is_a?(Hash)
+            sg[:vpc_id] || sg['vpc_id']
+          end
+        end
+
+        def resolve_vpc_param_key(v_id)
+          if v_id.is_a?(Hash) && v_id['Ref']
+            v_id['Ref'].to_s
+          elsif v_id.respond_to?(:name) || v_id.is_a?(Symbol)
+            name = v_id.respond_to?(:name) ? v_id.name : v_id
+            LogicalId.pascalize(name)
+          elsif v_id.is_a?(String) && !v_id.start_with?('vpc-')
+            v_id
+          end
         end
       end
     end
