@@ -23,6 +23,7 @@ require_relative 'model/capability_expander'
 require_relative 'model/stage_policy'
 require_relative 'model/policy_pack'
 require_relative 'model/managed_access_point'
+require_relative 'model/security_group_helper'
 
 module Veltrunode
   module Model
@@ -38,4 +39,5 @@ module Veltrunode
   StagePolicy = Model::StagePolicy
   PolicyPack = Model::PolicyPack
   ManagedAccessPoint = Model::ManagedAccessPoint
+  SecurityGroupHelper = Model::SecurityGroupHelper
 end

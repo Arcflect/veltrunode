@@ -11,7 +11,8 @@ module Veltrunode
                   :vpc_expectations,
                   :posix_expectations,
                   :diagnostic_policy,
-                  :managed_access_point
+                  :managed_access_point,
+                  :security_group_helper
 
       alias name symbolic_name
 
@@ -41,6 +42,7 @@ module Veltrunode
         local_path:,
         access_point_source: nil,
         managed_access_point: nil,
+        security_group_helper: nil,
         vpc_expectations: {},
         posix_expectations: {},
         diagnostic_policy: {}
@@ -52,6 +54,7 @@ module Veltrunode
         @access_point_source = freeze_value(resolved_source)
         @local_path = local_path.to_s.freeze
         @managed_access_point = normalize_managed_access_point(managed_access_point)
+        @security_group_helper = security_group_helper
         @vpc_expectations = freeze_value(vpc_expectations)
         @posix_expectations = freeze_value(posix_expectations)
         @diagnostic_policy = freeze_value(diagnostic_policy)
@@ -61,6 +64,10 @@ module Veltrunode
 
       def managed_access_point?
         !@managed_access_point.nil?
+      end
+
+      def security_group_helper?
+        !@security_group_helper.nil?
       end
 
       private

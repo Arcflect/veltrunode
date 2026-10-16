@@ -13,6 +13,7 @@ module Veltrunode
                   :layers,
                   :schedules,
                   :mounts,
+                  :security_groups,
                   :policies,
                   :tags
 
@@ -28,6 +29,7 @@ module Veltrunode
         layers: [],
         schedules: [],
         mounts: [],
+        security_groups: [],
         policies: [],
         tags: {}
       )
@@ -44,6 +46,7 @@ module Veltrunode
         @layers = layers.dup.freeze
         @schedules = schedules.dup.freeze
         @mounts = mounts.dup.freeze
+        @security_groups = security_groups.dup.freeze
         @policies = policies.dup.freeze
         @tags = tags.dup.freeze
 
