@@ -1,6 +1,6 @@
 ---
 AWSTemplateFormatVersion: '2010-09-09'
-Description: managed-efs-app - dev (compiled by Veltrunode v0.1.62)
+Description: managed-efs-app - dev (compiled by Veltrunode v0.1.63)
 Parameters:
   ArtifactBucket:
     Description: S3 bucket name where function and layer zip packages are stored
