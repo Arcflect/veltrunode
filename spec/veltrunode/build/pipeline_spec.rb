@@ -223,5 +223,34 @@ RSpec.describe Veltrunode::Build::Pipeline do
       expect(artifacts['template']).to eq({ 'path' => File.join(output_dir, 'template.yml') })
       expect(artifacts['manifest']).to eq({ 'path' => File.join(output_dir, 'manifest.json') })
     end
+
+    it 'forwards cache_config and s3_client to LayerPackager and FunctionPackager' do
+      s3_cache_app = Veltrunode::Model::Application.new(
+        name: 's3-cached-app',
+        region: 'ap-northeast-1',
+        stage: 'dev',
+        cache: { remote: { s3: { bucket: 'app-cache-bucket', prefix: 'ci' } } },
+        functions: [function],
+        layers: [layer]
+      )
+
+      expected_cache = hash_including(
+        'remote' => hash_including('s3' => hash_including('bucket' => 'app-cache-bucket'))
+      )
+
+      expect(Veltrunode::Build::LayerPackager).to receive(:package).with(
+        hash_including(cache_config: expected_cache)
+      ).and_return(mock_layer_result)
+
+      expect(Veltrunode::Build::FunctionPackager).to receive(:package).with(
+        hash_including(cache_config: expected_cache)
+      ).and_return(mock_function_result)
+
+      described_class.execute(
+        s3_cache_app,
+        source_dir: tmp_dir,
+        output_dir: output_dir
+      )
+    end
   end
 end

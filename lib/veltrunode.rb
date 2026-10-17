@@ -4,8 +4,8 @@ module Veltrunode
   class Error < StandardError; end
 
   class << self
-    def application(name, &)
-      @app = Veltrunode::DSL.application(name, &)
+    def application(name, **, &)
+      @app = Veltrunode::DSL.application(name, **, &)
     end
 
     def parse(content, filename = 'Veltrunodefile')

@@ -10,13 +10,14 @@ require_relative 'dsl/managed_access_point_builder'
 require_relative 'dsl/security_group_helper_builder'
 require_relative 'dsl/function_builder'
 require_relative 'dsl/schedule_builder'
+require_relative 'dsl/cache_builder'
 require_relative 'dsl/application_builder'
 
 module Veltrunode
   module DSL
     class << self
-      def application(name, &)
-        builder = ApplicationBuilder.new(name)
+      def application(name, **, &)
+        builder = ApplicationBuilder.new(name, **)
         builder.instance_eval(&) if block_given?
         builder.build
       end

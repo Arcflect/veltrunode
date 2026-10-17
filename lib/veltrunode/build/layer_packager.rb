@@ -50,7 +50,9 @@ module Veltrunode
           includes: nil,
           excludes: nil,
           no_cache: false,
-          cache_dir: nil
+          cache_dir: nil,
+          cache_config: nil,
+          s3_client: nil
         )
           new(
             layer: layer,
@@ -72,7 +74,9 @@ module Veltrunode
             includes: includes,
             excludes: excludes,
             no_cache: no_cache,
-            cache_dir: cache_dir
+            cache_dir: cache_dir,
+            cache_config: cache_config,
+            s3_client: s3_client
           ).package
         end
 
@@ -140,7 +144,9 @@ module Veltrunode
         includes: nil,
         excludes: nil,
         no_cache: false,
-        cache_dir: nil
+        cache_dir: nil,
+        cache_config: nil,
+        s3_client: nil
       )
         @layer = layer
         @source_dir = source_dir ? File.expand_path(source_dir.to_s) : Dir.pwd
@@ -162,6 +168,8 @@ module Veltrunode
         @user_excludes = excludes ? Array(excludes).map(&:to_s) : []
         @no_cache = no_cache
         @cache_dir = cache_dir ? File.expand_path(cache_dir.to_s) : File.join(@source_dir, '.veltrunode', 'cache')
+        @cache_config = cache_config
+        @s3_client = s3_client
       end
 
       def calculate_hash(skip_container_build: false)
@@ -222,7 +230,15 @@ module Veltrunode
           archive_layer_directory(tmp_dir, layer_name, content_hash)
         end
 
-        Cache.store(content_hash, result, cache_dir: @cache_dir) unless @no_cache
+        unless @no_cache
+          Cache.store(
+            content_hash,
+            result,
+            cache_dir: @cache_dir,
+            cache_config: @cache_config,
+            s3_client: @s3_client
+          )
+        end
         result
       end
 
@@ -258,7 +274,15 @@ module Veltrunode
           archive_layer_directory(tmp_dir, layer_name, content_hash)
         end
 
-        Cache.store(content_hash, result, cache_dir: @cache_dir) unless @no_cache
+        unless @no_cache
+          Cache.store(
+            content_hash,
+            result,
+            cache_dir: @cache_dir,
+            cache_config: @cache_config,
+            s3_client: @s3_client
+          )
+        end
         result
       end
 
@@ -276,7 +300,15 @@ module Veltrunode
           archive_layer_directory(tmp_dir, layer_name, content_hash)
         end
 
-        Cache.store(content_hash, result, cache_dir: @cache_dir) unless @no_cache
+        unless @no_cache
+          Cache.store(
+            content_hash,
+            result,
+            cache_dir: @cache_dir,
+            cache_config: @cache_config,
+            s3_client: @s3_client
+          )
+        end
         result
       end
 
@@ -285,7 +317,13 @@ module Veltrunode
 
         require_relative 'cache' unless defined?(Veltrunode::Build::Cache)
         zip_path = File.join(@output_dir, "#{layer_name}.zip")
-        Cache.fetch(content_hash, zip_path, cache_dir: @cache_dir)
+        Cache.fetch(
+          content_hash,
+          zip_path,
+          cache_dir: @cache_dir,
+          cache_config: @cache_config,
+          s3_client: @s3_client
+        )
       end
 
       def archive_layer_directory(tmp_dir, layer_name, content_hash)
