@@ -34,7 +34,9 @@ module Veltrunode
           aws_client: nil,
           check_aws: true,
           check_manifest: true,
-          allow_missing_gems: false
+          allow_missing_gems: false,
+          cache_config: nil,
+          s3_client: nil
         )
           new(
             application: application,
@@ -45,7 +47,9 @@ module Veltrunode
             aws_client: aws_client,
             check_aws: check_aws,
             check_manifest: check_manifest,
-            allow_missing_gems: allow_missing_gems
+            allow_missing_gems: allow_missing_gems,
+            cache_config: cache_config,
+            s3_client: s3_client
           ).execute
         end
       end
@@ -59,6 +63,8 @@ module Veltrunode
                   :check_aws,
                   :check_manifest,
                   :allow_missing_gems,
+                  :cache_config,
+                  :s3_client,
                   :build_logs
 
       def initialize(
@@ -70,7 +76,9 @@ module Veltrunode
         aws_client: nil,
         check_aws: true,
         check_manifest: true,
-        allow_missing_gems: false
+        allow_missing_gems: false,
+        cache_config: nil,
+        s3_client: nil
       )
         @application = application
         @source_dir = File.expand_path(source_dir.to_s.empty? ? Dir.pwd : source_dir.to_s)
@@ -81,6 +89,9 @@ module Veltrunode
         @check_aws = check_aws ? true : false
         @check_manifest = check_manifest ? true : false
         @allow_missing_gems = allow_missing_gems ? true : false
+        @cache_config = cache_config || (application.respond_to?(:cache_config) ? application.cache_config : nil)
+        aws_s3 = defined?(::Aws::S3::Client) && aws_client.is_a?(::Aws::S3::Client) ? aws_client : nil
+        @s3_client = s3_client || aws_s3
         @build_logs = []
       end
 
@@ -140,6 +151,8 @@ module Veltrunode
               no_cache: no_cache
             }
             pkg_opts[:allow_missing_gems] = true if resolve_allow_missing_gems(layer)
+            pkg_opts[:cache_config] = @cache_config if @cache_config && !@cache_config.empty?
+            pkg_opts[:s3_client] = @s3_client if @s3_client
 
             LayerPackager.package(**pkg_opts)
           end
@@ -149,12 +162,15 @@ module Veltrunode
         function_output_dir = File.join(output_dir, 'artifacts', 'functions')
         functions = extract_collection(:functions)
         function_results = functions.map do |fn|
-          FunctionPackager.package(
+          fn_opts = {
             function: fn,
             source_dir: source_dir,
             output_dir: function_output_dir,
             no_cache: no_cache
-          )
+          }
+          fn_opts[:cache_config] = @cache_config if @cache_config && !@cache_config.empty?
+          fn_opts[:s3_client] = @s3_client if @s3_client
+          FunctionPackager.package(**fn_opts)
         end
 
         # 4. Compile CloudFormation Template (reused layers are skipped from LayerVersion resources)

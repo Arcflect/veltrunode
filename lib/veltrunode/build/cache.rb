@@ -5,19 +5,30 @@ require 'fileutils'
 require 'json'
 require_relative 'package_result'
 require_relative 'layer_package_result'
+require_relative 'cache/s3_remote'
 
 module Veltrunode
   module Build
     class Cache
       DEFAULT_CACHE_DIR = '.veltrunode/cache'
+      HEX_HASH_PATTERN = /\A[0-9a-f]{64}\z/i
 
       class << self
-        def fetch(content_hash, output_path, cache_dir: nil)
-          new(cache_dir: cache_dir).fetch(content_hash, output_path)
+        def fetch(content_hash, output_path, cache_dir: nil, cache_config: nil, remote_config: nil, s3_client: nil)
+          new(
+            cache_dir: cache_dir,
+            cache_config: cache_config || remote_config,
+            s3_client: s3_client
+          ).fetch(content_hash, output_path)
         end
 
-        def store(content_hash, package_or_layer_result, cache_dir: nil)
-          new(cache_dir: cache_dir).store(content_hash, package_or_layer_result)
+        def store(content_hash, package_or_layer_result, cache_dir: nil, cache_config: nil, remote_config: nil,
+                  s3_client: nil)
+          new(
+            cache_dir: cache_dir,
+            cache_config: cache_config || remote_config,
+            s3_client: s3_client
+          ).store(content_hash, package_or_layer_result)
         end
 
         def clear(cache_dir: nil)
@@ -25,16 +36,58 @@ module Veltrunode
         end
       end
 
-      def initialize(cache_dir: nil)
-        @cache_dir = File.expand_path(cache_dir || DEFAULT_CACHE_DIR)
-      end
+      attr_reader :cache_dir, :s3_remote
 
-      HEX_HASH_PATTERN = /\A[0-9a-f]{64}\z/i
+      def initialize(cache_dir: nil, cache_config: nil, remote_config: nil, s3_client: nil)
+        @cache_dir = File.expand_path(cache_dir || DEFAULT_CACHE_DIR)
+        config = cache_config || remote_config
+        s3_opts = extract_s3_config(config)
+        @s3_remote = (S3Remote.new(bucket: s3_opts[:bucket], prefix: s3_opts[:prefix], s3_client: s3_client) if s3_opts)
+      end
 
       def fetch(content_hash, output_path)
         key = content_hash.to_s
         return nil unless key.match?(HEX_HASH_PATTERN)
 
+        local_result = fetch_from_local(key, output_path)
+        return local_result if local_result
+
+        return nil unless @s3_remote
+
+        remote_data = @s3_remote.fetch(key, @cache_dir, output_path)
+        return nil unless remote_data
+
+        data, actual_sha256 = remote_data
+        restore_result(data, output_path, key, actual_sha256)
+      end
+
+      def store(content_hash, package_or_layer_result)
+        key = content_hash.to_s
+        return unless key.match?(HEX_HASH_PATTERN)
+        return unless package_or_layer_result && File.file?(package_or_layer_result.zip_path)
+
+        FileUtils.mkdir_p(@cache_dir)
+
+        cache_zip_path = zip_path_for(key)
+        cache_json_path = json_path_for(key)
+
+        FileUtils.cp(package_or_layer_result.zip_path, cache_zip_path)
+
+        metadata = build_metadata(package_or_layer_result, key)
+        File.write(cache_json_path, JSON.pretty_generate(metadata))
+
+        @s3_remote&.store(key, cache_zip_path, cache_json_path)
+      end
+
+      def clear
+        return unless File.directory?(@cache_dir)
+
+        FileUtils.rm_rf(@cache_dir)
+      end
+
+      private
+
+      def fetch_from_local(key, output_path)
         cache_zip_path = zip_path_for(key)
         cache_json_path = json_path_for(key)
 
@@ -62,29 +115,18 @@ module Veltrunode
         restore_result(data, output_path, key, actual_sha256)
       end
 
-      def store(content_hash, package_or_layer_result)
-        key = content_hash.to_s
-        return unless key.match?(HEX_HASH_PATTERN)
-        return unless package_or_layer_result && File.file?(package_or_layer_result.zip_path)
+      def extract_s3_config(config)
+        return nil if config.nil? || !config.is_a?(Hash)
 
-        FileUtils.mkdir_p(@cache_dir)
+        hash = symbolize_keys(config)
+        s3 = hash.dig(:remote, :s3) || hash[:s3] || (hash[:bucket] ? hash : nil)
+        return nil unless s3.is_a?(Hash)
 
-        cache_zip_path = zip_path_for(key)
-        cache_json_path = json_path_for(key)
+        bucket = s3[:bucket].to_s.strip
+        return nil if bucket.empty?
 
-        FileUtils.cp(package_or_layer_result.zip_path, cache_zip_path)
-
-        metadata = build_metadata(package_or_layer_result, key)
-        File.write(cache_json_path, JSON.pretty_generate(metadata))
+        { bucket: bucket, prefix: s3[:prefix] }
       end
-
-      def clear
-        return unless File.directory?(@cache_dir)
-
-        FileUtils.rm_rf(@cache_dir)
-      end
-
-      private
 
       def zip_path_for(content_hash)
         File.join(@cache_dir, "#{content_hash}.zip")

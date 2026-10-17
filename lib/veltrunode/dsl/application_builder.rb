@@ -11,13 +11,14 @@ require_relative '../model/stage_policy'
 module Veltrunode
   module DSL
     class ApplicationBuilder < BaseBuilder
-      def initialize(name)
+      def initialize(name, cache: nil, cache_config: nil)
         super()
         @name = name.to_s
         @region = 'ap-northeast-1'
         @stage = 'dev'
         @account_constraint = nil
         @artifact_bucket = nil
+        @cache_config = cache || cache_config || {}
         @runtime_defaults = {}
         @function_builders = []
         @layer_builders = []
@@ -26,6 +27,18 @@ module Veltrunode
         @security_group_builders = []
         @policies = []
         @tags = {}
+      end
+
+      def cache(config = nil, remote: nil, &)
+        if block_given?
+          builder = CacheBuilder.new
+          builder.instance_eval(&)
+          @cache_config = builder.build
+        elsif config
+          @cache_config = config
+        elsif remote
+          @cache_config = { remote: remote }
+        end
       end
 
       def aws(region: nil, account: nil, account_constraint: nil, artifact_bucket: nil, bucket: nil)
@@ -145,6 +158,7 @@ module Veltrunode
           stage: @stage,
           account_constraint: @account_constraint,
           artifact_bucket: @artifact_bucket,
+          cache: @cache_config,
           runtime_defaults: @runtime_defaults,
           functions: functions,
           layers: layers,

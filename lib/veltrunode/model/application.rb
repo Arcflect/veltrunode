@@ -15,7 +15,8 @@ module Veltrunode
                   :mounts,
                   :security_groups,
                   :policies,
-                  :tags
+                  :tags,
+                  :cache_config
 
       def initialize(
         positional_name = nil,
@@ -24,6 +25,8 @@ module Veltrunode
         stage: 'dev',
         account_constraint: nil,
         artifact_bucket: nil,
+        cache: nil,
+        cache_config: nil,
         runtime_defaults: {},
         functions: [],
         layers: [],
@@ -49,8 +52,13 @@ module Veltrunode
         @security_groups = security_groups.dup.freeze
         @policies = policies.dup.freeze
         @tags = tags.dup.freeze
+        @cache_config = freeze_value(cache || cache_config || {})
 
         freeze
+      end
+
+      def cache
+        @cache_config
       end
 
       def account

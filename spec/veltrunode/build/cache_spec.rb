@@ -144,17 +144,184 @@ RSpec.describe Veltrunode::Build::Cache do
     end
   end
 
-  describe '#clear' do
-    it 'removes the cache directory and all its contents' do
+  describe 'remote S3 cache integration' do
+    let(:remote_config) do
+      { remote: { s3: { bucket: 'remote-bucket', prefix: 'ci-cache' } } }
+    end
+    let(:s3_client) { double('Aws::S3::Client') }
+
+    it 'prefers local cache when available without accessing S3' do
       with_tmpdir do |tmpdir|
         cache_dir = File.join(tmpdir, 'cache')
-        FileUtils.mkdir_p(cache_dir)
-        File.write(File.join(cache_dir, 'test.tmp'), 'data')
+        source_zip = File.join(tmpdir, 'convert.zip')
+        File.write(source_zip, 'local zip content')
 
-        cache = described_class.new(cache_dir: cache_dir)
-        cache.clear
+        result = Veltrunode::Build::PackageResult.new(
+          function_name: 'convert',
+          zip_path: source_zip,
+          content_hash: content_hash,
+          sha256: Digest::SHA256.file(source_zip).hexdigest,
+          bytesize: File.size(source_zip),
+          entries: ['functions/convert.rb'],
+          diagnostics: []
+        )
 
-        expect(File.exist?(cache_dir)).to be false
+        cache = described_class.new(cache_dir: cache_dir, remote_config: remote_config, s3_client: s3_client)
+        # Store locally only first
+        described_class.new(cache_dir: cache_dir).store(content_hash, result)
+
+        # S3 client must NOT receive get_object because local cache already exists
+        expect(s3_client).not_to receive(:get_object)
+
+        dest_zip = File.join(tmpdir, 'out', 'convert.zip')
+        restored = cache.fetch(content_hash, dest_zip)
+
+        expect(restored).not_to be_nil
+        expect(restored.cached?).to be true
+        expect(File.read(dest_zip)).to eq('local zip content')
+      end
+    end
+
+    it 'fetches from S3 when local cache misses, populates local cache, and supports subsequent local hits' do
+      with_tmpdir do |tmpdir|
+        cache_dir = File.join(tmpdir, 'cache')
+        dest_zip = File.join(tmpdir, 'out', 'convert.zip')
+
+        zip_payload = 'remote-s3-binary-zip'
+        actual_sha256 = Digest::SHA256.hexdigest(zip_payload)
+        metadata = {
+          'type' => 'function',
+          'function_name' => 'convert',
+          'sha256' => actual_sha256,
+          'bytesize' => zip_payload.bytesize,
+          'entries' => ['convert.rb']
+        }
+
+        cache = described_class.new(cache_dir: cache_dir, remote_config: remote_config, s3_client: s3_client)
+
+        allow(s3_client).to receive(:get_object) do |params|
+          if params[:key] == "ci-cache/#{content_hash}.json"
+            File.write(params[:response_target], JSON.generate(metadata))
+          elsif params[:key] == "ci-cache/#{content_hash}.zip"
+            File.binwrite(params[:response_target], zip_payload)
+          end
+          double(body: nil)
+        end
+
+        # First fetch: fetches from S3
+        restored = cache.fetch(content_hash, dest_zip)
+        expect(restored).not_to be_nil
+        expect(restored.function_name).to eq('convert')
+        expect(restored.cached?).to be true
+        expect(File.read(dest_zip)).to eq(zip_payload)
+
+        # Local cache is now populated
+        expect(File.exist?(File.join(cache_dir, "#{content_hash}.zip"))).to be true
+        expect(File.exist?(File.join(cache_dir, "#{content_hash}.json"))).to be true
+
+        # Second fetch: fetches from local cache, S3 client must not be called
+        expect(s3_client).not_to receive(:get_object)
+        second_dest = File.join(tmpdir, 'out', 'second.zip')
+        second_restored = cache.fetch(content_hash, second_dest)
+        expect(second_restored).not_to be_nil
+        expect(second_restored.cached?).to be true
+      end
+    end
+
+    it 'stores both locally and to S3 when remote cache is configured' do
+      with_tmpdir do |tmpdir|
+        cache_dir = File.join(tmpdir, 'cache')
+        source_zip = File.join(tmpdir, 'convert.zip')
+        File.write(source_zip, 'store-zip-content')
+
+        result = Veltrunode::Build::PackageResult.new(
+          function_name: 'convert',
+          zip_path: source_zip,
+          content_hash: content_hash,
+          sha256: Digest::SHA256.file(source_zip).hexdigest,
+          bytesize: File.size(source_zip),
+          entries: ['functions/convert.rb'],
+          diagnostics: []
+        )
+
+        cache = described_class.new(cache_dir: cache_dir, remote_config: remote_config, s3_client: s3_client)
+
+        expect(s3_client).to receive(:put_object).with(
+          bucket: 'remote-bucket',
+          key: "ci-cache/#{content_hash}.zip",
+          body: instance_of(File)
+        )
+        expect(s3_client).to receive(:put_object).with(
+          bucket: 'remote-bucket',
+          key: "ci-cache/#{content_hash}.json",
+          body: instance_of(File),
+          content_type: 'application/json'
+        )
+
+        cache.store(content_hash, result)
+
+        expect(File.exist?(File.join(cache_dir, "#{content_hash}.zip"))).to be true
+        expect(File.exist?(File.join(cache_dir, "#{content_hash}.json"))).to be true
+      end
+    end
+
+    it 'detects hash mismatch in remote cache and rejects corrupted entry' do
+      with_tmpdir do |tmpdir|
+        cache_dir = File.join(tmpdir, 'cache')
+        dest_zip = File.join(tmpdir, 'out', 'convert.zip')
+
+        tampered_zip = 'tampered-remote-zip'
+        metadata = {
+          'type' => 'function',
+          'sha256' => Digest::SHA256.hexdigest('different-zip')
+        }
+
+        cache = described_class.new(cache_dir: cache_dir, remote_config: remote_config, s3_client: s3_client)
+
+        allow(s3_client).to receive(:get_object) do |params|
+          if params[:key] == "ci-cache/#{content_hash}.json"
+            File.write(params[:response_target], JSON.generate(metadata))
+          elsif params[:key] == "ci-cache/#{content_hash}.zip"
+            File.binwrite(params[:response_target], tampered_zip)
+          end
+          double(body: nil)
+        end
+
+        expect(cache.fetch(content_hash, dest_zip)).to be_nil
+        expect(File.exist?(dest_zip)).to be false
+        expect(File.exist?(File.join(cache_dir, "#{content_hash}.zip"))).to be false
+      end
+    end
+
+    it 'continues build without error when S3 is unavailable or throws errors' do
+      with_tmpdir do |tmpdir|
+        cache_dir = File.join(tmpdir, 'cache')
+        dest_zip = File.join(tmpdir, 'out', 'convert.zip')
+
+        cache = described_class.new(cache_dir: cache_dir, remote_config: remote_config, s3_client: s3_client)
+
+        allow(s3_client).to receive(:get_object).and_raise(RuntimeError.new('500 Internal Server Error'))
+        allow(s3_client).to receive(:put_object).and_raise(RuntimeError.new('500 Internal Server Error'))
+
+        # Fetch fails gracefully
+        expect { expect(cache.fetch(content_hash, dest_zip)).to be_nil }.not_to raise_error
+
+        # Store succeeds locally even if S3 upload fails
+        source_zip = File.join(tmpdir, 'convert.zip')
+        File.write(source_zip, 'store-zip-content')
+
+        result = Veltrunode::Build::PackageResult.new(
+          function_name: 'convert',
+          zip_path: source_zip,
+          content_hash: content_hash,
+          sha256: Digest::SHA256.file(source_zip).hexdigest,
+          bytesize: File.size(source_zip),
+          entries: ['functions/convert.rb'],
+          diagnostics: []
+        )
+
+        expect { cache.store(content_hash, result) }.not_to raise_error
+        expect(File.exist?(File.join(cache_dir, "#{content_hash}.zip"))).to be true
       end
     end
   end
