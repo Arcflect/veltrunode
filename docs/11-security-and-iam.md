@@ -104,6 +104,10 @@ Veltrunode は、標準の AWS SDK 資格情報チェーン（Credential Chain�
 - 署名付きのリリースは、ロードマップ項目として定義されています。
 - 依存する Gem 等のパッケージはロックされ、レビュー済みの自動化プロセスを通じてアップデートされます。
 - リリースビルドは CI環境 で実行されます。
-- SBOM（ソフトウェア部品構成表）の生成を計画しています。
+- **SBOM（ソフトウェア部品構成表）の自動生成**:
+  - `veltrunode build` 実行時に、パッケージングされる Gem のソフトウェア部品構成表（SBOM）を自動生成し、ビルド成果物（デフォルト: `build/sbom.cdx.json`）として出力します。
+  - 出力フォーマットは標準的な **CycloneDX 1.5**（または **SPDX 2.3**）JSON 形式をサポートします。
+  - 構成表には、すべての Gem の完全な依存関係ツリー（Dependency Tree）、解決済みバージョン、パッケージURL（PURL: `pkg:gem/<name>@<version>`）、および解決されたライセンス情報が含まれます。
+  - 生成された SBOM ファイルのパスは、ビルドマニフェスト（`manifest.json` の `sbom` / `sbom_path`）に記録され、監査やセキュリティスキャナー（Trivy, Grype, Snyk 等）との連携が可能です。
 - セキュリティ報告に関しては、[SECURITY.md](../SECURITY.md) に規定されている手順に従います。
 - 依存関係と GitHub Actions の更新は、[.github/dependabot.yml](../.github/dependabot.yml) を用いて自動化します。

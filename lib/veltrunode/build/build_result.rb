@@ -10,6 +10,8 @@ module Veltrunode
                   :template_data,
                   :manifest_path,
                   :manifest_data,
+                  :sbom_path,
+                  :sbom_data,
                   :diagnostics,
                   :build_logs,
                   :size_diagnostics
@@ -22,6 +24,8 @@ module Veltrunode
         template_data:,
         manifest_path:,
         manifest_data:,
+        sbom_path: nil,
+        sbom_data: nil,
         diagnostics: [],
         build_logs: [],
         size_diagnostics: nil
@@ -33,6 +37,8 @@ module Veltrunode
         @template_data = (template_data || {}).freeze
         @manifest_path = manifest_path.to_s.freeze
         @manifest_data = (manifest_data || {}).freeze
+        @sbom_path = sbom_path&.to_s&.freeze
+        @sbom_data = (sbom_data || {}).freeze
         @diagnostics = Array(diagnostics).freeze
         @build_logs = Array(build_logs).map(&:to_s).freeze
         @size_diagnostics = size_diagnostics
@@ -49,7 +55,7 @@ module Veltrunode
       end
 
       def artifacts
-        {
+        arts = {
           'functions' => @function_results.map do |res|
             {
               'name' => res.function_name,
@@ -82,6 +88,8 @@ module Veltrunode
             'path' => @manifest_path
           }
         }
+        arts['sbom'] = { 'path' => @sbom_path } if @sbom_path
+        arts
       end
 
       def to_h
@@ -94,6 +102,7 @@ module Veltrunode
           'template_path' => @template_path,
           'manifest_path' => @manifest_path
         }
+        res['sbom_path'] = @sbom_path if @sbom_path
         res['size_diagnostics'] = @size_diagnostics.to_h if @size_diagnostics.respond_to?(:to_h)
         res
       end

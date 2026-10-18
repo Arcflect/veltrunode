@@ -89,9 +89,11 @@ RSpec.describe Veltrunode::Build::Pipeline do
       expect(result.layers_count).to eq(1)
       expect(result.template_path).to eq(File.join(output_dir, 'template.yml'))
       expect(result.manifest_path).to eq(File.join(output_dir, 'manifest.json'))
+      expect(result.sbom_path).to eq(File.join(output_dir, 'sbom.cdx.json'))
 
       expect(File.exist?(result.template_path)).to be true
       expect(File.exist?(result.manifest_path)).to be true
+      expect(File.exist?(result.sbom_path)).to be true
 
       template_content = File.read(result.template_path)
       expect(YAML.safe_load(template_content)['AWSTemplateFormatVersion']).to eq('2010-09-09')
@@ -101,6 +103,8 @@ RSpec.describe Veltrunode::Build::Pipeline do
       expect(manifest_content['application']['name']).to eq('pipeline-app')
       expect(manifest_content['functions']['api_func']['sha256']).to eq('func_sha256_hash')
       expect(manifest_content['layers']['runtime_gems']['sha256']).to eq('layer_sha256_hash')
+      expect(manifest_content['sbom_path']).to eq('sbom.cdx.json')
+      expect(manifest_content['sbom']).to eq('path' => 'sbom.cdx.json', 'format' => 'CycloneDX')
 
       expect(Veltrunode::Build::LayerPackager).to have_received(:package).with(
         layer: layer,
@@ -222,6 +226,8 @@ RSpec.describe Veltrunode::Build::Pipeline do
                                               })
       expect(artifacts['template']).to eq({ 'path' => File.join(output_dir, 'template.yml') })
       expect(artifacts['manifest']).to eq({ 'path' => File.join(output_dir, 'manifest.json') })
+      expect(artifacts['sbom']).to eq({ 'path' => File.join(output_dir, 'sbom.cdx.json') })
+      expect(data['sbom_path']).to eq(File.join(output_dir, 'sbom.cdx.json'))
     end
 
     it 'forwards cache_config and s3_client to LayerPackager and FunctionPackager' do

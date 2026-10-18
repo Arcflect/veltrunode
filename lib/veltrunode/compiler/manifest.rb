@@ -12,52 +12,58 @@ module Veltrunode
       MANIFEST_SCHEMA_VERSION = '1.0'
 
       class << self
-        def build_data(application:, function_results: [], layer_results: [], built_at: Time.now.utc)
+        def build_data(application:, function_results: [], layer_results: [], built_at: Time.now.utc, sbom_path: nil)
           new(
             application: application,
             function_results: function_results,
             layer_results: layer_results,
-            built_at: built_at
+            built_at: built_at,
+            sbom_path: sbom_path
           ).build_data
         end
 
-        def to_h(application:, function_results: [], layer_results: [], built_at: Time.now.utc)
+        def to_h(application:, function_results: [], layer_results: [], built_at: Time.now.utc, sbom_path: nil)
           new(
             application: application,
             function_results: function_results,
             layer_results: layer_results,
-            built_at: built_at
+            built_at: built_at,
+            sbom_path: sbom_path
           ).to_h
         end
 
-        def to_json(application:, function_results: [], layer_results: [], built_at: Time.now.utc)
+        def to_json(application:, function_results: [], layer_results: [], built_at: Time.now.utc, sbom_path: nil)
           new(
             application: application,
             function_results: function_results,
             layer_results: layer_results,
-            built_at: built_at
+            built_at: built_at,
+            sbom_path: sbom_path
           ).to_json
         end
 
-        def generate(application:, output_path:, function_results: [], layer_results: [], built_at: Time.now.utc)
+        def generate(application:, output_path:, function_results: [], layer_results: [], built_at: Time.now.utc,
+                     sbom_path: nil)
           new(
             application: application,
             function_results: function_results,
             layer_results: layer_results,
-            built_at: built_at
+            built_at: built_at,
+            sbom_path: sbom_path
           ).generate(output_path)
         end
       end
 
-      def initialize(application:, function_results: [], layer_results: [], built_at: Time.now.utc)
+      def initialize(application:, function_results: [], layer_results: [], built_at: Time.now.utc, sbom_path: nil)
         @application = application
         @function_results = Array(function_results)
         @layer_results = Array(layer_results)
         @built_at = built_at.is_a?(Time) ? built_at.utc : Time.parse(built_at.to_s).utc
+        @sbom_path = sbom_path&.to_s
       end
 
       def build_data
-        {
+        data = {
           'manifest_schema_version' => MANIFEST_SCHEMA_VERSION,
           'schema_version' => MANIFEST_SCHEMA_VERSION,
           'compiler_version' => Veltrunode::VERSION,
@@ -68,6 +74,17 @@ module Veltrunode
           'schedules' => build_schedules_section,
           'iam_capabilities' => build_iam_capabilities_section
         }
+
+        if @sbom_path && !@sbom_path.strip.empty?
+          rel_sbom = File.basename(@sbom_path)
+          data['sbom_path'] = rel_sbom
+          data['sbom'] = {
+            'path' => rel_sbom,
+            'format' => @sbom_path.end_with?('.spdx.json') ? 'SPDX' : 'CycloneDX'
+          }
+        end
+
+        data
       end
 
       def to_h

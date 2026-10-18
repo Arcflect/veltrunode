@@ -331,5 +331,21 @@ RSpec.describe Veltrunode::Compiler::Manifest do
       expect(layer_entry['layer_version_arn']).to eq('arn:aws:lambda:ap-northeast-1:123456789012:layer:gem_deps:3')
       expect(layer_entry['content_hash']).to eq('f0e1d2c3b4a59876543210fedcba9876543210fedcba9876543210fedcba9876')
     end
+
+    it 'includes sbom and sbom_path when sbom_path is provided' do
+      manifest = described_class.to_h(
+        application: app,
+        function_results: [fn_result],
+        layer_results: [layer_result],
+        sbom_path: 'build/sbom.cdx.json',
+        built_at: fixed_time
+      )
+
+      expect(manifest['sbom_path']).to eq('sbom.cdx.json')
+      expect(manifest['sbom']).to eq(
+        'path' => 'sbom.cdx.json',
+        'format' => 'CycloneDX'
+      )
+    end
   end
 end

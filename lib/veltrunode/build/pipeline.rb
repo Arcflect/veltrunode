@@ -7,6 +7,7 @@ require_relative 'function_packager'
 require_relative 'layer_packager'
 require_relative 'layer_reuse_evaluator'
 require_relative 'build_result'
+require_relative 'sbom_generator'
 require_relative 'size_diagnostics'
 require_relative '../compiler/cloudformation'
 require_relative '../compiler/manifest'
@@ -181,16 +182,25 @@ module Veltrunode
           context: { reused_layers: reused_layers_map }
         )
 
-        # 5. Compile Manifest
+        # 5. Generate SBOM (CycloneDX)
+        sbom_path = File.join(output_dir, 'sbom.cdx.json')
+        sbom_data = SbomGenerator.generate(
+          application: application,
+          source_dir: source_dir,
+          output_path: sbom_path
+        )
+
+        # 6. Compile Manifest
         manifest_path = File.join(output_dir, 'manifest.json')
         manifest_data = Compiler::Manifest.generate(
           application: application,
           function_results: function_results,
           layer_results: layer_results,
-          output_path: manifest_path
+          output_path: manifest_path,
+          sbom_path: sbom_path
         )
 
-        # 6. Size Diagnostics
+        # 7. Size Diagnostics
         size_diagnostics = SizeDiagnostics.analyze(
           application,
           function_results: function_results,
@@ -212,6 +222,8 @@ module Veltrunode
           template_data: template_data,
           manifest_path: manifest_path,
           manifest_data: manifest_data,
+          sbom_path: sbom_path,
+          sbom_data: sbom_data,
           diagnostics: all_diagnostics,
           build_logs: @build_logs,
           size_diagnostics: size_diagnostics
