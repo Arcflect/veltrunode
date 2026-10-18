@@ -27,6 +27,7 @@ require_relative 'build/container_runner'
 require_relative 'build/native_builder'
 require_relative 'build/cache'
 require_relative 'build/build_result'
+require_relative 'build/sbom_generator'
 require_relative 'build/pipeline'
 
 module Veltrunode
