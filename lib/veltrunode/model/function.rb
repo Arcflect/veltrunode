@@ -7,7 +7,7 @@ module Veltrunode
     class Function
       attr_reader :handler, :runtime, :logical_name, :architecture, :memory, :timeout, :ephemeral_storage,
                   :environment, :vpc_reference, :layers, :mounts, :iam_capabilities, :concurrency, :logging,
-                  :alarms
+                  :alarms, :subscription_filters
 
       def initialize(
         positional_logical_name = nil,
@@ -25,7 +25,8 @@ module Veltrunode
         iam_capabilities: [],
         concurrency: nil,
         logging: nil,
-        alarms: []
+        alarms: [],
+        subscription_filters: []
       )
         name_val = positional_logical_name || logical_name
         validate_logical_name!(name_val)
@@ -45,6 +46,7 @@ module Veltrunode
         @concurrency = freeze_value(concurrency)
         @logging = freeze_value(logging)
         @alarms = freeze_array(alarms)
+        @subscription_filters = resolve_initial_subscription_filters(subscription_filters, logging)
 
         freeze if @handler || @runtime
       end
@@ -66,6 +68,7 @@ module Veltrunode
         validate_references(context, diagnostics)
         validate_environment_duplicates(context, diagnostics)
         validate_alarms(diagnostics)
+        validate_subscription_filters(diagnostics)
 
         diagnostics.freeze
       end
@@ -308,6 +311,36 @@ module Veltrunode
             severity: :error,
             summary: "Invalid alarm in function '#{logical_name}': #{e.message}",
             suggested_action: 'Check alarm metric, threshold, and evaluation parameters.',
+            evidence: { 'function' => logical_name, 'error' => e.message }
+          )
+        end
+      end
+
+      def resolve_initial_subscription_filters(filters, logging_cfg)
+        list = Array(filters).compact
+
+        if list.empty? && logging_cfg.is_a?(Hash)
+          raw = logging_cfg[:subscription_filters] || logging_cfg['subscription_filters'] ||
+                logging_cfg[:subscription_filter] || logging_cfg['subscription_filter']
+          if raw.is_a?(Array)
+            list = raw
+          elsif raw.is_a?(Hash)
+            list = [raw]
+          end
+        end
+
+        freeze_array(list)
+      end
+
+      def validate_subscription_filters(diagnostics)
+        Array(@subscription_filters).each do |filter|
+          filter.validate! if filter.respond_to?(:validate!)
+        rescue ValidationError => e
+          diagnostics << Diagnostics::Diagnostic.new(
+            code: 'VLT-LOGS-001',
+            severity: :error,
+            summary: "Invalid subscription filter in function '#{logical_name}': #{e.message}",
+            suggested_action: 'Check subscription filter destination and parameters.',
             evidence: { 'function' => logical_name, 'error' => e.message }
           )
         end

@@ -1,0 +1,21 @@
+Veltrunode.application "with-cloudwatch-logs-subscription" do
+  aws region: "ap-northeast-1", account: "123456789012"
+
+  function :api do
+    handler "handlers/api.handler"
+    runtime "ruby3.3"
+    memory 512
+    timeout 30
+
+    logs do
+      retention_days 14
+      subscription_filter destination: "arn:aws:lambda:ap-northeast-1:123456789012:function:central-logger",
+                          filter_pattern: "[timestamp, request_id, level = ERROR*, ...]"
+
+      subscription_filter :kinesis_stream,
+                          destination: "arn:aws:kinesis:ap-northeast-1:123456789012:stream/app-logs-stream",
+                          filter_pattern: "",
+                          distribution: "ByLogStream"
+    end
+  end
+end

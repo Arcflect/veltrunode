@@ -38,6 +38,10 @@ CloudFormation の論理ID（Logical ID）は、`Veltrunode::Compiler::LogicalId
 | **Schedule** | `:nightly` | `NightlySchedule` | EventBridge スケジュール (`AWS::Scheduler::Schedule`) |
 | **Queue** | `:nightly_dlq` | `NightlyDlqQueue` | SQS キュー (`AWS::SQS::Queue`) |
 | **LogGroup** | `:convert` | `ConvertFunctionLogGroup` | CloudWatch ロググループ (`AWS::Logs::LogGroup`) |
+| **SubscriptionFilter** | `:convert` | `ConvertFunctionSubscriptionFilter` | CloudWatch Logs サブスクリプションフィルター (`AWS::Logs::SubscriptionFilter`) |
+| **SubscriptionFilter (名前付き)** | `:convert` (`:opensearch`) | `ConvertFunctionOpensearchSubscriptionFilter` | 名前付きサブスクリプションフィルター (`AWS::Logs::SubscriptionFilter`) |
+| **Lambda Permission** | `:convert` | `ConvertFunctionLogsPermission` | CloudWatch Logs からの Lambda 呼び出し権限 (`AWS::Lambda::Permission`) |
+| **IAM Role (Logs Delivery)** | `:convert` | `ConvertFunctionLogsRole` | CloudWatch Logs から Kinesis/Firehose への配信ロール (`AWS::IAM::Role`) |
 | **Alarm** | `:convert` (errors) | `ConvertFunctionErrorsAlarm` | CloudWatch アラーム (`AWS::CloudWatch::Alarm`) |
 | **IAM Role (Lambda)** | `:convert` | `ConvertFunctionRole` | Lambda 実行ロール (`AWS::IAM::Role`) |
 | **IAM Role (Scheduler)** | `:nightly` | `NightlyScheduleRole` | Scheduler 呼び出しロール (`AWS::IAM::Role`) |
@@ -49,6 +53,22 @@ Lambda 関数で定義された `alarms` 設定は、`Veltrunode::Compiler::Clou
 - **論理ID**: `#{FunctionName}#{Metric}Alarm` 形式（例: `ConvertFunctionErrorsAlarm`, `ConvertFunctionDurationAlarm`, `ConvertFunctionThrottlesAlarm`）。
 - **ターゲット関数紐付け**: `Dimensions` の `FunctionName` プロパティに `{ 'Ref' => FunctionLogicalId }` が設定され、Lambda 関数への参照依存が自動的に解決されます。
 - **SNS 通知先パラメータ化**: アラーム通知先（`AlarmActions`）にシンボルや `ref(...)` でパラメータ名が指定された場合、CloudFormation テンプレートの `Parameters` に該当パラメータ（例: `AlertTopic: { Type: String, ... }`）が自動登録されます。リテラル ARN（`arn:aws:sns:...`）が指定された場合はそのまま展開されます。
+
+## CloudWatch Logs サブスクリプションフィルターのコンパイルとクロスサービス権限 (Subscription Filter Compilation)
+
+Lambda 関数の `logs` 設定で定義された `subscription_filter` は、`Veltrunode::Compiler::CloudFormation::SubscriptionFilterCompiler` により `AWS::Logs::SubscriptionFilter` リソースおよび必要な実行権限リソースとしてコンパイルされます。
+
+- **論理ID**:
+  - デフォルト: `#{FunctionName}SubscriptionFilter`
+  - 名前付き: `#{FunctionName}#{FilterName}SubscriptionFilter`
+- **対象ロググループ紐付け**: `LogGroupName` に `{ 'Ref' => FunctionLogGroupLogicalId }` が設定されます。
+- **クロスサービス実行権限の自動生成**:
+  - **Lambda 宛先**:
+    CloudWatch Logs が宛先 Lambda 関数を呼び出すための `AWS::Lambda::Permission`（Action: `lambda:InvokeFunction`、Principal: `logs.${AWS::Region}.amazonaws.com`、SourceArn: LogGroup の ARN）が自動生成されます。また、権限生成完了前にフィルターが作られることによるエラーを防ぐため、`SubscriptionFilter` に `DependsOn` が設定されます。
+  - **Kinesis / Firehose 宛先**:
+    宛先 ARN から自動判定（または `destination_type` 指定）され、明示的な `role_arn` が指定されていない場合は、CloudWatch Logs がストリームにレコードを書き込むための `AWS::IAM::Role`（Service: `logs.${AWS::Region}.amazonaws.com`、アクション: `kinesis:PutRecord*` または `firehose:PutRecord*`）が自動生成されます。
+- **宛先・ロール ARN のパラメータ化**:
+  宛先や `role_arn` にパラメータ名や Ref が指定された場合、CloudFormation テンプレートの `Parameters` に該当パラメータが自動登録されます。
 
 ## 変更セット (Change Sets)
 

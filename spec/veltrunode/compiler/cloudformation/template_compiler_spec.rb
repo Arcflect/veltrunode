@@ -556,5 +556,66 @@ RSpec.describe Veltrunode::Compiler::CloudFormation::TemplateCompiler do
       expect(throttles_alarm['Properties']['Threshold']).to eq(5)
       expect(throttles_alarm['Properties']['AlarmActions']).to eq([{ 'Ref' => 'AlertTopic' }])
     end
+
+    it 'compiles functions with subscription filters including permissions and roles' do
+      sub_code = <<~RUBY
+        Veltrunode.application "sub-app" do
+          aws region: "ap-northeast-1"
+
+          function :api do
+            handler "api.handler"
+            runtime "nodejs20.x"
+            logs do
+              retention_days 14
+              subscription_filter destination: "arn:aws:lambda:ap-northeast-1:123456789012:function:logger",
+                                  filter_pattern: "[time, req, level = ERROR*, ...]"
+              subscription_filter :kinesis_export,
+                                  destination: "KinesisStreamArn",
+                                  destination_type: :kinesis,
+                                  distribution: "ByLogStream"
+            end
+          end
+        end
+      RUBY
+
+      app = Veltrunode.parse(sub_code)
+      yaml_output = described_class.to_yaml(app)
+      parsed = YAML.safe_load(yaml_output)
+
+      # Parameters auto-discovery for non-ARN destination
+      params = parsed['Parameters']
+      expect(params).to have_key('KinesisStreamArn')
+      expect(params['KinesisStreamArn']['Type']).to eq('String')
+
+      resources = parsed['Resources']
+      # Default Lambda subscription filter and permission
+      expect(resources).to have_key('ApiFunctionSubscriptionFilter')
+      expect(resources).to have_key('ApiFunctionLogsPermission')
+      sf_lambda = resources['ApiFunctionSubscriptionFilter']
+      expect(sf_lambda['Type']).to eq('AWS::Logs::SubscriptionFilter')
+      expected_dest = 'arn:aws:lambda:ap-northeast-1:123456789012:function:logger'
+      expect(sf_lambda['Properties']['DestinationArn']).to eq(expected_dest)
+      expect(sf_lambda['Properties']['FilterPattern']).to eq('[time, req, level = ERROR*, ...]')
+
+      perm = resources['ApiFunctionLogsPermission']
+      expect(perm['Type']).to eq('AWS::Lambda::Permission')
+      expect(perm['Properties']['Action']).to eq('lambda:InvokeFunction')
+      expect(perm['Properties']['FunctionName']).to eq(expected_dest)
+
+      # Named Kinesis subscription filter and auto-generated role
+      expect(resources).to have_key('ApiFunctionKinesisExportSubscriptionFilter')
+      expect(resources).to have_key('ApiFunctionKinesisExportLogsRole')
+      sf_kinesis = resources['ApiFunctionKinesisExportSubscriptionFilter']
+      expect(sf_kinesis['Type']).to eq('AWS::Logs::SubscriptionFilter')
+      expect(sf_kinesis['DependsOn']).to eq(%w[ApiFunctionKinesisExportLogsRole ApiFunctionLogGroup])
+      expect(sf_kinesis['Properties']['DestinationArn']).to eq({ 'Ref' => 'KinesisStreamArn' })
+      expect(sf_kinesis['Properties']['RoleArn']).to eq({ 'Fn::GetAtt' => %w[ApiFunctionKinesisExportLogsRole Arn] })
+      expect(sf_kinesis['Properties']['Distribution']).to eq('ByLogStream')
+
+      role = resources['ApiFunctionKinesisExportLogsRole']
+      expect(role['Type']).to eq('AWS::IAM::Role')
+      policy = role['Properties']['Policies'].first
+      expect(policy['PolicyDocument']['Statement'].first['Action']).to eq(%w[kinesis:PutRecord kinesis:PutRecords])
+    end
   end
 end

@@ -5,6 +5,7 @@ require_relative 'layer_builder'
 require_relative 'efs_mount_builder'
 require_relative 'function_builder'
 require_relative 'schedule_builder'
+require_relative 'logs_builder'
 require_relative '../model/application'
 require_relative '../model/stage_policy'
 
@@ -263,8 +264,12 @@ module Veltrunode
         @tags_config = {}
       end
 
-      def logs(retention_days: nil)
-        @logs_config = { retention_days: retention_days.to_i }.compact
+      def logs(retention_days: nil, **, &)
+        builder = LogsBuilder.new(retention_days: retention_days)
+        builder.instance_eval(&) if block_given?
+        cfg = builder.to_h
+        cfg['retention_days'] ||= retention_days.to_i if retention_days
+        @logs_config = cfg
       end
 
       def tags(hash = {})

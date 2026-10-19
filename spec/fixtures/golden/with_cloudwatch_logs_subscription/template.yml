@@ -1,0 +1,138 @@
+---
+AWSTemplateFormatVersion: '2010-09-09'
+Description: with-cloudwatch-logs-subscription - dev (compiled by Veltrunode v0.1.64)
+Parameters:
+  ArtifactBucket:
+    Description: S3 bucket name where function and layer zip packages are stored
+    Type: String
+Resources:
+  ApiFunction:
+    DependsOn:
+    - ApiFunctionLogGroup
+    Properties:
+      Architectures:
+      - x86_64
+      Code:
+        S3Bucket:
+          Ref: ArtifactBucket
+        S3Key: artifacts/functions/api.zip
+      EphemeralStorage:
+        Size: 512
+      FunctionName: api
+      Handler: handlers/api.handler
+      MemorySize: 512
+      Role:
+        Fn::GetAtt:
+        - ApiFunctionRole
+        - Arn
+      Runtime: ruby3.3
+      Timeout: 30
+    Type: AWS::Lambda::Function
+  ApiFunctionKinesisStreamLogsRole:
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+        - Action: sts:AssumeRole
+          Effect: Allow
+          Principal:
+            Service:
+              Fn::Sub: logs.${AWS::Region}.amazonaws.com
+        Version: '2012-10-17'
+      Policies:
+      - PolicyDocument:
+          Statement:
+          - Action:
+            - kinesis:PutRecord
+            - kinesis:PutRecords
+            Effect: Allow
+            Resource: arn:aws:kinesis:ap-northeast-1:123456789012:stream/app-logs-stream
+          Version: '2012-10-17'
+        PolicyName: CloudWatchLogsKinesisDelivery
+    Type: AWS::IAM::Role
+  ApiFunctionKinesisStreamSubscriptionFilter:
+    DependsOn:
+    - ApiFunctionKinesisStreamLogsRole
+    - ApiFunctionLogGroup
+    Properties:
+      DestinationArn: arn:aws:kinesis:ap-northeast-1:123456789012:stream/app-logs-stream
+      Distribution: ByLogStream
+      FilterPattern: ''
+      LogGroupName:
+        Ref: ApiFunctionLogGroup
+      RoleArn:
+        Fn::GetAtt:
+        - ApiFunctionKinesisStreamLogsRole
+        - Arn
+    Type: AWS::Logs::SubscriptionFilter
+  ApiFunctionLogGroup:
+    Properties:
+      LogGroupName: "/aws/lambda/api"
+      RetentionInDays: 14
+    Type: AWS::Logs::LogGroup
+  ApiFunctionLogsPermission:
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: arn:aws:lambda:ap-northeast-1:123456789012:function:central-logger
+      Principal:
+        Fn::Sub: logs.${AWS::Region}.amazonaws.com
+      SourceArn:
+        Fn::GetAtt:
+        - ApiFunctionLogGroup
+        - Arn
+    Type: AWS::Lambda::Permission
+  ApiFunctionRole:
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+        - Action: sts:AssumeRole
+          Effect: Allow
+          Principal:
+            Service: lambda.amazonaws.com
+        Version: '2012-10-17'
+      Policies:
+      - PolicyDocument:
+          Statement:
+          - Action:
+            - logs:CreateLogStream
+            - logs:PutLogEvents
+            Effect: Allow
+            Resource:
+            - Fn::GetAtt:
+              - ApiFunctionLogGroup
+              - Arn
+          Version: '2012-10-17'
+        PolicyName: ApiFunctionRolePolicy
+    Type: AWS::IAM::Role
+  ApiFunctionSubscriptionFilter:
+    DependsOn:
+    - ApiFunctionLogGroup
+    - ApiFunctionLogsPermission
+    Properties:
+      DestinationArn: arn:aws:lambda:ap-northeast-1:123456789012:function:central-logger
+      FilterPattern: "[timestamp, request_id, level = ERROR*, ...]"
+      LogGroupName:
+        Ref: ApiFunctionLogGroup
+    Type: AWS::Logs::SubscriptionFilter
+Outputs:
+  ApiFunctionArn:
+    Description: ARN of api Lambda function
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}-ApiFunctionArn"
+    Value:
+      Fn::GetAtt:
+      - ApiFunction
+      - Arn
+  ApiFunctionName:
+    Description: Name of api Lambda function
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}-ApiFunctionName"
+    Value:
+      Ref: ApiFunction
+  ApplicationName:
+    Description: Veltrunode application name
+    Value: with-cloudwatch-logs-subscription
+  ApplicationStage:
+    Description: Veltrunode application stage
+    Value: dev

@@ -200,6 +200,21 @@ module Veltrunode
             end
           end
 
+          sf_list = extract_val(fn, :subscription_filters)
+          if present?(sf_list)
+            fn_info['subscription_filters'] = Array(sf_list).map do |sf|
+              entry = {
+                'destination' => deep_stringify_keys(sf.destination),
+                'filter_pattern' => sf.filter_pattern
+              }
+              entry['name'] = sf.name if sf.name
+              entry['destination_type'] = sf.destination_type.to_s if sf.destination_type
+              entry['role_arn'] = deep_stringify_keys(sf.role_arn) if sf.role_arn
+              entry['distribution'] = sf.distribution if sf.distribution
+              entry
+            end
+          end
+
           memo[fn_name] = fn_info
         end
       end
