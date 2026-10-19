@@ -492,5 +492,69 @@ RSpec.describe Veltrunode::Compiler::CloudFormation::TemplateCompiler do
       expect(outputs).to have_key('StorageLambdaSecurityGroupId')
       expect(outputs).to have_key('StorageEfsSecurityGroupId')
     end
+
+    it 'compiles CloudWatch Alarms and auto-discovers SNS topic parameters' do
+      alarm_code = <<~RUBY
+        Veltrunode.application "alarmed-service" do
+          aws region: "ap-northeast-1", account: "123456789012"
+          runtime ruby: "3.4", architecture: :arm64
+
+          function :worker do
+            handler "functions/worker.handler"
+            memory 1024
+            timeout 60
+
+            alarms do
+              topic ref(:alert_topic)
+              errors threshold: 1, period: 60
+              duration threshold: 30000, statistic: "Average"
+              throttles threshold: 5
+            end
+          end
+        end
+      RUBY
+
+      app = Veltrunode.parse(alarm_code)
+      yaml_output = described_class.to_yaml(app)
+      parsed = YAML.safe_load(yaml_output)
+
+      # Parameters auto-discovery for referenced SNS topic
+      params = parsed['Parameters']
+      expect(params).to have_key('AlertTopic')
+      expect(params['AlertTopic']['Type']).to eq('String')
+      expect(params['AlertTopic']['Description']).to include('AlertTopic')
+
+      # Alarm Resources
+      resources = parsed['Resources']
+      expect(resources).to have_key('WorkerFunctionErrorsAlarm')
+      expect(resources).to have_key('WorkerFunctionDurationAlarm')
+      expect(resources).to have_key('WorkerFunctionThrottlesAlarm')
+
+      # Check WorkerFunctionErrorsAlarm
+      errors_alarm = resources['WorkerFunctionErrorsAlarm']
+      expect(errors_alarm['Type']).to eq('AWS::CloudWatch::Alarm')
+      expect(errors_alarm['Properties']['MetricName']).to eq('Errors')
+      expected_dimensions = [{ 'Name' => 'FunctionName', 'Value' => { 'Ref' => 'WorkerFunction' } }]
+      expect(errors_alarm['Properties']['Dimensions']).to eq(expected_dimensions)
+      expect(errors_alarm['Properties']['Statistic']).to eq('Sum')
+      expect(errors_alarm['Properties']['Threshold']).to eq(1)
+      expect(errors_alarm['Properties']['AlarmActions']).to eq([{ 'Ref' => 'AlertTopic' }])
+
+      # Check WorkerFunctionDurationAlarm
+      duration_alarm = resources['WorkerFunctionDurationAlarm']
+      expect(duration_alarm['Type']).to eq('AWS::CloudWatch::Alarm')
+      expect(duration_alarm['Properties']['MetricName']).to eq('Duration')
+      expect(duration_alarm['Properties']['Statistic']).to eq('Average')
+      expect(duration_alarm['Properties']['Threshold']).to eq(30_000)
+      expect(duration_alarm['Properties']['AlarmActions']).to eq([{ 'Ref' => 'AlertTopic' }])
+
+      # Check WorkerFunctionThrottlesAlarm
+      throttles_alarm = resources['WorkerFunctionThrottlesAlarm']
+      expect(throttles_alarm['Type']).to eq('AWS::CloudWatch::Alarm')
+      expect(throttles_alarm['Properties']['MetricName']).to eq('Throttles')
+      expect(throttles_alarm['Properties']['Statistic']).to eq('Sum')
+      expect(throttles_alarm['Properties']['Threshold']).to eq(5)
+      expect(throttles_alarm['Properties']['AlarmActions']).to eq([{ 'Ref' => 'AlertTopic' }])
+    end
   end
 end

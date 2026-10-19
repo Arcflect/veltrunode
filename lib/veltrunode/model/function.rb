@@ -6,7 +6,8 @@ module Veltrunode
   module Model
     class Function
       attr_reader :handler, :runtime, :logical_name, :architecture, :memory, :timeout, :ephemeral_storage,
-                  :environment, :vpc_reference, :layers, :mounts, :iam_capabilities, :concurrency, :logging
+                  :environment, :vpc_reference, :layers, :mounts, :iam_capabilities, :concurrency, :logging,
+                  :alarms
 
       def initialize(
         positional_logical_name = nil,
@@ -23,7 +24,8 @@ module Veltrunode
         mounts: [],
         iam_capabilities: [],
         concurrency: nil,
-        logging: nil
+        logging: nil,
+        alarms: []
       )
         name_val = positional_logical_name || logical_name
         validate_logical_name!(name_val)
@@ -42,6 +44,7 @@ module Veltrunode
         @iam_capabilities = freeze_array(iam_capabilities)
         @concurrency = freeze_value(concurrency)
         @logging = freeze_value(logging)
+        @alarms = freeze_array(alarms)
 
         freeze if @handler || @runtime
       end
@@ -62,6 +65,7 @@ module Veltrunode
         validate_layer_architecture_compatibility(context, diagnostics)
         validate_references(context, diagnostics)
         validate_environment_duplicates(context, diagnostics)
+        validate_alarms(diagnostics)
 
         diagnostics.freeze
       end
@@ -292,6 +296,20 @@ module Veltrunode
           layer_obj.architectures
         elsif layer_obj.respond_to?(:compatible_architectures)
           layer_obj.compatible_architectures
+        end
+      end
+
+      def validate_alarms(diagnostics)
+        Array(@alarms).each do |alarm|
+          alarm.validate! if alarm.respond_to?(:validate!)
+        rescue ValidationError => e
+          diagnostics << Diagnostics::Diagnostic.new(
+            code: 'VLT-ALARM-001',
+            severity: :error,
+            summary: "Invalid alarm in function '#{logical_name}': #{e.message}",
+            suggested_action: 'Check alarm metric, threshold, and evaluation parameters.',
+            evidence: { 'function' => logical_name, 'error' => e.message }
+          )
         end
       end
     end

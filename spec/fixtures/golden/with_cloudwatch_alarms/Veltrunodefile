@@ -1,0 +1,19 @@
+# frozen_string_literal: true
+
+Veltrunode.application "alarmed-service" do
+  aws region: "ap-northeast-1", account: "123456789012"
+  runtime ruby: "3.4", architecture: :arm64
+
+  function :worker do
+    handler "functions/worker.handler"
+    memory 1024
+    timeout 60
+
+    alarms do
+      topic ref(:alert_topic)
+      errors threshold: 1, period: 60
+      duration threshold: 30000, statistic: "Average"
+      throttles threshold: 5
+    end
+  end
+end

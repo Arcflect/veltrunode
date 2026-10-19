@@ -38,8 +38,17 @@ CloudFormation の論理ID（Logical ID）は、`Veltrunode::Compiler::LogicalId
 | **Schedule** | `:nightly` | `NightlySchedule` | EventBridge スケジュール (`AWS::Scheduler::Schedule`) |
 | **Queue** | `:nightly_dlq` | `NightlyDlqQueue` | SQS キュー (`AWS::SQS::Queue`) |
 | **LogGroup** | `:convert` | `ConvertFunctionLogGroup` | CloudWatch ロググループ (`AWS::Logs::LogGroup`) |
+| **Alarm** | `:convert` (errors) | `ConvertFunctionErrorsAlarm` | CloudWatch アラーム (`AWS::CloudWatch::Alarm`) |
 | **IAM Role (Lambda)** | `:convert` | `ConvertFunctionRole` | Lambda 実行ロール (`AWS::IAM::Role`) |
 | **IAM Role (Scheduler)** | `:nightly` | `NightlyScheduleRole` | Scheduler 呼び出しロール (`AWS::IAM::Role`) |
+
+## CloudWatch アラームのコンパイルと通知パラメータ (CloudWatch Alarms Compilation)
+
+Lambda 関数で定義された `alarms` 設定は、`Veltrunode::Compiler::CloudFormation::AlarmCompiler` により `AWS::CloudWatch::Alarm` リソースとしてコンパイルされます。
+
+- **論理ID**: `#{FunctionName}#{Metric}Alarm` 形式（例: `ConvertFunctionErrorsAlarm`, `ConvertFunctionDurationAlarm`, `ConvertFunctionThrottlesAlarm`）。
+- **ターゲット関数紐付け**: `Dimensions` の `FunctionName` プロパティに `{ 'Ref' => FunctionLogicalId }` が設定され、Lambda 関数への参照依存が自動的に解決されます。
+- **SNS 通知先パラメータ化**: アラーム通知先（`AlarmActions`）にシンボルや `ref(...)` でパラメータ名が指定された場合、CloudFormation テンプレートの `Parameters` に該当パラメータ（例: `AlertTopic: { Type: String, ... }`）が自動登録されます。リテラル ARN（`arn:aws:sns:...`）が指定された場合はそのまま展開されます。
 
 ## 変更セット (Change Sets)
 

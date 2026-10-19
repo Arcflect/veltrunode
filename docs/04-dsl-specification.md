@@ -47,6 +47,12 @@ Veltrunode.application "document-converter" do
       read_from_s3 bucket: ref(:input_bucket)
       write_to_s3 bucket: ref(:output_bucket)
     end
+    alarms do
+      topic ref(:alert_topic)
+      errors threshold: 1, period: 60
+      duration threshold: 5000, statistic: "Average"
+      throttles threshold: 2
+    end
   end
 
   schedule :nightly do
@@ -58,6 +64,16 @@ Veltrunode.application "document-converter" do
   end
 end
 ```
+
+## CloudWatch メトリクスアラーム (CloudWatch Alarms)
+
+`function` 内で `alarms` ブロックを定義することで、Lambda 関数のエラー、レイテンシ（実行時間）、スロットルを監視する `AWS::CloudWatch::Alarm` リソースを自動生成できます。
+
+- **`topic`**: アラーム通知先 SNS トピック ARN（リテラル ARN または `ref(:param_or_resource)`）。
+- **`errors`**: エラー数アラーム（デフォルト統計: `Sum`）。
+- **`duration`**: 実行時間アラーム（デフォルト統計: `Average`、閾値はミリ秒）。
+- **`throttles`**: スロットル数アラーム（デフォルト統計: `Sum`）。
+- **パラメータ指定**: `threshold`, `period`（秒数、10の倍数）, `evaluation_periods`, `statistic`, `comparison_operator`, `treat_missing_data` をカスタマイズ可能。
 
 ## エスケープハッチ (Escape Hatch)
 

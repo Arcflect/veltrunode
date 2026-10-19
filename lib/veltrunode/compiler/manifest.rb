@@ -183,6 +183,23 @@ module Veltrunode
           log_cfg = extract_val(fn, :logging)
           fn_info['logging'] = log_cfg if present?(log_cfg)
 
+          alarms_list = extract_val(fn, :alarms)
+          if present?(alarms_list)
+            fn_info['alarms'] = Array(alarms_list).map do |alarm|
+              entry = {
+                'metric' => alarm.metric.to_s,
+                'threshold' => alarm.threshold,
+                'evaluation_periods' => alarm.evaluation_periods,
+                'period' => alarm.period,
+                'statistic' => alarm.statistic,
+                'comparison_operator' => alarm.comparison_operator,
+                'treat_missing_data' => alarm.treat_missing_data
+              }
+              entry['alarm_actions'] = deep_stringify_keys(Array(alarm.alarm_actions)) if present?(alarm.alarm_actions)
+              entry
+            end
+          end
+
           memo[fn_name] = fn_info
         end
       end

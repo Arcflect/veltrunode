@@ -1,0 +1,66 @@
+{
+  "application": {
+    "account_constraint": "123456789012",
+    "name": "alarmed-service",
+    "region": "ap-northeast-1",
+    "stage": "dev"
+  },
+  "built_at": "2026-01-01T00:00:00Z",
+  "compiler_version": "0.1.63",
+  "functions": {
+    "worker": {
+      "alarms": [
+        {
+          "alarm_actions": [
+            "alert_topic"
+          ],
+          "comparison_operator": "GreaterThanOrEqualToThreshold",
+          "evaluation_periods": 1,
+          "metric": "errors",
+          "period": 60,
+          "statistic": "Sum",
+          "threshold": 1,
+          "treat_missing_data": "notBreaching"
+        },
+        {
+          "alarm_actions": [
+            "alert_topic"
+          ],
+          "comparison_operator": "GreaterThanOrEqualToThreshold",
+          "evaluation_periods": 1,
+          "metric": "duration",
+          "period": 60,
+          "statistic": "Average",
+          "threshold": 30000,
+          "treat_missing_data": "notBreaching"
+        },
+        {
+          "alarm_actions": [
+            "alert_topic"
+          ],
+          "comparison_operator": "GreaterThanOrEqualToThreshold",
+          "evaluation_periods": 1,
+          "metric": "throttles",
+          "period": 60,
+          "statistic": "Sum",
+          "threshold": 5,
+          "treat_missing_data": "notBreaching"
+        }
+      ],
+      "architecture": "arm64",
+      "ephemeral_storage": 512,
+      "handler": "functions/worker.handler",
+      "logical_name": "worker",
+      "memory": 1024,
+      "runtime": "ruby3.4",
+      "timeout": 60
+    }
+  },
+  "iam_capabilities": {
+    "worker": []
+  },
+  "layers": {},
+  "manifest_schema_version": "1.0",
+  "schedules": {},
+  "schema_version": "1.0"
+}

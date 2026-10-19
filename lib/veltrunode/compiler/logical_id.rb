@@ -142,6 +142,10 @@ module Veltrunode
           for_security_group_ingress(name)
         when :security_group_egress
           for_security_group_egress(name)
+        when :alarm, :cloudwatch_alarm
+          suffix = 'Alarm'
+          base = pascalize(name)
+          base.end_with?(suffix) ? base : "#{base}#{suffix}"
         else
           suffix = pascalize(type)
           base = pascalize(name)
@@ -208,6 +212,17 @@ module Veltrunode
         return 'LambdaSecurityGroupEgress' if base.empty? || base == 'Default' || base == 'Efs'
 
         "#{base}LambdaSecurityGroupEgress"
+      end
+
+      # Lambda 関数の CloudWatch メトリクスアラームの論理IDを生成します
+      #
+      # @param function_name [String, Symbol] 関数シンボリック名 (例: :convert)
+      # @param metric [String, Symbol] メトリクス種別 (例: :errors, :duration, :throttles)
+      # @return [String] 論理ID (例: "ConvertFunctionErrorsAlarm")
+      def for_function_alarm(function_name, metric)
+        fn_id = for_function(function_name)
+        metric_str = pascalize(metric)
+        "#{fn_id}#{metric_str}Alarm"
       end
     end
   end
