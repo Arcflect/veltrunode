@@ -3,6 +3,7 @@
 require 'fileutils'
 require 'yaml'
 require_relative 'access_point_compiler'
+require_relative 'alarm_compiler'
 require_relative 'function_compiler'
 require_relative 'layer_version_compiler'
 require_relative 'log_group_compiler'
@@ -121,6 +122,24 @@ module Veltrunode
             }
           end
 
+          # Include referenced SNS topic ARN parameters from alarms
+          fn_nodes = extract_collection(:functions)
+          fn_nodes.each do |fn|
+            next unless fn.respond_to?(:alarms) && fn.alarms
+
+            Array(fn.alarms).each do |alarm|
+              Array(alarm.alarm_actions).each do |act|
+                param_key = resolve_sns_topic_param_key(act)
+                next if param_key.nil? || params.key?(param_key)
+
+                params[param_key] = {
+                  'Description' => "SNS topic ARN for #{param_key}",
+                  'Type' => 'String'
+                }
+              end
+            end
+          end
+
           deep_sort_keys(params)
         end
 
@@ -210,6 +229,14 @@ module Veltrunode
               mount_map: mount_map
             )
             resources.merge!(fn_res)
+
+            # CloudWatch Alarms
+            next unless fn.respond_to?(:alarms) && fn.alarms
+
+            Array(fn.alarms).each do |alarm|
+              alarm_res = AlarmCompiler.compile(fn, alarm, context: context)
+              resources.merge!(alarm_res)
+            end
           end
 
           # 6. Compile Schedules (Role, Schedule)
@@ -501,6 +528,22 @@ module Veltrunode
             LogicalId.pascalize(name)
           elsif v_id.is_a?(String) && !v_id.start_with?('vpc-')
             v_id
+          end
+        end
+
+        def resolve_sns_topic_param_key(action)
+          return nil if action.nil?
+
+          if action.is_a?(Hash) && action['Ref']
+            action['Ref'].to_s
+          elsif action.respond_to?(:name) || action.is_a?(Symbol)
+            name = action.respond_to?(:name) ? action.name : action
+            LogicalId.pascalize(name)
+          elsif action.is_a?(String)
+            str = action.strip
+            return nil if str.start_with?('arn:aws:')
+
+            str
           end
         end
       end

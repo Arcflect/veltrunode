@@ -2,6 +2,7 @@
 
 require_relative 'base_builder'
 require_relative 'permit_builder'
+require_relative 'alarms_builder'
 require_relative '../model/function'
 
 module Veltrunode
@@ -23,6 +24,7 @@ module Veltrunode
         @iam_capabilities = []
         @concurrency = nil
         @logging = nil
+        @alarms = []
       end
 
       def handler(h)
@@ -97,6 +99,31 @@ module Veltrunode
         @logging = l
       end
 
+      def alarms(topic_or_opts = nil, **kwargs, &)
+        opts = if topic_or_opts.is_a?(Hash)
+                 topic_or_opts.merge(kwargs)
+               elsif topic_or_opts
+                 { topic: topic_or_opts }.merge(kwargs)
+               else
+                 kwargs
+               end
+
+        default_topic = opts[:topic]
+        builder = AlarmsBuilder.new(default_topic: default_topic)
+
+        if block_given?
+          builder.instance_eval(&)
+        else
+          opts.each do |k, v|
+            next if k == :topic
+
+            builder.send(k, v) if builder.respond_to?(k)
+          end
+        end
+
+        @alarms.concat(builder.build)
+      end
+
       def build
         Model::Function.new(
           logical_name: @logical_name,
@@ -112,7 +139,8 @@ module Veltrunode
           mounts: @mounts,
           iam_capabilities: @iam_capabilities,
           concurrency: @concurrency,
-          logging: @logging
+          logging: @logging,
+          alarms: @alarms
         )
       end
     end
