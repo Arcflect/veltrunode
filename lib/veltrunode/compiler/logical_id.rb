@@ -146,6 +146,10 @@ module Veltrunode
           suffix = 'Alarm'
           base = pascalize(name)
           base.end_with?(suffix) ? base : "#{base}#{suffix}"
+        when :subscription_filter
+          suffix = 'SubscriptionFilter'
+          base = pascalize(name)
+          base.end_with?(suffix) ? base : "#{base}#{suffix}"
         else
           suffix = pascalize(type)
           base = pascalize(name)
@@ -223,6 +227,43 @@ module Veltrunode
         fn_id = for_function(function_name)
         metric_str = pascalize(metric)
         "#{fn_id}#{metric_str}Alarm"
+      end
+
+      # CloudWatch Logs サブスクリプションフィルターの論理IDを生成します
+      #
+      # @param function_name [String, Symbol] 関数シンボリック名 (例: :worker)
+      # @param filter_name [String, Symbol, nil] フィルター名 (例: :errors, :default)
+      # @return [String] 論理ID (例: "WorkerFunctionSubscriptionFilter", "WorkerFunctionErrorsSubscriptionFilter")
+      def for_subscription_filter(function_name, filter_name = nil)
+        fn_id = for_function(function_name)
+        suffix = if filter_name.nil? || filter_name.to_sym == :default
+                   'SubscriptionFilter'
+                 else
+                   "#{pascalize(filter_name)}SubscriptionFilter"
+                 end
+        "#{fn_id}#{suffix}"
+      end
+
+      # CloudWatch Logs -> Lambda 呼び出し権限 (AWS::Lambda::Permission) の論理IDを生成します
+      def for_logs_permission(function_name, filter_name = nil)
+        fn_id = for_function(function_name)
+        suffix = if filter_name.nil? || filter_name.to_sym == :default
+                   'LogsPermission'
+                 else
+                   "#{pascalize(filter_name)}LogsPermission"
+                 end
+        "#{fn_id}#{suffix}"
+      end
+
+      # CloudWatch Logs -> Kinesis/Firehose 配信ロール (AWS::IAM::Role) の論理IDを生成します
+      def for_logs_role(function_name, filter_name = nil)
+        fn_id = for_function(function_name)
+        suffix = if filter_name.nil? || filter_name.to_sym == :default
+                   'LogsRole'
+                 else
+                   "#{pascalize(filter_name)}LogsRole"
+                 end
+        "#{fn_id}#{suffix}"
       end
     end
   end

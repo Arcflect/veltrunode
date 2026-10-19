@@ -11,6 +11,7 @@ require_relative 'queue_compiler'
 require_relative 'role_compiler'
 require_relative 'schedule_compiler'
 require_relative 'security_group_compiler'
+require_relative 'subscription_filter_compiler'
 require_relative '../../graph/resource_graph'
 require_relative '../../version'
 
@@ -122,21 +123,41 @@ module Veltrunode
             }
           end
 
-          # Include referenced SNS topic ARN parameters from alarms
+          # Include referenced SNS topic ARN parameters from alarms and subscription filters
           fn_nodes = extract_collection(:functions)
           fn_nodes.each do |fn|
-            next unless fn.respond_to?(:alarms) && fn.alarms
+            if fn.respond_to?(:alarms) && fn.alarms
+              Array(fn.alarms).each do |alarm|
+                Array(alarm.alarm_actions).each do |act|
+                  param_key = resolve_sns_topic_param_key(act)
+                  next if param_key.nil? || params.key?(param_key)
 
-            Array(fn.alarms).each do |alarm|
-              Array(alarm.alarm_actions).each do |act|
-                param_key = resolve_sns_topic_param_key(act)
-                next if param_key.nil? || params.key?(param_key)
+                  params[param_key] = {
+                    'Description' => "SNS topic ARN for #{param_key}",
+                    'Type' => 'String'
+                  }
+                end
+              end
+            end
 
-                params[param_key] = {
-                  'Description' => "SNS topic ARN for #{param_key}",
+            next unless fn.respond_to?(:subscription_filters) && fn.subscription_filters
+
+            Array(fn.subscription_filters).each do |filter|
+              dest_param = resolve_subscription_destination_param_key(filter.destination)
+              if dest_param && !params.key?(dest_param)
+                params[dest_param] = {
+                  'Description' => "Destination ARN for #{dest_param}",
                   'Type' => 'String'
                 }
               end
+
+              role_param = resolve_subscription_role_param_key(filter.role_arn)
+              next unless role_param && !params.key?(role_param)
+
+              params[role_param] = {
+                'Description' => "Role ARN for #{role_param}",
+                'Type' => 'String'
+              }
             end
           end
 
@@ -231,11 +252,19 @@ module Veltrunode
             resources.merge!(fn_res)
 
             # CloudWatch Alarms
-            next unless fn.respond_to?(:alarms) && fn.alarms
+            if fn.respond_to?(:alarms) && fn.alarms
+              Array(fn.alarms).each do |alarm|
+                alarm_res = AlarmCompiler.compile(fn, alarm, context: context)
+                resources.merge!(alarm_res)
+              end
+            end
 
-            Array(fn.alarms).each do |alarm|
-              alarm_res = AlarmCompiler.compile(fn, alarm, context: context)
-              resources.merge!(alarm_res)
+            # CloudWatch Logs Subscription Filters
+            next unless fn.respond_to?(:subscription_filters) && fn.subscription_filters
+
+            Array(fn.subscription_filters).each do |filter|
+              sf_res = SubscriptionFilterCompiler.compile(fn, filter, context: context)
+              resources.merge!(sf_res)
             end
           end
 
@@ -541,6 +570,35 @@ module Veltrunode
             LogicalId.pascalize(name)
           elsif action.is_a?(String)
             str = action.strip
+            return nil if str.start_with?('arn:aws:')
+
+            str
+          end
+        end
+
+        def resolve_subscription_destination_param_key(dest)
+          return nil if dest.nil?
+
+          if dest.is_a?(Hash) && dest['Ref']
+            dest['Ref'].to_s
+          elsif dest.is_a?(String)
+            str = dest.strip
+            return nil if str.start_with?('arn:aws:')
+
+            str
+          end
+        end
+
+        def resolve_subscription_role_param_key(role)
+          return nil if role.nil?
+
+          if role.is_a?(Hash) && role['Ref']
+            role['Ref'].to_s
+          elsif role.respond_to?(:name) || role.is_a?(Symbol)
+            name = role.respond_to?(:name) ? role.name : role
+            LogicalId.pascalize(name)
+          elsif role.is_a?(String)
+            str = role.strip
             return nil if str.start_with?('arn:aws:')
 
             str

@@ -3,6 +3,7 @@
 require_relative 'base_builder'
 require_relative 'permit_builder'
 require_relative 'alarms_builder'
+require_relative 'logs_builder'
 require_relative '../model/function'
 
 module Veltrunode
@@ -25,6 +26,7 @@ module Veltrunode
         @concurrency = nil
         @logging = nil
         @alarms = []
+        @subscription_filters = []
       end
 
       def handler(h)
@@ -97,6 +99,46 @@ module Veltrunode
 
       def logging(l)
         @logging = l
+        return unless l.is_a?(Hash)
+
+        filters = l[:subscription_filters] || l['subscription_filters'] ||
+                  l[:subscription_filter] || l['subscription_filter']
+        return unless filters
+
+        Array(filters).each do |f|
+          if f.is_a?(Model::SubscriptionFilter)
+            @subscription_filters << f
+          elsif f.is_a?(Hash)
+            builder = LogsBuilder.new
+            builder.subscription_filter(f)
+            @subscription_filters.concat(builder.subscription_filters)
+          end
+        end
+      end
+
+      def logs(retention_days_or_opts = nil, **kwargs, &)
+        opts = if retention_days_or_opts.is_a?(Hash)
+                 retention_days_or_opts.merge(kwargs)
+               elsif retention_days_or_opts.is_a?(Numeric) || retention_days_or_opts.is_a?(String)
+                 { retention_days: retention_days_or_opts.to_i }.merge(kwargs)
+               else
+                 kwargs
+               end
+
+        builder = LogsBuilder.new(retention_days: opts[:retention_days])
+
+        if block_given?
+          builder.instance_eval(&)
+        elsif opts[:subscription_filter] || opts[:subscription_filters]
+          filters = opts[:subscription_filters] || opts[:subscription_filter]
+          filter_list = filters.is_a?(Array) ? filters : [filters]
+          filter_list.each do |f|
+            builder.subscription_filter(f)
+          end
+        end
+
+        @logging = builder.to_h
+        @subscription_filters.concat(builder.subscription_filters)
       end
 
       def alarms(topic_or_opts = nil, **kwargs, &)
@@ -140,7 +182,8 @@ module Veltrunode
           iam_capabilities: @iam_capabilities,
           concurrency: @concurrency,
           logging: @logging,
-          alarms: @alarms
+          alarms: @alarms,
+          subscription_filters: @subscription_filters
         )
       end
     end
