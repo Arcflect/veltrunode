@@ -154,10 +154,22 @@ module Veltrunode
             }
           }
 
-          {
+          managed_policies = []
+          ctx_policies = context[:managed_policies] || context['managed_policies']
+          managed_policies.concat(Array(ctx_policies)) if ctx_policies
+
+          # X-Ray 書込権限 (AWSXRayDaemonWriteAccess) の自動付与
+          if target.respond_to?(:tracing_enabled?) && target.tracing_enabled?
+            managed_policies << 'arn:aws:iam::aws:policy/AWSXRayDaemonWriteAccess'
+          end
+          managed_policies.uniq!
+
+          role_props = {
             'AssumeRolePolicyDocument' => assume_role_policy,
             'Policies' => [policy]
           }
+          role_props['ManagedPolicyArns'] = managed_policies.sort unless managed_policies.empty?
+          role_props
         end
 
         def build_scheduler_role_properties

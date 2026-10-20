@@ -61,18 +61,26 @@ module Veltrunode
             props['EphemeralStorage'] = { 'Size' => function.ephemeral_storage.to_i }
           end
 
-          if present?(function.environment)
-            env_vars = format_environment(function.environment)
-            props['Environment'] = { 'Variables' => env_vars } unless env_vars.empty?
+          env_vars = format_environment(function.environment)
+          if function.respond_to?(:adot_enabled?) && function.adot_enabled? &&
+             adot_supports_exec_wrapper? && !env_vars.key?('AWS_LAMBDA_EXEC_WRAPPER')
+            env_vars['AWS_LAMBDA_EXEC_WRAPPER'] = '/opt/otel-instrument'
           end
+          props['Environment'] = { 'Variables' => env_vars } unless env_vars.empty?
 
           if present?(function.vpc_reference)
             vpc_cfg = format_vpc_config(function.vpc_reference)
             props['VpcConfig'] = vpc_cfg if vpc_cfg && !vpc_cfg.empty?
           end
 
-          if present?(function.layers)
-            layers_list = format_layers(function.layers)
+          layers_to_attach = Array(function.layers).dup
+          if function.respond_to?(:adot_enabled?) && function.adot_enabled?
+            adot_arn = resolve_adot_layer_arn
+            layers_to_attach << adot_arn if adot_arn
+          end
+
+          unless layers_to_attach.empty?
+            layers_list = format_layers(layers_to_attach)
             props['Layers'] = layers_list unless layers_list.empty?
           end
 
@@ -92,6 +100,10 @@ module Veltrunode
           if present?(function.logging)
             log_cfg = format_logging(function.logging)
             props['LoggingConfig'] = log_cfg if log_cfg && !log_cfg.empty?
+          end
+
+          if function.respond_to?(:tracing_mode) && function.tracing_mode
+            props['TracingConfig'] = { 'Mode' => function.tracing_mode }
           end
 
           deep_sort_keys(props)
@@ -387,6 +399,33 @@ module Veltrunode
           hash.each_with_object({}) do |(k, v), memo|
             memo[k.to_s] = v
           end.freeze
+        end
+
+        def resolve_adot_layer_arn
+          return function.adot_layer_arn if function.respond_to?(:adot_layer_arn) && function.adot_layer_arn
+
+          ctx_adot = context[:adot_layer_arn] || context['adot_layer_arn']
+          return ctx_adot if ctx_adot
+
+          runtime_str = function.runtime.to_s.downcase
+          arch_str = function.architecture.to_s == 'arm64' ? 'arm64' : 'amd64'
+
+          layer_name = if runtime_str.start_with?('node')
+                         "aws-otel-nodejs-#{arch_str}-ver-1-18-0:1"
+                       elsif runtime_str.start_with?('python')
+                         "aws-otel-python-#{arch_str}-ver-1-20-0:1"
+                       elsif runtime_str.start_with?('java')
+                         "aws-otel-java-wrapper-#{arch_str}-ver-1-32-0:1"
+                       else
+                         "aws-otel-collector-#{arch_str}-ver-0-84-0:1"
+                       end
+
+          { 'Fn::Sub' => "arn:aws:lambda:${AWS::Region}:901920570468:layer:#{layer_name}" }
+        end
+
+        def adot_supports_exec_wrapper?
+          rt = function.runtime.to_s.downcase
+          rt.start_with?('node') || rt.start_with?('python') || rt.start_with?('java')
         end
       end
     end

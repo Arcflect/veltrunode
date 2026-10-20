@@ -1,0 +1,25 @@
+# frozen_string_literal: true
+
+Veltrunode.application "with-xray-tracing" do
+  aws region: "ap-northeast-1", account: "123456789012"
+
+  defaults do
+    tracing :active
+  end
+
+  function :api do
+    handler "handlers/api.handler"
+    runtime "nodejs20.x"
+    architecture :arm64
+    memory 512
+    timeout 30
+    tracing :adot
+  end
+
+  function :worker do
+    handler "handlers/worker.handler"
+    runtime "ruby3.3"
+    memory 256
+    timeout 60
+  end
+end

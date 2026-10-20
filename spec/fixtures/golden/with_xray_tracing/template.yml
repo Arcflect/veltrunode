@@ -1,0 +1,160 @@
+---
+AWSTemplateFormatVersion: '2010-09-09'
+Description: with-xray-tracing - dev (compiled by Veltrunode v0.1.65)
+Parameters:
+  ArtifactBucket:
+    Description: S3 bucket name where function and layer zip packages are stored
+    Type: String
+Resources:
+  ApiFunction:
+    DependsOn:
+    - ApiFunctionLogGroup
+    Properties:
+      Architectures:
+      - arm64
+      Code:
+        S3Bucket:
+          Ref: ArtifactBucket
+        S3Key: artifacts/functions/api.zip
+      Environment:
+        Variables:
+          AWS_LAMBDA_EXEC_WRAPPER: "/opt/otel-instrument"
+      EphemeralStorage:
+        Size: 512
+      FunctionName: api
+      Handler: handlers/api.handler
+      Layers:
+      - Fn::Sub: arn:aws:lambda:${AWS::Region}:901920570468:layer:aws-otel-nodejs-arm64-ver-1-18-0:1
+      MemorySize: 512
+      Role:
+        Fn::GetAtt:
+        - ApiFunctionRole
+        - Arn
+      Runtime: nodejs20.x
+      Timeout: 30
+      TracingConfig:
+        Mode: Active
+    Type: AWS::Lambda::Function
+  ApiFunctionLogGroup:
+    Properties:
+      LogGroupName: "/aws/lambda/api"
+      RetentionInDays: 30
+    Type: AWS::Logs::LogGroup
+  ApiFunctionRole:
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+        - Action: sts:AssumeRole
+          Effect: Allow
+          Principal:
+            Service: lambda.amazonaws.com
+        Version: '2012-10-17'
+      ManagedPolicyArns:
+      - arn:aws:iam::aws:policy/AWSXRayDaemonWriteAccess
+      Policies:
+      - PolicyDocument:
+          Statement:
+          - Action:
+            - logs:CreateLogStream
+            - logs:PutLogEvents
+            Effect: Allow
+            Resource:
+            - Fn::GetAtt:
+              - ApiFunctionLogGroup
+              - Arn
+          Version: '2012-10-17'
+        PolicyName: ApiFunctionRolePolicy
+    Type: AWS::IAM::Role
+  WorkerFunction:
+    DependsOn:
+    - WorkerFunctionLogGroup
+    Properties:
+      Architectures:
+      - x86_64
+      Code:
+        S3Bucket:
+          Ref: ArtifactBucket
+        S3Key: artifacts/functions/worker.zip
+      EphemeralStorage:
+        Size: 512
+      FunctionName: worker
+      Handler: handlers/worker.handler
+      MemorySize: 256
+      Role:
+        Fn::GetAtt:
+        - WorkerFunctionRole
+        - Arn
+      Runtime: ruby3.3
+      Timeout: 60
+      TracingConfig:
+        Mode: Active
+    Type: AWS::Lambda::Function
+  WorkerFunctionLogGroup:
+    Properties:
+      LogGroupName: "/aws/lambda/worker"
+      RetentionInDays: 30
+    Type: AWS::Logs::LogGroup
+  WorkerFunctionRole:
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+        - Action: sts:AssumeRole
+          Effect: Allow
+          Principal:
+            Service: lambda.amazonaws.com
+        Version: '2012-10-17'
+      ManagedPolicyArns:
+      - arn:aws:iam::aws:policy/AWSXRayDaemonWriteAccess
+      Policies:
+      - PolicyDocument:
+          Statement:
+          - Action:
+            - logs:CreateLogStream
+            - logs:PutLogEvents
+            Effect: Allow
+            Resource:
+            - Fn::GetAtt:
+              - WorkerFunctionLogGroup
+              - Arn
+          Version: '2012-10-17'
+        PolicyName: WorkerFunctionRolePolicy
+    Type: AWS::IAM::Role
+Outputs:
+  ApiFunctionArn:
+    Description: ARN of api Lambda function
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}-ApiFunctionArn"
+    Value:
+      Fn::GetAtt:
+      - ApiFunction
+      - Arn
+  ApiFunctionName:
+    Description: Name of api Lambda function
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}-ApiFunctionName"
+    Value:
+      Ref: ApiFunction
+  ApplicationName:
+    Description: Veltrunode application name
+    Value: with-xray-tracing
+  ApplicationStage:
+    Description: Veltrunode application stage
+    Value: dev
+  WorkerFunctionArn:
+    Description: ARN of worker Lambda function
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}-WorkerFunctionArn"
+    Value:
+      Fn::GetAtt:
+      - WorkerFunction
+      - Arn
+  WorkerFunctionName:
+    Description: Name of worker Lambda function
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}-WorkerFunctionName"
+    Value:
+      Ref: WorkerFunction
