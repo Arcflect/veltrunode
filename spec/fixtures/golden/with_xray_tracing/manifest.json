@@ -1,0 +1,46 @@
+{
+  "application": {
+    "account_constraint": "123456789012",
+    "name": "with-xray-tracing",
+    "region": "ap-northeast-1",
+    "stage": "dev"
+  },
+  "built_at": "2026-01-01T00:00:00Z",
+  "compiler_version": "0.1.65",
+  "functions": {
+    "api": {
+      "architecture": "arm64",
+      "ephemeral_storage": 512,
+      "handler": "handlers/api.handler",
+      "logical_name": "api",
+      "memory": 512,
+      "runtime": "nodejs20.x",
+      "timeout": 30,
+      "tracing": {
+        "adot": true,
+        "mode": "Active"
+      }
+    },
+    "worker": {
+      "architecture": "x86_64",
+      "ephemeral_storage": 512,
+      "handler": "handlers/worker.handler",
+      "logical_name": "worker",
+      "memory": 256,
+      "runtime": "ruby3.3",
+      "timeout": 60,
+      "tracing": {
+        "adot": false,
+        "mode": "Active"
+      }
+    }
+  },
+  "iam_capabilities": {
+    "api": [],
+    "worker": []
+  },
+  "layers": {},
+  "manifest_schema_version": "1.0",
+  "schedules": {},
+  "schema_version": "1.0"
+}

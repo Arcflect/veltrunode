@@ -70,6 +70,17 @@ Lambda 関数の `logs` 設定で定義された `subscription_filter` は、`Ve
 - **宛先・ロール ARN のパラメータ化**:
   宛先や `role_arn` にパラメータ名や Ref が指定された場合、CloudFormation テンプレートの `Parameters` に該当パラメータが自動登録されます。
 
+## X-Ray Active Tracing および ADOT のコンパイル (Tracing Configuration)
+
+Lambda 関数で `tracing: :active` または `tracing: :pass_through`（または `defaults` ブロックでの指定）を設定した場合、`Veltrunode::Compiler::CloudFormation::FunctionCompiler` および `RoleCompiler` により以下のリソース定義が自動構成されます。
+
+- **TracingConfig の生成**:
+  `AWS::Lambda::Function` の `Properties.TracingConfig` に `{ 'Mode' => 'Active' }` または `{ 'Mode' => 'PassThrough' }` が設定されます。
+- **X-Ray 書込権限の自動付与**:
+  Lambda 実行ロール（`AWS::IAM::Role`）の `Properties.ManagedPolicyArns` に、AWS 管理ポリシー `arn:aws:iam::aws:policy/AWSXRayDaemonWriteAccess` が自動的に追加されます。
+- **AWS Distro for OpenTelemetry (ADOT) レイヤー自動アタッチ**:
+  `tracing: :adot` を指定した場合、Active Tracing の有効化に加えて、対象関数のランタイムおよびアーキテクチャ（`x86_64` / `arm64`）に対応した公式 ADOT Lambda レイヤー（`aws-otel-...`）が `Properties.Layers` に自動的にアタッチされます。また、ゼロコード計装に必要な環境変数 `AWS_LAMBDA_EXEC_WRAPPER: '/opt/otel-instrument'` も自動設定されます（カスタム ADOT レイヤー ARN の指定も可能です）。
+
 ## 変更セット (Change Sets)
 
 `plan` コマンドはCloudFormationの変更セット（Change Set）を使用するため、ユーザーは実行前に変更内容を確認できます。リソースの置換（Replacement）や削除（Deletion）の影響は強調して表示されます。なお、計画（plan）がすべての実行時リスクを排除できると主張することはありません。

@@ -7,7 +7,7 @@ module Veltrunode
     class Function
       attr_reader :handler, :runtime, :logical_name, :architecture, :memory, :timeout, :ephemeral_storage,
                   :environment, :vpc_reference, :layers, :mounts, :iam_capabilities, :concurrency, :logging,
-                  :alarms, :subscription_filters
+                  :alarms, :subscription_filters, :tracing
 
       def initialize(
         positional_logical_name = nil,
@@ -26,7 +26,8 @@ module Veltrunode
         concurrency: nil,
         logging: nil,
         alarms: [],
-        subscription_filters: []
+        subscription_filters: [],
+        tracing: nil
       )
         name_val = positional_logical_name || logical_name
         validate_logical_name!(name_val)
@@ -47,6 +48,7 @@ module Veltrunode
         @logging = freeze_value(logging)
         @alarms = freeze_array(alarms)
         @subscription_filters = resolve_initial_subscription_filters(subscription_filters, logging)
+        @tracing = normalize_tracing(tracing)
 
         freeze if @handler || @runtime
       end
@@ -59,6 +61,30 @@ module Veltrunode
         @runtime = r&.to_s&.freeze
       end
 
+      def tracing_mode
+        tracing&.fetch('mode', nil)
+      end
+
+      def tracing_enabled?
+        !tracing_mode.nil?
+      end
+
+      def active_tracing?
+        tracing_mode == 'Active'
+      end
+
+      def pass_through_tracing?
+        tracing_mode == 'PassThrough'
+      end
+
+      def adot_enabled?
+        tracing ? (tracing['adot'] == true || tracing['adot'].is_a?(String)) : false
+      end
+
+      def adot_layer_arn
+        tracing && tracing['adot'].is_a?(String) ? tracing['adot'] : nil
+      end
+
       def validate_invariants(context = {})
         diagnostics = []
 
@@ -69,6 +95,7 @@ module Veltrunode
         validate_environment_duplicates(context, diagnostics)
         validate_alarms(diagnostics)
         validate_subscription_filters(diagnostics)
+        validate_tracing(diagnostics)
 
         diagnostics.freeze
       end
@@ -344,6 +371,71 @@ module Veltrunode
             evidence: { 'function' => logical_name, 'error' => e.message }
           )
         end
+      end
+
+      def normalize_tracing(val)
+        return nil if val.nil? || val == false || val.to_s.downcase == 'disabled'
+
+        if val.is_a?(Symbol) || val.is_a?(String)
+          normalize_tracing_string(val)
+        elsif val.is_a?(Hash)
+          normalize_tracing_hash(val)
+        else
+          raise ValidationError, "Invalid tracing configuration: #{val.class}"
+        end
+      end
+
+      def normalize_tracing_string(val)
+        case val.to_s.downcase
+        when 'active'
+          { 'mode' => 'Active', 'adot' => false }.freeze
+        when 'pass_through', 'passthrough'
+          { 'mode' => 'PassThrough', 'adot' => false }.freeze
+        when 'adot'
+          { 'mode' => 'Active', 'adot' => true }.freeze
+        else
+          raise ValidationError, "Unsupported tracing mode: #{val}. Valid modes are :active, :pass_through, :adot"
+        end
+      end
+
+      def normalize_tracing_hash(val)
+        mode_raw = val[:mode] || val['mode'] || val[:Mode] || val['Mode']
+        adot_raw = val[:adot] || val['adot'] || val[:Adot] || val['Adot']
+
+        mode_str = (mode_raw || (adot_raw ? 'active' : nil)).to_s.downcase
+        mode = case mode_str
+               when 'active', ''
+                 'Active'
+               when 'pass_through', 'passthrough'
+                 'PassThrough'
+               else
+                 raise ValidationError, "Unsupported tracing mode: #{mode_raw}. Valid modes are :active, :pass_through"
+               end
+
+        adot = if adot_raw.is_a?(String) && !adot_raw.strip.empty?
+                 adot_raw.strip.freeze
+               elsif adot_raw
+                 true
+               else
+                 false
+               end
+
+        { 'mode' => mode, 'adot' => adot }.freeze
+      end
+
+      def validate_tracing(diagnostics)
+        return unless @tracing
+
+        mode = tracing_mode
+        return if %w[Active PassThrough].include?(mode)
+
+        diagnostics << Diagnostics::Diagnostic.new(
+          code: 'VLT-TRACING-001',
+          severity: :error,
+          summary: "Invalid tracing mode '#{mode}' in function '#{logical_name}'.",
+          suggested_action: 'Specify :active or :pass_through for tracing.',
+          evidence: { 'function' => logical_name, 'tracing' => @tracing }
+        )
       end
     end
   end

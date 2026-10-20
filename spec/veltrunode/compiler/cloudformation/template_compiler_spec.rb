@@ -617,5 +617,56 @@ RSpec.describe Veltrunode::Compiler::CloudFormation::TemplateCompiler do
       policy = role['Properties']['Policies'].first
       expect(policy['PolicyDocument']['Statement'].first['Action']).to eq(%w[kinesis:PutRecord kinesis:PutRecords])
     end
+
+    it 'compiles functions with X-Ray active tracing, TracingConfig, and IAM managed policies' do
+      code = <<~RUBY
+        Veltrunode.application "traced-app" do
+          aws region: "ap-northeast-1"
+
+          defaults do
+            tracing :active
+          end
+
+          function :api do
+            handler "api.handler"
+            runtime "nodejs20.x"
+            architecture :arm64
+            tracing :adot
+          end
+
+          function :backend do
+            handler "backend.handler"
+            runtime "ruby3.3"
+          end
+        end
+      RUBY
+
+      app = Veltrunode.parse(code)
+      yaml_output = described_class.to_yaml(app)
+      parsed = YAML.safe_load(yaml_output)
+
+      resources = parsed['Resources']
+
+      # API function has ADOT layer, TracingConfig Active, and AWSXRayDaemonWriteAccess
+      api_fn = resources['ApiFunction']
+      expect(api_fn['Properties']['TracingConfig']).to eq({ 'Mode' => 'Active' })
+      expected_adot_layer = { 'Fn::Sub' => 'arn:aws:lambda:${AWS::Region}:901920570468:layer:aws-otel-nodejs-arm64-ver-1-18-0:1' }
+      expect(api_fn['Properties']['Layers']).to include(expected_adot_layer)
+      expect(api_fn['Properties']['Environment']['Variables']['AWS_LAMBDA_EXEC_WRAPPER']).to eq('/opt/otel-instrument')
+
+      api_role = resources['ApiFunctionRole']
+      expect(api_role['Properties']['ManagedPolicyArns']).to eq(
+        ['arn:aws:iam::aws:policy/AWSXRayDaemonWriteAccess']
+      )
+
+      # Backend function inherits :active from defaults
+      backend_fn = resources['BackendFunction']
+      expect(backend_fn['Properties']['TracingConfig']).to eq({ 'Mode' => 'Active' })
+
+      backend_role = resources['BackendFunctionRole']
+      expect(backend_role['Properties']['ManagedPolicyArns']).to eq(
+        ['arn:aws:iam::aws:policy/AWSXRayDaemonWriteAccess']
+      )
+    end
   end
 end

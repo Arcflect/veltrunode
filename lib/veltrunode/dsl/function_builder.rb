@@ -9,7 +9,7 @@ require_relative '../model/function'
 module Veltrunode
   module DSL
     class FunctionBuilder < BaseBuilder
-      def initialize(logical_name, runtime_default: nil, architecture_default: :x86_64)
+      def initialize(logical_name, runtime_default: nil, architecture_default: :x86_64, tracing_default: nil)
         super()
         @logical_name = logical_name.to_s
         @handler = nil
@@ -27,6 +27,7 @@ module Veltrunode
         @logging = nil
         @alarms = []
         @subscription_filters = []
+        @tracing = tracing_default
       end
 
       def handler(h)
@@ -166,6 +167,16 @@ module Veltrunode
         @alarms.concat(builder.build)
       end
 
+      def tracing(mode_or_opts = nil, **kwargs)
+        @tracing = if mode_or_opts.is_a?(Hash)
+                     mode_or_opts.merge(kwargs)
+                   elsif kwargs.empty?
+                     mode_or_opts
+                   else
+                     { mode: mode_or_opts }.merge(kwargs)
+                   end
+      end
+
       def build
         Model::Function.new(
           logical_name: @logical_name,
@@ -183,7 +194,8 @@ module Veltrunode
           concurrency: @concurrency,
           logging: @logging,
           alarms: @alarms,
-          subscription_filters: @subscription_filters
+          subscription_filters: @subscription_filters,
+          tracing: @tracing
         )
       end
     end

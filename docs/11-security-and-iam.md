@@ -79,6 +79,16 @@ end
 
 高水準の「ケーパビリティ」は、設定の利便性を高めるための宣言であり、背後で隠された独自の魔法ではありません。各ケーパビリティは、生成された出力ファイル内にドキュメント化されているバージョン管理されたマッピングルールに従って展開されます。必要に応じて、ユーザーは明示的な IAM アクションを直接指定することもできます。
 
+## 分散トレーシングと IAM 権限 (Tracing and IAM Permissions)
+
+Lambda 関数で X-Ray トレーシング（`tracing: :active` または `tracing: :pass_through`）が有効化された場合、Lambda 実行ロールに AWS 管理ポリシー `AWSXRayDaemonWriteAccess`（`arn:aws:iam::aws:policy/AWSXRayDaemonWriteAccess`）が自動的にアタッチされます。
+
+- **最小特権の維持**:
+  トレーシングが設定されていない関数には本ポリシーは付与されず、必要な関数にのみスコープが限定されます。
+- **権限内容**:
+  Lambda 内蔵の X-Ray デーモンがセグメントおよびテレメトリデータを AWS X-Ray サービスへ安全にストリーミングするための権限（`xray:PutTraceSegments`, `xray:PutTelemetryRecords`, `xray:GetSamplingRules`, `xray:GetSamplingTargets`）が付与されます。
+
+
 ## 認証情報 (Credentials)
 
 Veltrunode は、標準の AWS SDK 資格情報チェーン（Credential Chain）を使用します。ツール自体が認証情報を収集したり、プロキシしたりすることはありません。リソースの変更操作（`deploy` 等）を行う前に、呼び出し元の AWS アカウントおよびリージョンが正しいかを事前検証（`AccountRegionGuard`）します。

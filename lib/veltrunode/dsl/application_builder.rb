@@ -67,6 +67,7 @@ module Veltrunode
         defaults_builder = DefaultsBuilder.new
         defaults_builder.instance_eval(&)
         @runtime_defaults[:logs] = defaults_builder.logs_config if defaults_builder.logs_config
+        @runtime_defaults[:tracing] = defaults_builder.tracing_config if defaults_builder.tracing_config
         @tags.merge!(defaults_builder.tags_config)
       end
 
@@ -106,11 +107,12 @@ module Veltrunode
       alias efs_security_groups security_group_helper
       alias efs_security_group security_group_helper
 
-      def function(name, &)
+      def function(name, tracing: nil, **, &)
         builder = FunctionBuilder.new(
           name,
           runtime_default: resolve_default_runtime,
-          architecture_default: @runtime_defaults[:architecture] || :x86_64
+          architecture_default: @runtime_defaults[:architecture] || :x86_64,
+          tracing_default: tracing || @runtime_defaults[:tracing]
         )
         builder.instance_eval(&) if block_given?
         @function_builders << builder
@@ -256,12 +258,13 @@ module Veltrunode
     end
 
     class DefaultsBuilder < BaseBuilder
-      attr_reader :logs_config, :tags_config
+      attr_reader :logs_config, :tags_config, :tracing_config
 
       def initialize
         super
         @logs_config = nil
         @tags_config = {}
+        @tracing_config = nil
       end
 
       def logs(retention_days: nil, **, &)
@@ -270,6 +273,16 @@ module Veltrunode
         cfg = builder.to_h
         cfg['retention_days'] ||= retention_days.to_i if retention_days
         @logs_config = cfg
+      end
+
+      def tracing(mode_or_opts = nil, **kwargs)
+        @tracing_config = if mode_or_opts.is_a?(Hash)
+                            mode_or_opts.merge(kwargs)
+                          elsif kwargs.empty?
+                            mode_or_opts
+                          else
+                            { mode: mode_or_opts }.merge(kwargs)
+                          end
       end
 
       def tags(hash = {})
