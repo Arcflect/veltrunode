@@ -150,6 +150,8 @@ module Veltrunode
           suffix = 'SubscriptionFilter'
           base = pascalize(name)
           base.end_with?(suffix) ? base : "#{base}#{suffix}"
+        when :dashboard
+          for_dashboard(name)
         else
           suffix = pascalize(type)
           base = pascalize(name)
@@ -264,6 +266,18 @@ module Veltrunode
                    "#{pascalize(filter_name)}LogsRole"
                  end
         "#{fn_id}#{suffix}"
+      end
+
+      # CloudWatch Dashboard の論理IDを生成します（サフィックス: Dashboard）
+      #
+      # @param name [String, Symbol, nil] ダッシュボード名 (例: :default, :metrics)
+      # @return [String] 論理ID (例: "Dashboard", "MetricsDashboard")
+      def for_dashboard(name = nil)
+        base = pascalize(name)
+        return 'Dashboard' if base.empty? || base == 'Default'
+        return base if base.end_with?('Dashboard')
+
+        "#{base}Dashboard"
       end
     end
   end

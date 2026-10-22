@@ -217,6 +217,20 @@ RSpec.describe Veltrunode::Compiler::LogicalId do
     end
   end
 
+  describe '.for_dashboard' do
+    it 'returns Dashboard when nil or :default' do
+      expect(described_class.for_dashboard(nil)).to eq('Dashboard')
+      expect(described_class.for_dashboard(:default)).to eq('Dashboard')
+      expect(described_class.for_dashboard('')).to eq('Dashboard')
+    end
+
+    it 'returns PascalCase with Dashboard suffix for custom names' do
+      expect(described_class.for_dashboard(:metrics)).to eq('MetricsDashboard')
+      expect(described_class.for_dashboard('service_overview')).to eq('ServiceOverviewDashboard')
+      expect(described_class.for_dashboard('OpsDashboard')).to eq('OpsDashboard')
+    end
+  end
+
   describe 'standalone loading' do
     it 'allows individual compiler files to be loaded independently' do
       expect do

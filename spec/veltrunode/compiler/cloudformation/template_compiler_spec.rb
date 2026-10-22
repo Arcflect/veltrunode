@@ -668,5 +668,61 @@ RSpec.describe Veltrunode::Compiler::CloudFormation::TemplateCompiler do
         ['arn:aws:iam::aws:policy/AWSXRayDaemonWriteAccess']
       )
     end
+
+    it 'compiles CloudWatch Dashboard resource and outputs DashboardUrl when dashboard is enabled' do
+      code = <<~RUBY
+        Veltrunode.application "dashboard-app" do
+          aws region: "ap-northeast-1"
+          runtime "ruby3.3"
+
+          dashboard true
+
+          function :processor do
+            handler "app.handler"
+          end
+
+          function :worker do
+            handler "app.worker"
+          end
+        end
+      RUBY
+
+      app = Veltrunode.parse(code)
+      yaml_output = described_class.to_yaml(app)
+      parsed = YAML.safe_load(yaml_output)
+
+      expect(parsed['Resources']).to have_key('Dashboard')
+      dashboard_res = parsed['Resources']['Dashboard']
+      expect(dashboard_res['Type']).to eq('AWS::CloudWatch::Dashboard')
+      expect(dashboard_res['Properties']['DashboardName']).to eq({ 'Fn::Sub' => '${AWS::StackName}-Dashboard' })
+
+      body = JSON.parse(dashboard_res['Properties']['DashboardBody']['Fn::Sub'])
+      expect(body['widgets'].size).to eq(4)
+
+      # Outputs
+      expect(parsed['Outputs']).to have_key('DashboardUrl')
+      expect(parsed['Outputs']['DashboardUrl']['Value']).to eq(
+        { 'Fn::Sub' => 'https://${AWS::Region}.console.aws.amazon.com/cloudwatch/home?region=${AWS::Region}#dashboards/dashboard/${Dashboard}' }
+      )
+    end
+
+    it 'does not compile Dashboard resource when dashboard is not configured' do
+      code = <<~RUBY
+        Veltrunode.application "no-dashboard-app" do
+          aws region: "ap-northeast-1"
+          runtime "ruby3.3"
+
+          function :processor do
+            handler "app.handler"
+          end
+        end
+      RUBY
+
+      app = Veltrunode.parse(code)
+      parsed = described_class.compile(app)
+
+      expect(parsed['Resources']).not_to have_key('Dashboard')
+      expect(parsed.fetch('Outputs', {})).not_to have_key('DashboardUrl')
+    end
   end
 end

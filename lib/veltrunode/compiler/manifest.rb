@@ -75,6 +75,10 @@ module Veltrunode
           'iam_capabilities' => build_iam_capabilities_section
         }
 
+        if @application.respond_to?(:dashboard) && @application.dashboard&.enabled?
+          data['dashboard'] = @application.dashboard.to_h
+        end
+
         if @sbom_path && !@sbom_path.strip.empty?
           rel_sbom = File.basename(@sbom_path)
           data['sbom_path'] = rel_sbom
