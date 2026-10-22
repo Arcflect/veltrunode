@@ -24,6 +24,7 @@ require_relative 'model/stage_policy'
 require_relative 'model/policy_pack'
 require_relative 'model/managed_access_point'
 require_relative 'model/security_group_helper'
+require_relative 'model/dashboard'
 
 module Veltrunode
   module Model
@@ -40,4 +41,5 @@ module Veltrunode
   PolicyPack = Model::PolicyPack
   ManagedAccessPoint = Model::ManagedAccessPoint
   SecurityGroupHelper = Model::SecurityGroupHelper
+  Dashboard = Model::Dashboard
 end

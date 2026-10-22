@@ -16,7 +16,8 @@ module Veltrunode
                   :security_groups,
                   :policies,
                   :tags,
-                  :cache_config
+                  :cache_config,
+                  :dashboard
 
       def initialize(
         positional_name = nil,
@@ -34,7 +35,8 @@ module Veltrunode
         mounts: [],
         security_groups: [],
         policies: [],
-        tags: {}
+        tags: {},
+        dashboard: nil
       )
         app_name = positional_name || name
         validate!(name: app_name, region: region, stage: stage)
@@ -53,6 +55,7 @@ module Veltrunode
         @policies = policies.dup.freeze
         @tags = tags.dup.freeze
         @cache_config = freeze_value(cache || cache_config || {})
+        @dashboard = dashboard
 
         freeze
       end
