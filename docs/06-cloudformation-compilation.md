@@ -45,6 +45,7 @@ CloudFormation の論理ID（Logical ID）は、`Veltrunode::Compiler::LogicalId
 | **Alarm** | `:convert` (errors) | `ConvertFunctionErrorsAlarm` | CloudWatch アラーム (`AWS::CloudWatch::Alarm`) |
 | **IAM Role (Lambda)** | `:convert` | `ConvertFunctionRole` | Lambda 実行ロール (`AWS::IAM::Role`) |
 | **IAM Role (Scheduler)** | `:nightly` | `NightlyScheduleRole` | Scheduler 呼び出しロール (`AWS::IAM::Role`) |
+| **Dashboard** | `:default` (`:operations`) | `Dashboard` (`OperationsDashboard`) | CloudWatch メトリクスダッシュボード (`AWS::CloudWatch::Dashboard`) |
 
 ## CloudWatch アラームのコンパイルと通知パラメータ (CloudWatch Alarms Compilation)
 
@@ -80,6 +81,25 @@ Lambda 関数で `tracing: :active` または `tracing: :pass_through`（また�
   Lambda 実行ロール（`AWS::IAM::Role`）の `Properties.ManagedPolicyArns` に、AWS 管理ポリシー `arn:aws:iam::aws:policy/AWSXRayDaemonWriteAccess` が自動的に追加されます。
 - **AWS Distro for OpenTelemetry (ADOT) レイヤー自動アタッチ**:
   `tracing: :adot` を指定した場合、Active Tracing の有効化に加えて、対象関数のランタイムおよびアーキテクチャ（`x86_64` / `arm64`）に対応した公式 ADOT Lambda レイヤー（`aws-otel-...`）が `Properties.Layers` に自動的にアタッチされます。また、ゼロコード計装に必要な環境変数 `AWS_LAMBDA_EXEC_WRAPPER: '/opt/otel-instrument'` も自動設定されます（カスタム ADOT レイヤー ARN の指定も可能です）。
+
+## CloudWatch メトリクスダッシュボードのコンパイルと URL 出力 (CloudWatch Dashboard Compilation & Output)
+
+Application レベルで `dashboard` を設定した場合、`Veltrunode::Compiler::CloudFormation::DashboardCompiler` により `AWS::CloudWatch::Dashboard` リソースが自動生成されます。
+
+- **論理ID**: デフォルトは `Dashboard`、名前付きの場合は `#{Name}Dashboard`。
+- **リソース名 (`DashboardName`)**: `{ 'Fn::Sub' => "${AWS::StackName}-Dashboard" }` または `{ 'Fn::Sub' => "${AWS::StackName}-#{LogicalId}" }`。
+- **ウィジェットレイアウト (`DashboardBody`)**:
+  幅 24 のグリッドシステムに基づき、各ウィジェット（幅 12, 高さ 6）が 2x2 で配置されます。
+  - `Invocations` (呼び出し数、Stat: `Sum`)
+  - `Errors` (エラー数、Stat: `Sum`)
+  - `Duration` (所要時間、Stat: `Average`)
+  - `ConcurrentExecutions` (同時実行数、Stat: `Maximum`)
+  各ウィジェットの `metrics` プロパティには、アプリケーションで定義された全 Lambda 関数（`${FunctionName}`）が自動的に登録され、同一グラフ上で比較・監視できます。
+- **デプロイ出力 (`Outputs.DashboardUrl`)**:
+  CloudFormation の `Outputs` に論理名 `DashboardUrl` として CloudWatch コンソールの直接リンクが生成されます。
+  - 値: `https://${AWS::Region}.console.aws.amazon.com/cloudwatch/home?region=${AWS::Region}#dashboards/dashboard/${Dashboard}`
+- **CLI デプロイ出力**:
+  `veltrunode deploy` の実行完了時に、コンソールへ `Dashboard URL: https://...` を表示します（JSON 出力時は `data.dashboard_url` に含まれます）。
 
 ## 変更セット (Change Sets)
 
