@@ -6,6 +6,7 @@ require_relative 'efs_mount_builder'
 require_relative 'function_builder'
 require_relative 'schedule_builder'
 require_relative 'logs_builder'
+require_relative 'dashboard_builder'
 require_relative '../model/application'
 require_relative '../model/stage_policy'
 
@@ -28,6 +29,7 @@ module Veltrunode
         @security_group_builders = []
         @policies = []
         @tags = {}
+        @dashboard_builder = nil
       end
 
       def cache(config = nil, remote: nil, &)
@@ -145,6 +147,36 @@ module Veltrunode
         stage_policy(target_stage, pack: name, **, &)
       end
 
+      def dashboard(arg = true, name: nil, title: nil, period: nil, enabled: true, **, &) # rubocop:disable Style/OptionalBooleanParameter
+        if arg == false
+          @dashboard_builder = nil
+          return
+        end
+
+        opts = {}
+        target_name = :default
+
+        if arg.is_a?(Hash)
+          opts = arg
+        elsif arg.is_a?(Symbol) || (arg.is_a?(String) && !arg.empty? && arg != 'true' && arg != 'false')
+          target_name = arg
+        end
+
+        target_name = name || opts[:name] || target_name
+        target_title = title || opts[:title]
+        target_period = period || opts[:period]
+        target_enabled = enabled && (opts[:enabled].nil? || opts[:enabled])
+
+        unless target_enabled
+          @dashboard_builder = nil
+          return
+        end
+
+        builder = DashboardBuilder.new(target_name, title: target_title, period: target_period, enabled: true)
+        builder.instance_eval(&) if block_given?
+        @dashboard_builder = builder
+      end
+
       def build
         layers = @layer_builders.map(&:build)
         mounts = @efs_mount_builders.map(&:build)
@@ -169,7 +201,8 @@ module Veltrunode
           mounts: mounts,
           security_groups: all_sgs,
           policies: @policies,
-          tags: @tags
+          tags: @tags,
+          dashboard: @dashboard_builder&.build
         )
       end
 

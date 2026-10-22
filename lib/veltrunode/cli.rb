@@ -563,6 +563,7 @@ module Veltrunode
       def handle_deploy_result(result)
         if result.success?
           warnings = result.diagnostics.select { |d| d.severity == :warning }
+          dashboard_url = extract_dashboard_url(result)
           if @options[:format] == :json
             data = {
               'message' => result.message,
@@ -571,11 +572,14 @@ module Veltrunode
               'summary' => result.summary,
               'events' => result.events.map(&:to_h)
             }
+            data['dashboard_url'] = dashboard_url if dashboard_url
+            data['outputs'] = result.outputs if result.respond_to?(:outputs) && result.outputs && !result.outputs.empty?
             data['warnings_count'] = warnings.size unless warnings.empty?
             output_json_success(data, warnings)
           else
             output_deploy_diagnostics(result.diagnostics)
             $stdout.puts result.message
+            $stdout.puts "Dashboard URL: #{dashboard_url}" if dashboard_url
           end
           EXIT_SUCCESS
         else
@@ -611,6 +615,13 @@ module Veltrunode
         diagnostics.select { |d| d.severity == :warning }.each do |diag|
           $stdout.puts "[WARN] [#{diag.code}] #{diag.summary}"
         end
+      end
+
+      def extract_dashboard_url(result)
+        return result.dashboard_url if result.respond_to?(:dashboard_url) && result.dashboard_url
+        return nil unless result.respond_to?(:outputs) && result.outputs
+
+        result.outputs['DashboardUrl'] || result.outputs[:DashboardUrl]
       end
 
       def execute_invoke_local

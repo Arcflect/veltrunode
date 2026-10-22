@@ -75,6 +75,35 @@ end
 - **`throttles`**: スロットル数アラーム（デフォルト統計: `Sum`）。
 - **パラメータ指定**: `threshold`, `period`（秒数、10の倍数）, `evaluation_periods`, `statistic`, `comparison_operator`, `treat_missing_data` をカスタマイズ可能。
 
+## CloudWatch メトリクスダッシュボード (CloudWatch Dashboard)
+
+Application レベルで `dashboard` を宣言することで、デプロイされた全 Lambda 関数の稼働状態を一目で把握できる `AWS::CloudWatch::Dashboard` リソースを自動生成できます。
+
+### 簡易指定
+```ruby
+Veltrunode.application "document-converter" do
+  dashboard true
+end
+```
+- デフォルトで主要4メトリクス（呼び出し数 `Invocations`、エラー数 `Errors`、実行時間 `Duration`、同時実行数 `ConcurrentExecutions`）のウィジェットが 2x2 グリッドで自動配置されます。
+- アプリケーション内のすべての Lambda 関数が同一グラフ上に色分け表示されます。
+
+### 詳細ウィジェット定義
+```ruby
+Veltrunode.application "document-converter" do
+  dashboard :operations do
+    title "Operations Overview"
+    period 60 # 集約期間（秒）
+
+    # 個別ウィジェット指定またはカスタマイズ
+    invocations stat: "Sum", period: 60
+    errors stat: "Sum", title: "Invocation Errors"
+    duration stat: "p95"
+    concurrent_executions stat: "Maximum"
+  end
+end
+```
+
 ## エスケープハッチ (Escape Hatch)
 
 初期フェーズ以降に、管理された `cloudformation_patch` 機能が導入される予定です（設計方針の詳細は [ADR-0003](adr/0003-cloudformation-patch-escape-hatch.md) を参照）。これは、既存の論理リソースをターゲットにし、スキーマ検証およびセキュリティポリシー検証を通過する必要があります。テンプレート全体の任意の置き換えはサポートされません。

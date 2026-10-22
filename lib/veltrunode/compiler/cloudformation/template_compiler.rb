@@ -12,6 +12,7 @@ require_relative 'role_compiler'
 require_relative 'schedule_compiler'
 require_relative 'security_group_compiler'
 require_relative 'subscription_filter_compiler'
+require_relative 'dashboard_compiler'
 require_relative '../../graph/resource_graph'
 require_relative '../../version'
 
@@ -278,6 +279,16 @@ module Veltrunode
             resources.merge!(sched_res)
           end
 
+          # 7. Compile Dashboard (AWS::CloudWatch::Dashboard)
+          if application.respond_to?(:dashboard) && application.dashboard&.enabled?
+            dashboard_res = DashboardCompiler.compile(
+              application.dashboard,
+              functions: fn_nodes,
+              context: context
+            )
+            resources.merge!(dashboard_res)
+          end
+
           deep_sort_keys(resources)
         end
 
@@ -383,6 +394,17 @@ module Veltrunode
               'Description' => "Security group ID of #{sg_name} EFS mount target",
               'Value' => { 'Ref' => efs_sg_id },
               'Export' => { 'Name' => { 'Fn::Sub' => "${AWS::StackName}-#{efs_sg_id}Id" } }
+            }
+          end
+
+          # Dashboard Output
+          if application.respond_to?(:dashboard) && application.dashboard&.enabled?
+            dashboard_id = DashboardCompiler.logical_id_for(application.dashboard.name)
+            outputs['DashboardUrl'] = {
+              'Description' => 'URL of CloudWatch Dashboard',
+              'Value' => {
+                'Fn::Sub' => "https://${AWS::Region}.console.aws.amazon.com/cloudwatch/home?region=${AWS::Region}#dashboards/dashboard/${#{dashboard_id}}"
+              }
             }
           end
 

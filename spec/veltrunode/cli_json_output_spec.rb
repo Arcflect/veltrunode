@@ -208,6 +208,26 @@ RSpec.describe 'CLI --format json output and secret masking' do
       expect(status.success?).to be true
     end
 
+    it 'deploy コマンドで dashboard_url が含まれる場合に JSON 出力の data に含まれること' do
+      allow(Veltrunode::AWS::AccountRegionGuard).to receive(:check).and_return([])
+      mock_deploy_result = Veltrunode::Deploy::DeployResult.new(
+        status: :success,
+        message: 'Deployment complete',
+        stack_name: 'demo-stack',
+        change_set_name: 'cs-123',
+        summary: { add: 1 },
+        events: [],
+        dashboard_url: 'https://ap-northeast-1.console.aws.amazon.com/cloudwatch/home?region=ap-northeast-1#dashboards/dashboard/demo-stack-Dashboard'
+      )
+      allow(Veltrunode::Deploy::Pipeline).to receive(:execute).and_return(mock_deploy_result)
+
+      code = run_cli(%w[deploy --yes --format json])
+      expect(code).to eq(0)
+
+      parsed = JSON.parse(stdout.string.strip)
+      expect(parsed['data']['dashboard_url']).to eq('https://ap-northeast-1.console.aws.amazon.com/cloudwatch/home?region=ap-northeast-1#dashboards/dashboard/demo-stack-Dashboard')
+    end
+
     it 'deploy コマンドのロールバック失敗時に共通スキーマを満たし diagnostics にロールバック診断情報が含まれること' do
       diag = Veltrunode::Diagnostics::Diagnostic.new(
         code: 'VLT-CFN-ROLLBACK-IAM',

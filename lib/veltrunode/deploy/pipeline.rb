@@ -7,6 +7,7 @@ require_relative '../aws/account_region_guard'
 require_relative '../aws/change_set_manager'
 require_relative '../aws/s3_uploader'
 require_relative '../aws/rollback_diagnoser'
+require_relative '../compiler/logical_id'
 
 module Veltrunode
   module Deploy
@@ -22,7 +23,8 @@ module Veltrunode
 
     class DeployResult
       attr_reader :status, :exit_code, :message, :stack_name, :change_set_name,
-                  :summary, :changes, :events, :diagnostics, :no_changes
+                  :summary, :changes, :events, :diagnostics, :no_changes,
+                  :outputs, :dashboard_url
 
       def initialize(
         status:,
@@ -34,7 +36,9 @@ module Veltrunode
         changes: [],
         events: [],
         diagnostics: [],
-        no_changes: false
+        no_changes: false,
+        outputs: {},
+        dashboard_url: nil
       )
         @status = status
         @exit_code = exit_code
@@ -46,6 +50,8 @@ module Veltrunode
         @events = Array(events).freeze
         @diagnostics = Array(diagnostics).freeze
         @no_changes = no_changes
+        @outputs = (outputs || {}).dup.freeze
+        @dashboard_url = (dashboard_url || @outputs['DashboardUrl'] || @outputs[:DashboardUrl])&.freeze
         freeze
       end
 
@@ -68,7 +74,9 @@ module Veltrunode
           'changes' => @changes.map { |c| c.respond_to?(:to_h) ? c.to_h : c },
           'events' => @events.map { |e| e.respond_to?(:to_h) ? e.to_h : e },
           'diagnostics' => @diagnostics.map { |d| d.respond_to?(:to_h) ? d.to_h : d },
-          'no_changes' => @no_changes
+          'no_changes' => @no_changes,
+          'outputs' => @outputs,
+          'dashboard_url' => @dashboard_url
         }.compact
       end
     end
@@ -129,6 +137,7 @@ module Veltrunode
         cs_result = step_plan!(manager, build_result)
 
         if cs_result.changes.empty?
+          outputs, dashboard_url = resolve_deploy_outputs(manager, cs_result.stack_name, build_result)
           return DeployResult.new(
             status: :success,
             exit_code: EXIT_SUCCESS,
@@ -138,7 +147,9 @@ module Veltrunode
             summary: cs_result.summary,
             changes: [],
             diagnostics: guard_diags,
-            no_changes: true
+            no_changes: true,
+            outputs: outputs,
+            dashboard_url: dashboard_url
           )
         end
 
@@ -151,6 +162,8 @@ module Veltrunode
         # 8. スタック更新完了待機
         events = step_wait_stack!(manager, cs_result)
 
+        outputs, dashboard_url = resolve_deploy_outputs(manager, cs_result.stack_name, build_result)
+
         DeployResult.new(
           status: :success,
           exit_code: EXIT_SUCCESS,
@@ -160,7 +173,9 @@ module Veltrunode
           summary: cs_result.summary,
           changes: cs_result.changes,
           events: events,
-          diagnostics: guard_diags
+          diagnostics: guard_diags,
+          outputs: outputs,
+          dashboard_url: dashboard_url
         )
       rescue DeployError => e
         all_diags = (Array(guard_diags) + Array(e.diagnostics)).uniq
@@ -317,6 +332,36 @@ module Veltrunode
 
       def resolve_change_set_manager
         options[:change_set_manager] || Veltrunode::AWS::ChangeSetManager.new(application: application)
+      end
+
+      def resolve_deploy_outputs(manager, stack_name, _build_result)
+        outputs = {}
+
+        if manager.respond_to?(:stack_outputs)
+          outputs = manager.stack_outputs(stack_name) || {}
+        elsif manager.respond_to?(:client)
+          begin
+            res = manager.client.describe_stacks(stack_name: stack_name)
+            stack = res.stacks&.first
+            outputs = stack.outputs.to_h { |o| [o.output_key, o.output_value] } if stack&.outputs
+          rescue StandardError
+            # ignore
+          end
+        end
+
+        dashboard_url = outputs['DashboardUrl'] || outputs[:DashboardUrl]
+        if dashboard_url.nil? && application.respond_to?(:dashboard) && application.dashboard&.enabled?
+          region = application.respond_to?(:region) ? application.region : 'ap-northeast-1'
+          dash_name = if application.dashboard.name && application.dashboard.name.to_s != 'default'
+                        "#{stack_name}-#{Veltrunode::Compiler::LogicalId.for_dashboard(application.dashboard.name)}"
+                      else
+                        "#{stack_name}-Dashboard"
+                      end
+          dashboard_url = "https://#{region}.console.aws.amazon.com/cloudwatch/home?region=#{region}#dashboards/dashboard/#{dash_name}"
+          outputs['DashboardUrl'] ||= dashboard_url
+        end
+
+        [outputs, dashboard_url]
       end
     end
   end

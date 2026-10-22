@@ -677,6 +677,21 @@ RSpec.describe Veltrunode::CLI::Router do
         expect(stdout.string).to include("Deployment successful for stack 'deploy-app-prod'.")
       end
 
+      it 'displays dashboard URL on successful deployment when dashboard is enabled' do
+        app_with_dashboard = Veltrunode::Model::Application.new(
+          name: 'deploy-app',
+          region: 'ap-northeast-1',
+          stage: 'prod',
+          account_constraint: '123456789012',
+          dashboard: Veltrunode::Model::Dashboard.new
+        )
+        allow(Veltrunode::SettingsLoader).to receive(:load).and_return(app_with_dashboard)
+        code = run_cli(['deploy', '--yes'])
+        expect(code).to eq(0)
+        expect(stdout.string).to include('Dashboard URL: https://')
+        expect(stdout.string).to include('dashboards/dashboard/deploy-app-prod-Dashboard')
+      end
+
       it 'aborts deployment with exit code 7 on protected stage when --yes is not provided without tty' do
         code = run_cli(['deploy'])
         expect(code).to eq(7)
