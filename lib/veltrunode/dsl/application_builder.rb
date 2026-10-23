@@ -70,6 +70,7 @@ module Veltrunode
         defaults_builder.instance_eval(&)
         @runtime_defaults[:logs] = defaults_builder.logs_config if defaults_builder.logs_config
         @runtime_defaults[:tracing] = defaults_builder.tracing_config if defaults_builder.tracing_config
+        @runtime_defaults[:insights] = defaults_builder.insights_config if defaults_builder.insights_config
         @tags.merge!(defaults_builder.tags_config)
       end
 
@@ -109,12 +110,13 @@ module Veltrunode
       alias efs_security_groups security_group_helper
       alias efs_security_group security_group_helper
 
-      def function(name, tracing: nil, **, &)
+      def function(name, tracing: nil, insights: nil, **, &)
         builder = FunctionBuilder.new(
           name,
           runtime_default: resolve_default_runtime,
           architecture_default: @runtime_defaults[:architecture] || :x86_64,
-          tracing_default: tracing || @runtime_defaults[:tracing]
+          tracing_default: tracing || @runtime_defaults[:tracing],
+          insights_default: insights || @runtime_defaults[:insights]
         )
         builder.instance_eval(&) if block_given?
         @function_builders << builder
@@ -291,13 +293,14 @@ module Veltrunode
     end
 
     class DefaultsBuilder < BaseBuilder
-      attr_reader :logs_config, :tags_config, :tracing_config
+      attr_reader :logs_config, :tags_config, :tracing_config, :insights_config
 
       def initialize
         super
         @logs_config = nil
         @tags_config = {}
         @tracing_config = nil
+        @insights_config = nil
       end
 
       def logs(retention_days: nil, **, &)
@@ -316,6 +319,16 @@ module Veltrunode
                           else
                             { mode: mode_or_opts }.merge(kwargs)
                           end
+      end
+
+      def insights(enabled_or_opts = true, **kwargs) # rubocop:disable Style/OptionalBooleanParameter
+        @insights_config = if enabled_or_opts.is_a?(Hash)
+                             enabled_or_opts.merge(kwargs)
+                           elsif kwargs.empty?
+                             enabled_or_opts
+                           else
+                             { enabled: enabled_or_opts }.merge(kwargs)
+                           end
       end
 
       def tags(hash = {})

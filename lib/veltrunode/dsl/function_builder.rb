@@ -9,7 +9,8 @@ require_relative '../model/function'
 module Veltrunode
   module DSL
     class FunctionBuilder < BaseBuilder
-      def initialize(logical_name, runtime_default: nil, architecture_default: :x86_64, tracing_default: nil)
+      def initialize(logical_name, runtime_default: nil, architecture_default: :x86_64, tracing_default: nil,
+                     insights_default: nil)
         super()
         @logical_name = logical_name.to_s
         @handler = nil
@@ -28,6 +29,7 @@ module Veltrunode
         @alarms = []
         @subscription_filters = []
         @tracing = tracing_default
+        @insights = insights_default
       end
 
       def handler(h)
@@ -177,6 +179,16 @@ module Veltrunode
                    end
       end
 
+      def insights(enabled_or_opts = true, **kwargs) # rubocop:disable Style/OptionalBooleanParameter
+        @insights = if enabled_or_opts.is_a?(Hash)
+                      enabled_or_opts.merge(kwargs)
+                    elsif kwargs.empty?
+                      enabled_or_opts
+                    else
+                      { enabled: enabled_or_opts }.merge(kwargs)
+                    end
+      end
+
       def build
         Model::Function.new(
           logical_name: @logical_name,
@@ -195,7 +207,8 @@ module Veltrunode
           logging: @logging,
           alarms: @alarms,
           subscription_filters: @subscription_filters,
-          tracing: @tracing
+          tracing: @tracing,
+          insights: @insights
         )
       end
     end
