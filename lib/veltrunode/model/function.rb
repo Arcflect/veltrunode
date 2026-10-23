@@ -7,7 +7,7 @@ module Veltrunode
     class Function
       attr_reader :handler, :runtime, :logical_name, :architecture, :memory, :timeout, :ephemeral_storage,
                   :environment, :vpc_reference, :layers, :mounts, :iam_capabilities, :concurrency, :logging,
-                  :alarms, :subscription_filters, :tracing
+                  :alarms, :subscription_filters, :tracing, :insights
 
       def initialize(
         positional_logical_name = nil,
@@ -27,7 +27,8 @@ module Veltrunode
         logging: nil,
         alarms: [],
         subscription_filters: [],
-        tracing: nil
+        tracing: nil,
+        insights: nil
       )
         name_val = positional_logical_name || logical_name
         validate_logical_name!(name_val)
@@ -49,6 +50,7 @@ module Veltrunode
         @alarms = freeze_array(alarms)
         @subscription_filters = resolve_initial_subscription_filters(subscription_filters, logging)
         @tracing = normalize_tracing(tracing)
+        @insights = normalize_insights(insights)
 
         freeze if @handler || @runtime
       end
@@ -83,6 +85,20 @@ module Veltrunode
 
       def adot_layer_arn
         tracing && tracing['adot'].is_a?(String) ? tracing['adot'] : nil
+      end
+
+      def insights_enabled?
+        return false if insights.nil?
+
+        insights['enabled'] == true
+      end
+
+      def insights_layer_arn
+        insights&.fetch('layer_arn', nil)
+      end
+
+      def insights_version
+        insights&.fetch('version', nil)
       end
 
       def validate_invariants(context = {})
@@ -436,6 +452,37 @@ module Veltrunode
           suggested_action: 'Specify :active or :pass_through for tracing.',
           evidence: { 'function' => logical_name, 'tracing' => @tracing }
         )
+      end
+
+      def normalize_insights(val)
+        return nil if val.nil? || val == false
+
+        case val
+        when true
+          { 'enabled' => true }.freeze
+        when String
+          str = val.strip
+          raise ValidationError, 'Insights configuration cannot be blank' if str.empty?
+
+          { 'enabled' => true, 'layer_arn' => str.freeze }.freeze
+        when Numeric
+          raise ValidationError, "Invalid insights version: #{val}" unless val.positive?
+
+          { 'enabled' => true, 'version' => val.to_i }.freeze
+        when Hash
+          enabled_val = val[:enabled].nil? && val['enabled'].nil? ? true : (val[:enabled] || val['enabled'])
+          return nil unless enabled_val
+
+          arn = val[:layer_arn] || val['layer_arn']
+          ver = val[:version] || val['version']
+
+          res = { 'enabled' => true }
+          res['layer_arn'] = arn.to_s.strip.freeze if arn && !arn.to_s.strip.empty?
+          res['version'] = ver.to_i if ver
+          res.freeze
+        else
+          raise ValidationError, "Invalid insights configuration: #{val.class}"
+        end
       end
     end
   end
