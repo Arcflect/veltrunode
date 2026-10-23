@@ -2,6 +2,7 @@
 
 require 'yaml'
 require_relative '../logical_id'
+require_relative 'lambda_insights'
 
 module Veltrunode
   module Compiler
@@ -77,6 +78,10 @@ module Veltrunode
           if function.respond_to?(:adot_enabled?) && function.adot_enabled?
             adot_arn = resolve_adot_layer_arn
             layers_to_attach << adot_arn if adot_arn
+          end
+          if function.respond_to?(:insights_enabled?) && function.insights_enabled?
+            insights_arn = resolve_insights_layer_arn
+            layers_to_attach << insights_arn if insights_arn
           end
 
           unless layers_to_attach.empty?
@@ -426,6 +431,10 @@ module Veltrunode
         def adot_supports_exec_wrapper?
           rt = function.runtime.to_s.downcase
           rt.start_with?('node') || rt.start_with?('python') || rt.start_with?('java')
+        end
+
+        def resolve_insights_layer_arn
+          LambdaInsights.resolve_layer_arn(function, context: context)
         end
       end
     end
