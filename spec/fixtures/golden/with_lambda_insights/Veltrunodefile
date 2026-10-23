@@ -1,0 +1,33 @@
+# frozen_string_literal: true
+
+Veltrunode.application "with-lambda-insights" do
+  aws region: "ap-northeast-1", account: "123456789012"
+
+  defaults do
+    insights true
+  end
+
+  function :api do
+    handler "handlers/api.handler"
+    runtime "nodejs20.x"
+    architecture :arm64
+    memory 512
+    timeout 30
+  end
+
+  function :worker do
+    handler "handlers/worker.handler"
+    runtime "ruby3.3"
+    architecture :x86_64
+    memory 256
+    timeout 60
+  end
+
+  function :no_insights do
+    handler "handlers/standalone.handler"
+    runtime "python3.12"
+    memory 128
+    timeout 15
+    insights false
+  end
+end

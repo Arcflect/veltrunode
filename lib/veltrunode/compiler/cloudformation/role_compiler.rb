@@ -162,6 +162,11 @@ module Veltrunode
           if target.respond_to?(:tracing_enabled?) && target.tracing_enabled?
             managed_policies << 'arn:aws:iam::aws:policy/AWSXRayDaemonWriteAccess'
           end
+
+          # Lambda Insights (CloudWatchLambdaInsightsExecutionRolePolicy) の自動付与
+          if target.respond_to?(:insights_enabled?) && target.insights_enabled?
+            managed_policies << 'arn:aws:iam::aws:policy/CloudWatchLambdaInsightsExecutionRolePolicy'
+          end
           managed_policies.uniq!
 
           role_props = {

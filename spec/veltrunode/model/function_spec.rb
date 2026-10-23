@@ -53,6 +53,41 @@ RSpec.describe Veltrunode::Model::Function do
         expect(minimal_fn.layers).to eq([])
         expect(minimal_fn.mounts).to eq([])
         expect(minimal_fn.iam_capabilities).to eq([])
+        expect(minimal_fn.insights_enabled?).to be false
+        expect(minimal_fn.insights_layer_arn).to be_nil
+        expect(minimal_fn.insights_version).to be_nil
+      end
+
+      it 'handles insights: true' do
+        fn_insights = described_class.new(logical_name: 'test_insights', insights: true)
+        expect(fn_insights.insights_enabled?).to be true
+        expect(fn_insights.insights_layer_arn).to be_nil
+        expect(fn_insights.insights_version).to be_nil
+      end
+
+      it 'handles insights with version or custom layer arn' do
+        fn_ver = described_class.new(logical_name: 'test_ver', insights: 53)
+        expect(fn_ver.insights_enabled?).to be true
+        expect(fn_ver.insights_version).to eq(53)
+
+        custom_arn = 'arn:aws:lambda:us-east-1:123456789012:layer:CustomInsights:1'
+        fn_arn = described_class.new(logical_name: 'test_arn', insights: custom_arn)
+        expect(fn_arn.insights_enabled?).to be true
+        expect(fn_arn.insights_layer_arn).to eq(custom_arn)
+
+        fn_hash = described_class.new(logical_name: 'test_hash', insights: { enabled: true, version: 31 })
+        expect(fn_hash.insights_enabled?).to be true
+        expect(fn_hash.insights_version).to eq(31)
+      end
+
+      it 'raises ValidationError on invalid insights configuration' do
+        expect do
+          described_class.new(logical_name: 'test_err', insights: :invalid_symbol)
+        end.to raise_error(Veltrunode::ValidationError, /Invalid insights configuration/)
+
+        expect do
+          described_class.new(logical_name: 'test_err', insights: '')
+        end.to raise_error(Veltrunode::ValidationError, /Insights configuration cannot be blank/)
       end
     end
 

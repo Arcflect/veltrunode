@@ -724,5 +724,73 @@ RSpec.describe Veltrunode::Compiler::CloudFormation::TemplateCompiler do
       expect(parsed['Resources']).not_to have_key('Dashboard')
       expect(parsed.fetch('Outputs', {})).not_to have_key('DashboardUrl')
     end
+
+    it 'compiles functions with Lambda Insights layer and IAM execution role policy' do
+      code = <<~RUBY
+        Veltrunode.application "insights-app" do
+          aws region: "ap-northeast-1"
+
+          defaults do
+            insights true
+          end
+
+          function :api do
+            handler "api.handler"
+            runtime "nodejs20.x"
+            architecture :x86_64
+          end
+
+          function :worker do
+            handler "worker.handler"
+            runtime "python3.12"
+            architecture :arm64
+          end
+
+          function :legacy do
+            handler "legacy.handler"
+            runtime "ruby3.3"
+            insights false
+          end
+        end
+      RUBY
+
+      app = Veltrunode.parse(code)
+      yaml_output = described_class.to_yaml(app)
+      parsed = YAML.safe_load(yaml_output)
+
+      resources = parsed['Resources']
+
+      # API function has x86_64 Lambda Insights extension layer
+      api_fn = resources['ApiFunction']
+      expected_x86_layer = {
+        'Fn::Sub' => 'arn:aws:lambda:${AWS::Region}:580247275435:layer:LambdaInsightsExtension:53'
+      }
+      expect(api_fn['Properties']['Layers']).to include(expected_x86_layer)
+
+      # API function role has CloudWatchLambdaInsightsExecutionRolePolicy
+      api_role = resources['ApiFunctionRole']
+      expect(api_role['Properties']['ManagedPolicyArns']).to include(
+        'arn:aws:iam::aws:policy/CloudWatchLambdaInsightsExecutionRolePolicy'
+      )
+
+      # Worker function has Arm64 Lambda Insights extension layer
+      worker_fn = resources['WorkerFunction']
+      expected_arm_layer = {
+        'Fn::Sub' => 'arn:aws:lambda:${AWS::Region}:580247275435:layer:LambdaInsightsExtension-Arm64:31'
+      }
+      expect(worker_fn['Properties']['Layers']).to include(expected_arm_layer)
+
+      worker_role = resources['WorkerFunctionRole']
+      expect(worker_role['Properties']['ManagedPolicyArns']).to include(
+        'arn:aws:iam::aws:policy/CloudWatchLambdaInsightsExecutionRolePolicy'
+      )
+
+      # Legacy function has insights disabled, so no layer and no policy
+      legacy_fn = resources['LegacyFunction']
+      expect(legacy_fn['Properties']['Layers']).to be_nil
+
+      legacy_role = resources['LegacyFunctionRole']
+      expect(legacy_role['Properties']['ManagedPolicyArns']).to be_nil
+    end
   end
 end

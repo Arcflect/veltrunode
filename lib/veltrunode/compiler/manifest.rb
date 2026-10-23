@@ -222,6 +222,9 @@ module Veltrunode
           tracing_cfg = extract_val(fn, :tracing)
           fn_info['tracing'] = tracing_cfg if present?(tracing_cfg)
 
+          insights_cfg = extract_val(fn, :insights)
+          fn_info['insights'] = insights_cfg if present?(insights_cfg)
+
           memo[fn_name] = fn_info
         end
       end
