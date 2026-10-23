@@ -1,6 +1,6 @@
 ---
 AWSTemplateFormatVersion: '2010-09-09'
-Description: alarmed-service - dev (compiled by Veltrunode v0.1.67)
+Description: alarmed-service - dev (compiled by Veltrunode v0.1.68)
 Parameters:
   AlertTopic:
     Description: SNS topic ARN for AlertTopic
