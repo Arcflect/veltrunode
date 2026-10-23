@@ -75,6 +75,34 @@ end
 - **`throttles`**: スロットル数アラーム（デフォルト統計: `Sum`）。
 - **パラメータ指定**: `threshold`, `period`（秒数、10の倍数）, `evaluation_periods`, `statistic`, `comparison_operator`, `treat_missing_data` をカスタマイズ可能。
 
+## Lambda Insights 拡張モニタリング (Lambda Insights)
+
+`function` 内または `defaults` ブロックで `insights: true` を設定することで、CloudWatch Lambda Insights による詳細システムメトリクス（CPU、メモリ、ネットワークトラフィック等）の収集を有効化できます。
+
+```ruby
+Veltrunode.application "document-converter" do
+  defaults do
+    insights true # アプリケーション全体で Lambda Insights を有効化
+  end
+
+  function :convert do
+    handler "converter.handler"
+    runtime "nodejs20.x"
+    architecture :arm64
+  end
+
+  function :lightweight do
+    handler "simple.handler"
+    runtime "python3.12"
+    insights false # 個別関数でのオプトアウト
+  end
+end
+```
+
+- **`insights true` / `insights: true`**: 有効化（関数のアーキテクチャに応じた拡張レイヤーを自動アタッチし、必要な IAM 実行権限を自動付与）。
+- **`insights version: 53`**: 拡張レイヤーの特定バージョンを指定。
+- **`insights layer_arn: "arn:..."`**: カスタム拡張レイヤー ARN を指定。
+
 ## CloudWatch メトリクスダッシュボード (CloudWatch Dashboard)
 
 Application レベルで `dashboard` を宣言することで、デプロイされた全 Lambda 関数の稼働状態を一目で把握できる `AWS::CloudWatch::Dashboard` リソースを自動生成できます。

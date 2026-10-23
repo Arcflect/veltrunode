@@ -1,0 +1,221 @@
+---
+AWSTemplateFormatVersion: '2010-09-09'
+Description: with-lambda-insights - dev (compiled by Veltrunode v0.1.67)
+Parameters:
+  ArtifactBucket:
+    Description: S3 bucket name where function and layer zip packages are stored
+    Type: String
+Resources:
+  ApiFunction:
+    DependsOn:
+    - ApiFunctionLogGroup
+    Properties:
+      Architectures:
+      - arm64
+      Code:
+        S3Bucket:
+          Ref: ArtifactBucket
+        S3Key: artifacts/functions/api.zip
+      EphemeralStorage:
+        Size: 512
+      FunctionName: api
+      Handler: handlers/api.handler
+      Layers:
+      - Fn::Sub: arn:aws:lambda:${AWS::Region}:580247275435:layer:LambdaInsightsExtension-Arm64:31
+      MemorySize: 512
+      Role:
+        Fn::GetAtt:
+        - ApiFunctionRole
+        - Arn
+      Runtime: nodejs20.x
+      Timeout: 30
+    Type: AWS::Lambda::Function
+  ApiFunctionLogGroup:
+    Properties:
+      LogGroupName: "/aws/lambda/api"
+      RetentionInDays: 30
+    Type: AWS::Logs::LogGroup
+  ApiFunctionRole:
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+        - Action: sts:AssumeRole
+          Effect: Allow
+          Principal:
+            Service: lambda.amazonaws.com
+        Version: '2012-10-17'
+      ManagedPolicyArns:
+      - arn:aws:iam::aws:policy/CloudWatchLambdaInsightsExecutionRolePolicy
+      Policies:
+      - PolicyDocument:
+          Statement:
+          - Action:
+            - logs:CreateLogStream
+            - logs:PutLogEvents
+            Effect: Allow
+            Resource:
+            - Fn::GetAtt:
+              - ApiFunctionLogGroup
+              - Arn
+          Version: '2012-10-17'
+        PolicyName: ApiFunctionRolePolicy
+    Type: AWS::IAM::Role
+  NoInsightsFunction:
+    DependsOn:
+    - NoInsightsFunctionLogGroup
+    Properties:
+      Architectures:
+      - x86_64
+      Code:
+        S3Bucket:
+          Ref: ArtifactBucket
+        S3Key: artifacts/functions/no_insights.zip
+      EphemeralStorage:
+        Size: 512
+      FunctionName: no_insights
+      Handler: handlers/standalone.handler
+      MemorySize: 128
+      Role:
+        Fn::GetAtt:
+        - NoInsightsFunctionRole
+        - Arn
+      Runtime: python3.12
+      Timeout: 15
+    Type: AWS::Lambda::Function
+  NoInsightsFunctionLogGroup:
+    Properties:
+      LogGroupName: "/aws/lambda/no_insights"
+      RetentionInDays: 30
+    Type: AWS::Logs::LogGroup
+  NoInsightsFunctionRole:
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+        - Action: sts:AssumeRole
+          Effect: Allow
+          Principal:
+            Service: lambda.amazonaws.com
+        Version: '2012-10-17'
+      Policies:
+      - PolicyDocument:
+          Statement:
+          - Action:
+            - logs:CreateLogStream
+            - logs:PutLogEvents
+            Effect: Allow
+            Resource:
+            - Fn::GetAtt:
+              - NoInsightsFunctionLogGroup
+              - Arn
+          Version: '2012-10-17'
+        PolicyName: NoInsightsFunctionRolePolicy
+    Type: AWS::IAM::Role
+  WorkerFunction:
+    DependsOn:
+    - WorkerFunctionLogGroup
+    Properties:
+      Architectures:
+      - x86_64
+      Code:
+        S3Bucket:
+          Ref: ArtifactBucket
+        S3Key: artifacts/functions/worker.zip
+      EphemeralStorage:
+        Size: 512
+      FunctionName: worker
+      Handler: handlers/worker.handler
+      Layers:
+      - Fn::Sub: arn:aws:lambda:${AWS::Region}:580247275435:layer:LambdaInsightsExtension:53
+      MemorySize: 256
+      Role:
+        Fn::GetAtt:
+        - WorkerFunctionRole
+        - Arn
+      Runtime: ruby3.3
+      Timeout: 60
+    Type: AWS::Lambda::Function
+  WorkerFunctionLogGroup:
+    Properties:
+      LogGroupName: "/aws/lambda/worker"
+      RetentionInDays: 30
+    Type: AWS::Logs::LogGroup
+  WorkerFunctionRole:
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+        - Action: sts:AssumeRole
+          Effect: Allow
+          Principal:
+            Service: lambda.amazonaws.com
+        Version: '2012-10-17'
+      ManagedPolicyArns:
+      - arn:aws:iam::aws:policy/CloudWatchLambdaInsightsExecutionRolePolicy
+      Policies:
+      - PolicyDocument:
+          Statement:
+          - Action:
+            - logs:CreateLogStream
+            - logs:PutLogEvents
+            Effect: Allow
+            Resource:
+            - Fn::GetAtt:
+              - WorkerFunctionLogGroup
+              - Arn
+          Version: '2012-10-17'
+        PolicyName: WorkerFunctionRolePolicy
+    Type: AWS::IAM::Role
+Outputs:
+  ApiFunctionArn:
+    Description: ARN of api Lambda function
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}-ApiFunctionArn"
+    Value:
+      Fn::GetAtt:
+      - ApiFunction
+      - Arn
+  ApiFunctionName:
+    Description: Name of api Lambda function
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}-ApiFunctionName"
+    Value:
+      Ref: ApiFunction
+  ApplicationName:
+    Description: Veltrunode application name
+    Value: with-lambda-insights
+  ApplicationStage:
+    Description: Veltrunode application stage
+    Value: dev
+  NoInsightsFunctionArn:
+    Description: ARN of no_insights Lambda function
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}-NoInsightsFunctionArn"
+    Value:
+      Fn::GetAtt:
+      - NoInsightsFunction
+      - Arn
+  NoInsightsFunctionName:
+    Description: Name of no_insights Lambda function
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}-NoInsightsFunctionName"
+    Value:
+      Ref: NoInsightsFunction
+  WorkerFunctionArn:
+    Description: ARN of worker Lambda function
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}-WorkerFunctionArn"
+    Value:
+      Fn::GetAtt:
+      - WorkerFunction
+      - Arn
+  WorkerFunctionName:
+    Description: Name of worker Lambda function
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}-WorkerFunctionName"
+    Value:
+      Ref: WorkerFunction

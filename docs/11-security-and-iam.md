@@ -88,6 +88,14 @@ Lambda 関数で X-Ray トレーシング（`tracing: :active` または `tracin
 - **権限内容**:
   Lambda 内蔵の X-Ray デーモンがセグメントおよびテレメトリデータを AWS X-Ray サービスへ安全にストリーミングするための権限（`xray:PutTraceSegments`, `xray:PutTelemetryRecords`, `xray:GetSamplingRules`, `xray:GetSamplingTargets`）が付与されます。
 
+## Lambda Insights と IAM 権限 (Lambda Insights and IAM Permissions)
+
+Lambda 関数で Lambda Insights 拡張モニタリング（`insights: true` または `defaults` ブロックでの指定）が有効化された場合、Lambda 実行ロールに AWS 管理ポリシー `CloudWatchLambdaInsightsExecutionRolePolicy`（`arn:aws:iam::aws:policy/CloudWatchLambdaInsightsExecutionRolePolicy`）が自動的にアタッチされます。
+
+- **最小特権の維持**:
+  Lambda Insights が有効化されていない関数には本ポリシーは付与されず、必要な関数にのみスコープが限定されます。
+- **権限内容**:
+  Lambda Insights 拡張レイヤーが詳細なシステムメトリクス（CPU、メモリ使用率、ネットワークトラフィック等）を CloudWatch Logs（`/aws/lambda-insights` ロググループ）へ書き込むための権限（`logs:CreateLogGroup`, `logs:CreateLogStream`, `logs:PutLogEvents` 等）が付与されます。
 
 ## 認証情報 (Credentials)
 

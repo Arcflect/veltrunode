@@ -82,6 +82,23 @@ Lambda 関数で `tracing: :active` または `tracing: :pass_through`（また�
 - **AWS Distro for OpenTelemetry (ADOT) レイヤー自動アタッチ**:
   `tracing: :adot` を指定した場合、Active Tracing の有効化に加えて、対象関数のランタイムおよびアーキテクチャ（`x86_64` / `arm64`）に対応した公式 ADOT Lambda レイヤー（`aws-otel-...`）が `Properties.Layers` に自動的にアタッチされます。また、ゼロコード計装に必要な環境変数 `AWS_LAMBDA_EXEC_WRAPPER: '/opt/otel-instrument'` も自動設定されます（カスタム ADOT レイヤー ARN の指定も可能です）。
 
+## Lambda Insights 拡張モニタリングのコンパイル (Lambda Insights Configuration)
+
+Lambda 関数で `insights: true`（または `defaults` ブロックでの指定）を設定した場合、`Veltrunode::Compiler::CloudFormation::FunctionCompiler` および `RoleCompiler` により詳細システムメトリクス（CPU、メモリ、ネットワーク等）を収集するための拡張機能と権限が自動構成されます。
+
+- **Lambda Insights 拡張レイヤーの自動アタッチ**:
+  関数のアーキテクチャ（`x86_64` または `arm64`）に応じた公式 Lambda Insights 拡張レイヤーが `Properties.Layers` に自動追加されます。
+  - `x86_64`: `{ 'Fn::Sub' => 'arn:aws:lambda:${AWS::Region}:580247275435:layer:LambdaInsightsExtension:53' }`
+  - `arm64`: `{ 'Fn::Sub' => 'arn:aws:lambda:${AWS::Region}:580247275435:layer:LambdaInsightsExtension-Arm64:31' }`
+  - リージョン自動解決: 中国リージョン（`cn-*`）や AWS GovCloud（`us-gov-*`）環境では、各パーティションおよび対応する専用 AWS アカウント ID（中国: `018784642996`、GovCloud: `519776269227`）が自動解決されます。
+- **バージョンおよびカスタムレイヤー指定**:
+  - `insights version: 45`: 特定のレイヤーバージョンを指定可能。
+  - `insights layer_arn: "arn:..."`: カスタムの Lambda Insights レイヤー ARN を直接指定可能。
+- **個別関数のオプトアウト**:
+  `defaults` で `insights true` を有効化している場合でも、個別関数で `insights false` を設定することで Lambda Insights をオプトアウトできます。
+- **IAM 実行権限の自動付与**:
+  Lambda 実行ロール（`AWS::IAM::Role`）の `Properties.ManagedPolicyArns` に、AWS 管理ポリシー `arn:aws:iam::aws:policy/CloudWatchLambdaInsightsExecutionRolePolicy` が自動的に追加されます。
+
 ## CloudWatch メトリクスダッシュボードのコンパイルと URL 出力 (CloudWatch Dashboard Compilation & Output)
 
 Application レベルで `dashboard` を設定した場合、`Veltrunode::Compiler::CloudFormation::DashboardCompiler` により `AWS::CloudWatch::Dashboard` リソースが自動生成されます。
