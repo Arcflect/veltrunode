@@ -48,7 +48,25 @@ module Veltrunode
         end
 
         def properties
-          props = {
+          props = if alarm.respond_to?(:error_rate?) && alarm.error_rate?
+                    build_error_rate_properties
+                  else
+                    build_standard_properties
+                  end
+
+          formatted_alarm_actions = format_actions(alarm.alarm_actions)
+          props['AlarmActions'] = formatted_alarm_actions unless formatted_alarm_actions.empty?
+
+          formatted_ok_actions = format_actions(alarm.ok_actions)
+          props['OKActions'] = formatted_ok_actions unless formatted_ok_actions.empty?
+
+          props
+        end
+
+        private
+
+        def build_standard_properties
+          {
             'AlarmDescription' => alarm_description,
             'Namespace' => 'AWS/Lambda',
             'MetricName' => metric_name,
@@ -65,17 +83,61 @@ module Veltrunode
             'Period' => alarm.period,
             'TreatMissingData' => alarm.treat_missing_data
           }
-
-          formatted_alarm_actions = format_actions(alarm.alarm_actions)
-          props['AlarmActions'] = formatted_alarm_actions unless formatted_alarm_actions.empty?
-
-          formatted_ok_actions = format_actions(alarm.ok_actions)
-          props['OKActions'] = formatted_ok_actions unless formatted_ok_actions.empty?
-
-          props
         end
 
-        private
+        def build_error_rate_properties
+          {
+            'AlarmDescription' => alarm_description,
+            'ComparisonOperator' => alarm.comparison_operator,
+            'Threshold' => alarm.threshold,
+            'EvaluationPeriods' => alarm.evaluation_periods,
+            'TreatMissingData' => alarm.treat_missing_data,
+            'Metrics' => [
+              {
+                'Id' => 'e1',
+                'MetricStat' => {
+                  'Metric' => {
+                    'Namespace' => 'AWS/Lambda',
+                    'MetricName' => 'Errors',
+                    'Dimensions' => [
+                      {
+                        'Name' => 'FunctionName',
+                        'Value' => { 'Ref' => function_logical_id }
+                      }
+                    ]
+                  },
+                  'Period' => alarm.period,
+                  'Stat' => 'Sum'
+                },
+                'ReturnData' => false
+              },
+              {
+                'Id' => 'i1',
+                'MetricStat' => {
+                  'Metric' => {
+                    'Namespace' => 'AWS/Lambda',
+                    'MetricName' => 'Invocations',
+                    'Dimensions' => [
+                      {
+                        'Name' => 'FunctionName',
+                        'Value' => { 'Ref' => function_logical_id }
+                      }
+                    ]
+                  },
+                  'Period' => alarm.period,
+                  'Stat' => 'Sum'
+                },
+                'ReturnData' => false
+              },
+              {
+                'Id' => 'm1',
+                'Expression' => '100 * (e1 / MAX([i1, 1]))',
+                'Label' => 'ErrorRate',
+                'ReturnData' => true
+              }
+            ]
+          }
+        end
 
         def function_name
           function.respond_to?(:logical_name) ? function.logical_name : function.to_s
@@ -93,6 +155,8 @@ module Veltrunode
             'Duration'
           when :throttles
             'Throttles'
+          when :error_rate
+            'ErrorRate'
           else
             LogicalId.pascalize(alarm.metric)
           end

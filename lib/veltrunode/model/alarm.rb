@@ -6,7 +6,8 @@ module Veltrunode
   module Model
     # Lambda 関数の CloudWatch メトリクスアラーム定義モデル
     class Alarm
-      VALID_METRICS = %i[errors duration throttles].freeze
+      VALID_METRICS = %i[errors duration throttles error_rate].freeze
+      PRESET_NAMES = %i[recommended].freeze
       DEFAULT_PERIOD = 60
       DEFAULT_EVALUATION_PERIODS = 1
       DEFAULT_COMPARISON_OPERATOR = 'GreaterThanOrEqualToThreshold'
@@ -43,7 +44,8 @@ module Veltrunode
         @threshold = normalize_threshold(threshold)
         @evaluation_periods = evaluation_periods.to_i
         @period = period.to_i
-        @statistic = (statistic || default_statistic_for(@metric)).to_s.freeze
+        stat_val = statistic || default_statistic_for(@metric)
+        @statistic = stat_val&.to_s&.freeze
         @comparison_operator = comparison_operator.to_s.freeze
         @treat_missing_data = treat_missing_data.to_s.freeze
         @alarm_actions = freeze_actions(alarm_actions)
@@ -51,6 +53,10 @@ module Veltrunode
 
         validate!
         freeze
+      end
+
+      def error_rate?
+        @metric == :error_rate
       end
 
       def validate!
@@ -106,9 +112,13 @@ module Veltrunode
       end
 
       def validate_threshold!
-        return if @threshold.is_a?(Numeric) && @threshold >= 0
+        unless @threshold.is_a?(Numeric) && @threshold >= 0
+          raise ValidationError, "Alarm threshold must be a non-negative number: #{@threshold.inspect}"
+        end
 
-        raise ValidationError, "Alarm threshold must be a non-negative number: #{@threshold.inspect}"
+        return unless @metric == :error_rate && @threshold > 100
+
+        raise ValidationError, "Alarm error_rate threshold must be between 0 and 100: #{@threshold.inspect}"
       end
 
       def validate_evaluation_periods!

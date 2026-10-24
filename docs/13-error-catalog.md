@@ -13,6 +13,8 @@
 - **VLT-SCHED-001**: 無効なスケジュール式 (invalid schedule expression)
 - **VLT-SCHED-002**: ステージポリシーによるDLQ未設定の拒否 (missing DLQ required by stage policy)
 - **VLT-LOG-001**: ステージポリシーによるログ保持期間未設定の拒否 (missing log retention required by stage policy)
+- **VLT-ALARM-001**: 無効なアラーム設定 (invalid alarm configuration: metric, threshold, period, etc.)
+- **VLT-ALARM-002**: 未知のアラームプリセット指定 (unknown alarm preset)
 - **VLT-EFS-001**: EFSアクセスポイントが見つからない (access point not found)
 - **VLT-EFS-2049-INGRESS**: NFS インバウンド設定不足 (missing NFS ingress)
 - **VLT-EFS-2049-EGRESS**: NFS アウトバウンド設定不足 (missing NFS egress)

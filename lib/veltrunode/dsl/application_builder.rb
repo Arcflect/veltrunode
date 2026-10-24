@@ -72,6 +72,7 @@ module Veltrunode
         @runtime_defaults[:tracing] = defaults_builder.tracing_config if defaults_builder.tracing_config
         @runtime_defaults[:insights] = defaults_builder.insights_config if defaults_builder.insights_config
         @runtime_defaults[:async_invoke] = defaults_builder.async_invoke_config if defaults_builder.async_invoke_config
+        @runtime_defaults[:alarms] = defaults_builder.alarms_config if defaults_builder.alarms_config
         @tags.merge!(defaults_builder.tags_config)
       end
 
@@ -111,14 +112,16 @@ module Veltrunode
       alias efs_security_groups security_group_helper
       alias efs_security_group security_group_helper
 
-      def function(name, tracing: nil, insights: nil, async_invoke: nil, **, &)
+      def function(name, tracing: nil, insights: nil, async_invoke: nil, alarms: nil, **, &)
+        alarms_cfg = alarms.nil? ? @runtime_defaults[:alarms] : alarms
         builder = FunctionBuilder.new(
           name,
           runtime_default: resolve_default_runtime,
           architecture_default: @runtime_defaults[:architecture] || :x86_64,
           tracing_default: tracing || @runtime_defaults[:tracing],
           insights_default: insights || @runtime_defaults[:insights],
-          async_invoke_default: async_invoke || @runtime_defaults[:async_invoke]
+          async_invoke_default: async_invoke || @runtime_defaults[:async_invoke],
+          alarms_default: alarms_cfg
         )
         builder.instance_eval(&) if block_given?
         @function_builders << builder
@@ -295,7 +298,7 @@ module Veltrunode
     end
 
     class DefaultsBuilder < BaseBuilder
-      attr_reader :logs_config, :tags_config, :tracing_config, :insights_config, :async_invoke_config
+      attr_reader :logs_config, :tags_config, :tracing_config, :insights_config, :async_invoke_config, :alarms_config
 
       def initialize
         super
@@ -304,6 +307,19 @@ module Veltrunode
         @tracing_config = nil
         @insights_config = nil
         @async_invoke_config = nil
+        @alarms_config = nil
+      end
+
+      def alarms(arg = nil, **kwargs, &block)
+        @alarms_config = if block_given?
+                           { arg: arg, kwargs: kwargs, block: block }
+                         elsif arg.is_a?(Hash)
+                           arg.merge(kwargs)
+                         elsif arg
+                           { preset: arg }.merge(kwargs)
+                         else
+                           kwargs
+                         end
       end
 
       def logs(retention_days: nil, **, &)

@@ -16,7 +16,8 @@ RSpec.describe Veltrunode::Diagnostics::ErrorCodeRegistry do
         'VLT-AWS-*',
         'VLT-IAM-*',
         'VLT-CFN-*',
-        'VLT-LOG-*'
+        'VLT-LOG-*',
+        'VLT-ALARM-*'
       )
     end
   end
@@ -32,6 +33,8 @@ RSpec.describe Veltrunode::Diagnostics::ErrorCodeRegistry do
       expect(described_class.valid?('VLT-SCHED-002')).to be(true)
       expect(described_class.valid?('VLT-LOG-001')).to be(true)
       expect(described_class.valid?('VLT-IAM-002')).to be(true)
+      expect(described_class.valid?('VLT-ALARM-001')).to be(true)
+      expect(described_class.valid?('VLT-ALARM-002')).to be(true)
     end
 
     it 'rejects invalid code formats' do

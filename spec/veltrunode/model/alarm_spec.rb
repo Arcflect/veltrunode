@@ -49,6 +49,25 @@ RSpec.describe Veltrunode::Model::Alarm do
       expect(alarm.alarm_actions).to eq(['arn:aws:sns:ap-northeast-1:123456789012:alerts'])
     end
 
+    it 'creates a valid error_rate alarm' do
+      alarm = described_class.new(
+        metric: :error_rate,
+        threshold: 1,
+        comparison_operator: 'GreaterThanThreshold'
+      )
+
+      expect(alarm.metric).to eq(:error_rate)
+      expect(alarm.threshold).to eq(1)
+      expect(alarm.error_rate?).to be true
+      expect(alarm.comparison_operator).to eq('GreaterThanThreshold')
+    end
+
+    it 'raises ValidationError when error_rate threshold exceeds 100' do
+      expect do
+        described_class.new(metric: :error_rate, threshold: 101)
+      end.to raise_error(Veltrunode::ValidationError, /between 0 and 100/)
+    end
+
     it 'raises ValidationError when metric is unsupported' do
       expect do
         described_class.new(metric: :unknown_metric, threshold: 1)
