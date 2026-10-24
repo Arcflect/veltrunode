@@ -1,0 +1,243 @@
+---
+AWSTemplateFormatVersion: '2010-09-09'
+Description: with-async-invoke - dev (compiled by Veltrunode v0.1.68)
+Parameters:
+  ArtifactBucket:
+    Description: S3 bucket name where function and layer zip packages are stored
+    Type: String
+Resources:
+  NotifierFunction:
+    DependsOn:
+    - NotifierFunctionLogGroup
+    Properties:
+      Architectures:
+      - x86_64
+      Code:
+        S3Bucket:
+          Ref: ArtifactBucket
+        S3Key: artifacts/functions/notifier.zip
+      EphemeralStorage:
+        Size: 512
+      FunctionName: notifier
+      Handler: handlers/notifier.handler
+      MemorySize: 512
+      Role:
+        Fn::GetAtt:
+        - NotifierFunctionRole
+        - Arn
+      Runtime: nodejs20.x
+      Timeout: 30
+    Type: AWS::Lambda::Function
+  NotifierFunctionEventInvokeConfig:
+    Properties:
+      DestinationConfig:
+        OnFailure:
+          Destination: arn:aws:sns:ap-northeast-1:123456789012:failure-topic
+        OnSuccess:
+          Destination: arn:aws:sqs:ap-northeast-1:123456789012:success-queue
+      FunctionName:
+        Ref: NotifierFunction
+      MaximumRetryAttempts: 1
+      Qualifier: "$LATEST"
+    Type: AWS::Lambda::EventInvokeConfig
+  NotifierFunctionLogGroup:
+    Properties:
+      LogGroupName: "/aws/lambda/notifier"
+      RetentionInDays: 30
+    Type: AWS::Logs::LogGroup
+  NotifierFunctionRole:
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+        - Action: sts:AssumeRole
+          Effect: Allow
+          Principal:
+            Service: lambda.amazonaws.com
+        Version: '2012-10-17'
+      Policies:
+      - PolicyDocument:
+          Statement:
+          - Action:
+            - logs:CreateLogStream
+            - logs:PutLogEvents
+            Effect: Allow
+            Resource:
+            - Fn::GetAtt:
+              - NotifierFunctionLogGroup
+              - Arn
+          - Action:
+            - sqs:SendMessage
+            Effect: Allow
+            Resource:
+            - arn:aws:sqs:ap-northeast-1:123456789012:success-queue
+          - Action:
+            - sns:Publish
+            Effect: Allow
+            Resource:
+            - arn:aws:sns:ap-northeast-1:123456789012:failure-topic
+          Version: '2012-10-17'
+        PolicyName: NotifierFunctionRolePolicy
+    Type: AWS::IAM::Role
+  SynchronousFunction:
+    DependsOn:
+    - SynchronousFunctionLogGroup
+    Properties:
+      Architectures:
+      - x86_64
+      Code:
+        S3Bucket:
+          Ref: ArtifactBucket
+        S3Key: artifacts/functions/synchronous.zip
+      EphemeralStorage:
+        Size: 512
+      FunctionName: synchronous
+      Handler: handlers/sync.handler
+      MemorySize: 128
+      Role:
+        Fn::GetAtt:
+        - SynchronousFunctionRole
+        - Arn
+      Runtime: python3.12
+      Timeout: 15
+    Type: AWS::Lambda::Function
+  SynchronousFunctionLogGroup:
+    Properties:
+      LogGroupName: "/aws/lambda/synchronous"
+      RetentionInDays: 30
+    Type: AWS::Logs::LogGroup
+  SynchronousFunctionRole:
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+        - Action: sts:AssumeRole
+          Effect: Allow
+          Principal:
+            Service: lambda.amazonaws.com
+        Version: '2012-10-17'
+      Policies:
+      - PolicyDocument:
+          Statement:
+          - Action:
+            - logs:CreateLogStream
+            - logs:PutLogEvents
+            Effect: Allow
+            Resource:
+            - Fn::GetAtt:
+              - SynchronousFunctionLogGroup
+              - Arn
+          Version: '2012-10-17'
+        PolicyName: SynchronousFunctionRolePolicy
+    Type: AWS::IAM::Role
+  WorkerFunction:
+    DependsOn:
+    - WorkerFunctionLogGroup
+    Properties:
+      Architectures:
+      - x86_64
+      Code:
+        S3Bucket:
+          Ref: ArtifactBucket
+        S3Key: artifacts/functions/worker.zip
+      EphemeralStorage:
+        Size: 512
+      FunctionName: worker
+      Handler: handlers/worker.handler
+      MemorySize: 256
+      Role:
+        Fn::GetAtt:
+        - WorkerFunctionRole
+        - Arn
+      Runtime: ruby3.3
+      Timeout: 60
+    Type: AWS::Lambda::Function
+  WorkerFunctionEventInvokeConfig:
+    Properties:
+      FunctionName:
+        Ref: WorkerFunction
+      MaximumEventAgeInSeconds: 3600
+      MaximumRetryAttempts: 2
+      Qualifier: "$LATEST"
+    Type: AWS::Lambda::EventInvokeConfig
+  WorkerFunctionLogGroup:
+    Properties:
+      LogGroupName: "/aws/lambda/worker"
+      RetentionInDays: 30
+    Type: AWS::Logs::LogGroup
+  WorkerFunctionRole:
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+        - Action: sts:AssumeRole
+          Effect: Allow
+          Principal:
+            Service: lambda.amazonaws.com
+        Version: '2012-10-17'
+      Policies:
+      - PolicyDocument:
+          Statement:
+          - Action:
+            - logs:CreateLogStream
+            - logs:PutLogEvents
+            Effect: Allow
+            Resource:
+            - Fn::GetAtt:
+              - WorkerFunctionLogGroup
+              - Arn
+          Version: '2012-10-17'
+        PolicyName: WorkerFunctionRolePolicy
+    Type: AWS::IAM::Role
+Outputs:
+  ApplicationName:
+    Description: Veltrunode application name
+    Value: with-async-invoke
+  ApplicationStage:
+    Description: Veltrunode application stage
+    Value: dev
+  NotifierFunctionArn:
+    Description: ARN of notifier Lambda function
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}-NotifierFunctionArn"
+    Value:
+      Fn::GetAtt:
+      - NotifierFunction
+      - Arn
+  NotifierFunctionName:
+    Description: Name of notifier Lambda function
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}-NotifierFunctionName"
+    Value:
+      Ref: NotifierFunction
+  SynchronousFunctionArn:
+    Description: ARN of synchronous Lambda function
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}-SynchronousFunctionArn"
+    Value:
+      Fn::GetAtt:
+      - SynchronousFunction
+      - Arn
+  SynchronousFunctionName:
+    Description: Name of synchronous Lambda function
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}-SynchronousFunctionName"
+    Value:
+      Ref: SynchronousFunction
+  WorkerFunctionArn:
+    Description: ARN of worker Lambda function
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}-WorkerFunctionArn"
+    Value:
+      Fn::GetAtt:
+      - WorkerFunction
+      - Arn
+  WorkerFunctionName:
+    Description: Name of worker Lambda function
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}-WorkerFunctionName"
+    Value:
+      Ref: WorkerFunction

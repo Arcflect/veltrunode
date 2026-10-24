@@ -1,0 +1,59 @@
+{
+  "application": {
+    "account_constraint": "123456789012",
+    "name": "with-async-invoke",
+    "region": "ap-northeast-1",
+    "stage": "dev"
+  },
+  "built_at": "2026-01-01T00:00:00Z",
+  "compiler_version": "0.1.68",
+  "functions": {
+    "notifier": {
+      "architecture": "x86_64",
+      "async_invoke": {
+        "destination_config": {
+          "on_failure": "arn:aws:sns:ap-northeast-1:123456789012:failure-topic",
+          "on_success": "arn:aws:sqs:ap-northeast-1:123456789012:success-queue"
+        },
+        "maximum_retry_attempts": 1
+      },
+      "ephemeral_storage": 512,
+      "handler": "handlers/notifier.handler",
+      "logical_name": "notifier",
+      "memory": 512,
+      "runtime": "nodejs20.x",
+      "timeout": 30
+    },
+    "synchronous": {
+      "architecture": "x86_64",
+      "ephemeral_storage": 512,
+      "handler": "handlers/sync.handler",
+      "logical_name": "synchronous",
+      "memory": 128,
+      "runtime": "python3.12",
+      "timeout": 15
+    },
+    "worker": {
+      "architecture": "x86_64",
+      "async_invoke": {
+        "maximum_event_age_in_seconds": 3600,
+        "maximum_retry_attempts": 2
+      },
+      "ephemeral_storage": 512,
+      "handler": "handlers/worker.handler",
+      "logical_name": "worker",
+      "memory": 256,
+      "runtime": "ruby3.3",
+      "timeout": 60
+    }
+  },
+  "iam_capabilities": {
+    "notifier": [],
+    "synchronous": [],
+    "worker": []
+  },
+  "layers": {},
+  "manifest_schema_version": "1.0",
+  "schedules": {},
+  "schema_version": "1.0"
+}

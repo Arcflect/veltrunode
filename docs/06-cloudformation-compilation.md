@@ -45,6 +45,7 @@ CloudFormation の論理ID（Logical ID）は、`Veltrunode::Compiler::LogicalId
 | **Alarm** | `:convert` (errors) | `ConvertFunctionErrorsAlarm` | CloudWatch アラーム (`AWS::CloudWatch::Alarm`) |
 | **IAM Role (Lambda)** | `:convert` | `ConvertFunctionRole` | Lambda 実行ロール (`AWS::IAM::Role`) |
 | **IAM Role (Scheduler)** | `:nightly` | `NightlyScheduleRole` | Scheduler 呼び出しロール (`AWS::IAM::Role`) |
+| **EventInvokeConfig** | `:convert` | `ConvertFunctionEventInvokeConfig` | Lambda 非同期呼び出し設定 (`AWS::Lambda::EventInvokeConfig`) |
 | **Dashboard** | `:default` (`:operations`) | `Dashboard` (`OperationsDashboard`) | CloudWatch メトリクスダッシュボード (`AWS::CloudWatch::Dashboard`) |
 
 ## CloudWatch アラームのコンパイルと通知パラメータ (CloudWatch Alarms Compilation)
@@ -98,6 +99,26 @@ Lambda 関数で `insights: true`（または `defaults` ブロックでの指�
   `defaults` で `insights true` を有効化している場合でも、個別関数で `insights false` を設定することで Lambda Insights をオプトアウトできます。
 - **IAM 実行権限の自動付与**:
   Lambda 実行ロール（`AWS::IAM::Role`）の `Properties.ManagedPolicyArns` に、AWS 管理ポリシー `arn:aws:iam::aws:policy/CloudWatchLambdaInsightsExecutionRolePolicy` が自動的に追加されます。
+
+## Lambda 非同期呼び出し設定のコンパイル (EventInvokeConfig Compilation)
+
+Lambda 関数で `async_invoke`（または `defaults` ブロックでの指定）を設定した場合、`Veltrunode::Compiler::CloudFormation::EventInvokeConfigCompiler` および `RoleCompiler` により `AWS::Lambda::EventInvokeConfig` リソースおよび必要な実行権限が自動構成されます。
+
+- **論理ID**: `#{FunctionName}EventInvokeConfig`（例: `ConvertFunctionEventInvokeConfig`）。
+- **リソースプロパティ (`Properties`)**:
+  - `FunctionName`: `{ 'Ref' => FunctionLogicalId }`
+  - `Qualifier`: デフォルトは `'$LATEST'`
+  - `MaximumRetryAttempts`: 指定された最大リトライ回数（0〜2）
+  - `MaximumEventAgeInSeconds`: 指定されたイベント最大有効期限（60〜21,600秒）
+  - `DestinationConfig`: `OnSuccess` および `OnFailure` 送信先設定
+- **送信先連携と IAM 実行権限の自動付与**:
+  送信先（`on_success` / `on_failure`）が設定された場合、対象サービスに応じた IAM 権限が Lambda 実行ロール（`AWS::IAM::Role`）へ自動的に付与されます。
+  - **SQS**: `sqs:SendMessage`
+  - **SNS**: `sns:Publish`
+  - **EventBridge**: `events:PutEvents`
+  - **Lambda**: `lambda:InvokeFunction`
+- **送信先パラメータ化**:
+  送信先にシンボル名や Ref が指定された場合、CloudFormation テンプレートの `Parameters`（例: `FailedEventsQueueArn: { Type: String, ... }`）に自動登録されます。リテラル ARN（`arn:aws:...`）が指定された場合はそのまま展開されます。
 
 ## CloudWatch メトリクスダッシュボードのコンパイルと URL 出力 (CloudWatch Dashboard Compilation & Output)
 
