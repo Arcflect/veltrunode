@@ -67,9 +67,59 @@ end
 
 ## CloudWatch メトリクスアラーム (CloudWatch Alarms)
 
-`function` 内で `alarms` ブロックを定義することで、Lambda 関数のエラー、レイテンシ（実行時間）、スロットルを監視する `AWS::CloudWatch::Alarm` リソースを自動生成できます。
+`function` 内または `defaults` ブロックで `alarms` を定義することで、Lambda 関数のエラー、エラー率、レイテンシ（実行時間）、スロットルを監視する `AWS::CloudWatch::Alarm` リソースを自動生成できます。
+
+### 推奨アラームプリセット (`alarms: :recommended`)
+
+ベストプラクティスに基づいた標準的なアラームセットを一括で設定する `:recommended` プリセットを提供しています。
+
+```ruby
+Veltrunode.application "document-converter" do
+  defaults do
+    # アプリケーション全体の関数に推奨アラームプリセットを一括適用
+    alarms :recommended, topic: ref(:alert_topic)
+  end
+
+  function :convert do
+    handler "converter.handler"
+    timeout 10
+    # 自動展開されるアラーム:
+    # 1. error_rate > 1% (CloudWatch Metric Math: 100 * (Errors / Invocations))
+    # 2. throttles >= 1回
+    # 3. duration > 8000ms (timeout 10秒の 80%)
+  end
+
+  function :heavy_batch do
+    handler "batch.handler"
+    timeout 30
+
+    # プリセットの閾値を個別オーバーライド
+    alarms :recommended do
+      error_rate 5   # エラー率閾値を 5% に変更
+      duration 20000 # Duration 閾値を 20,000ms に変更
+    end
+  end
+
+  function :internal_job do
+    handler "job.handler"
+    # アラーム設定のオプトアウト（無効化）
+    alarms false
+  end
+end
+```
+
+#### 推奨プリセットで自動展開されるアラーム一覧
+
+| メトリクス | デフォルト閾値 | 比較演算子 | 説明 |
+| :--- | :--- | :--- | :--- |
+| **`error_rate`** | `> 1%` | `GreaterThanThreshold` | CloudWatch Metric Math (`100 * (e1 / MAX([i1, 1]))`) によりエラー率を算出 |
+| **`throttles`** | `>= 1` | `GreaterThanOrEqualToThreshold` | 同時実行数制限やバーストクォータ超過によるスロットル発生を即時検知 |
+| **`duration`** | `> timeout * 80%` | `GreaterThanThreshold` | 関数のタイムアウト秒数（ミリ秒換算）の 80% を超過した場合に検知 |
+
+### アラーム個別定義とカスタマイズ
 
 - **`topic`**: アラーム通知先 SNS トピック ARN（リテラル ARN または `ref(:param_or_resource)`）。
+- **`error_rate`**: エラー率アラーム（Metric Math による数式監視、閾値は 0〜100%）。
 - **`errors`**: エラー数アラーム（デフォルト統計: `Sum`）。
 - **`duration`**: 実行時間アラーム（デフォルト統計: `Average`、閾値はミリ秒）。
 - **`throttles`**: スロットル数アラーム（デフォルト統計: `Sum`）。
