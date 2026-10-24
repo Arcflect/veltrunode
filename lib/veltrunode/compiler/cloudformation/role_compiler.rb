@@ -4,6 +4,7 @@ require 'yaml'
 require_relative '../logical_id'
 require_relative 'function_compiler'
 require_relative '../../model/capability_expander'
+require_relative '../../model/async_invoke_config'
 
 module Veltrunode
   module Compiler
@@ -146,6 +147,12 @@ module Veltrunode
             end
           end
 
+          # 非同期呼び出し (EventInvokeConfig) の送信先 (OnSuccess/OnFailure) 権限を自動付与
+          if target.respond_to?(:async_invoke?) && target.async_invoke? && target.async_invoke&.destination_config?
+            dest_statements = build_async_destination_statements(target.async_invoke)
+            statements.concat(dest_statements)
+          end
+
           policy = {
             'PolicyName' => "#{logical_id}Policy",
             'PolicyDocument' => {
@@ -239,6 +246,73 @@ module Veltrunode
             q_id = self.class.pascalize(dlq_str)
             q_id = "#{q_id}Queue" unless q_id.end_with?('Queue')
             { 'Fn::GetAtt' => [q_id, 'Arn'] }
+          end
+        end
+
+        def build_async_destination_statements(async_invoke)
+          destinations = [
+            async_invoke.on_success,
+            async_invoke.on_failure
+          ].compact
+
+          dest_by_action = Hash.new { |h, k| h[k] = [] }
+
+          destinations.each do |dest|
+            action = resolve_async_destination_action(dest)
+            arn = resolve_async_destination_arn(dest)
+            dest_by_action[action] << arn if action && arn
+          end
+
+          dest_by_action.map do |action, resources|
+            {
+              'Effect' => 'Allow',
+              'Action' => [action],
+              'Resource' => resources.uniq
+            }
+          end
+        end
+
+        def resolve_async_destination_action(dest)
+          type = Model::AsyncInvokeConfig.destination_type(dest)
+          case type
+          when :sqs then 'sqs:SendMessage'
+          when :sns then 'sns:Publish'
+          when :event_bridge then 'events:PutEvents'
+          when :lambda then 'lambda:InvokeFunction'
+          else
+            dest_str = dest.to_s
+            if dest_str.include?(':sns:')
+              'sns:Publish'
+            elsif dest_str.include?(':events:')
+              'events:PutEvents'
+            elsif dest_str.include?(':lambda:')
+              'lambda:InvokeFunction'
+            else
+              'sqs:SendMessage'
+            end
+          end
+        end
+
+        def resolve_async_destination_arn(dest)
+          return dest if dest.is_a?(Hash)
+
+          dest_str = dest.to_s.strip
+          if dest.is_a?(Symbol) || (!dest_str.empty? && !dest_str.start_with?('arn:') && !dest_str.include?(':'))
+            type = Model::AsyncInvokeConfig.destination_type(dest)
+            case type
+            when :sqs
+              q_id = LogicalId.for_queue(dest_str)
+              { 'Fn::GetAtt' => [q_id, 'Arn'] }
+            when :lambda
+              fn_id = LogicalId.for_function(dest_str)
+              { 'Fn::GetAtt' => [fn_id, 'Arn'] }
+            else
+              param_key = LogicalId.pascalize(dest_str)
+              param_key = "#{param_key}Arn" unless param_key.end_with?('Arn')
+              { 'Ref' => param_key }
+            end
+          else
+            dest_str
           end
         end
 

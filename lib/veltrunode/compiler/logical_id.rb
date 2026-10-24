@@ -152,6 +152,8 @@ module Veltrunode
           base.end_with?(suffix) ? base : "#{base}#{suffix}"
         when :dashboard
           for_dashboard(name)
+        when :event_invoke_config
+          for_event_invoke_config(name)
         else
           suffix = pascalize(type)
           base = pascalize(name)
@@ -278,6 +280,18 @@ module Veltrunode
         return base if base.end_with?('Dashboard')
 
         "#{base}Dashboard"
+      end
+
+      # Lambda 関数の EventInvokeConfig の論理IDを生成します（サフィックス: EventInvokeConfig）
+      #
+      # @param function_name [String, Symbol] 関数シンボリック名 (例: :convert)
+      # @return [String] 論理ID (例: "ConvertFunctionEventInvokeConfig")
+      def for_event_invoke_config(function_name)
+        base = pascalize(function_name)
+        return base if base.end_with?('EventInvokeConfig')
+
+        fn_id = for_function(function_name)
+        "#{fn_id}EventInvokeConfig"
       end
     end
   end

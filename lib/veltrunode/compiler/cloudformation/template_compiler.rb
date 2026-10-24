@@ -13,6 +13,7 @@ require_relative 'schedule_compiler'
 require_relative 'security_group_compiler'
 require_relative 'subscription_filter_compiler'
 require_relative 'dashboard_compiler'
+require_relative 'event_invoke_config_compiler'
 require_relative '../../graph/resource_graph'
 require_relative '../../version'
 
@@ -160,6 +161,19 @@ module Veltrunode
                 'Type' => 'String'
               }
             end
+
+            # Async invoke destination parameters
+            next unless fn.respond_to?(:async_invoke?) && fn.async_invoke? && fn.async_invoke&.destination_config?
+
+            [fn.async_invoke.on_success, fn.async_invoke.on_failure].compact.each do |dest|
+              dest_param = resolve_async_destination_param_key(dest)
+              next if dest_param.nil? || params.key?(dest_param)
+
+              params[dest_param] = {
+                'Description' => "Destination ARN for #{dest_param}",
+                'Type' => 'String'
+              }
+            end
           end
 
           deep_sort_keys(params)
@@ -261,12 +275,18 @@ module Veltrunode
             end
 
             # CloudWatch Logs Subscription Filters
-            next unless fn.respond_to?(:subscription_filters) && fn.subscription_filters
-
-            Array(fn.subscription_filters).each do |filter|
-              sf_res = SubscriptionFilterCompiler.compile(fn, filter, context: context)
-              resources.merge!(sf_res)
+            if fn.respond_to?(:subscription_filters) && fn.subscription_filters
+              Array(fn.subscription_filters).each do |filter|
+                sf_res = SubscriptionFilterCompiler.compile(fn, filter, context: context)
+                resources.merge!(sf_res)
+              end
             end
+
+            # EventInvokeConfig (AWS::Lambda::EventInvokeConfig)
+            next unless fn.respond_to?(:async_invoke?) && fn.async_invoke?
+
+            eic_res = EventInvokeConfigCompiler.compile(fn, context: context)
+            resources.merge!(eic_res)
           end
 
           # 6. Compile Schedules (Role, Schedule)
@@ -621,6 +641,27 @@ module Veltrunode
             LogicalId.pascalize(name)
           elsif role.is_a?(String)
             str = role.strip
+            return nil if str.start_with?('arn:aws:')
+
+            str
+          end
+        end
+
+        def resolve_async_destination_param_key(dest)
+          return nil if dest.nil?
+
+          case dest
+          when Hash
+            if dest['Ref']
+              dest['Ref'].to_s
+            elsif dest[:ref] || dest['ref']
+              LogicalId.pascalize(dest[:ref] || dest['ref'])
+            end
+          when Symbol
+            key = LogicalId.pascalize(dest)
+            key.end_with?('Arn') ? key : "#{key}Arn"
+          when String
+            str = dest.strip
             return nil if str.start_with?('arn:aws:')
 
             str

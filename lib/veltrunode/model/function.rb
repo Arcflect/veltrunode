@@ -1,13 +1,14 @@
 # frozen_string_literal: true
 
 require_relative '../diagnostics/diagnostic'
+require_relative 'async_invoke_config'
 
 module Veltrunode
   module Model
     class Function
       attr_reader :handler, :runtime, :logical_name, :architecture, :memory, :timeout, :ephemeral_storage,
                   :environment, :vpc_reference, :layers, :mounts, :iam_capabilities, :concurrency, :logging,
-                  :alarms, :subscription_filters, :tracing, :insights
+                  :alarms, :subscription_filters, :tracing, :insights, :async_invoke
 
       def initialize(
         positional_logical_name = nil,
@@ -28,7 +29,8 @@ module Veltrunode
         alarms: [],
         subscription_filters: [],
         tracing: nil,
-        insights: nil
+        insights: nil,
+        async_invoke: nil
       )
         name_val = positional_logical_name || logical_name
         validate_logical_name!(name_val)
@@ -51,6 +53,7 @@ module Veltrunode
         @subscription_filters = resolve_initial_subscription_filters(subscription_filters, logging)
         @tracing = normalize_tracing(tracing)
         @insights = normalize_insights(insights)
+        @async_invoke = normalize_async_invoke(async_invoke)
 
         freeze if @handler || @runtime
       end
@@ -100,6 +103,11 @@ module Veltrunode
       def insights_version
         insights&.fetch('version', nil)
       end
+
+      def async_invoke?
+        !async_invoke.nil?
+      end
+      alias async_invoke_enabled? async_invoke?
 
       def validate_invariants(context = {})
         diagnostics = []
@@ -483,6 +491,20 @@ module Veltrunode
         else
           raise ValidationError, "Invalid insights configuration: #{val.class}"
         end
+      end
+
+      def normalize_async_invoke(val)
+        return nil if val.nil? || val == false
+        return val if val.is_a?(AsyncInvokeConfig)
+
+        raise ValidationError, "Invalid async_invoke configuration: #{val.class}" unless val.is_a?(Hash)
+        return nil if val[:enabled] == false || val['enabled'] == false
+
+        cleaned = val.reject { |k, _| k.to_s == 'enabled' }
+        kwargs = cleaned.each_with_object({}) do |(k, v), memo|
+          memo[k.to_sym] = v
+        end
+        AsyncInvokeConfig.new(**kwargs)
       end
     end
   end

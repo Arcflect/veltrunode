@@ -231,6 +231,19 @@ RSpec.describe Veltrunode::Compiler::LogicalId do
     end
   end
 
+  describe '.for_event_invoke_config' do
+    it 'generates EventInvokeConfig logical ID with EventInvokeConfig suffix' do
+      expect(described_class.for_event_invoke_config(:convert)).to eq('ConvertFunctionEventInvokeConfig')
+      expect(described_class.for_event_invoke_config('worker_task')).to eq('WorkerTaskFunctionEventInvokeConfig')
+      expect(described_class.for(:convert, type: :event_invoke_config)).to eq('ConvertFunctionEventInvokeConfig')
+    end
+
+    it 'does not duplicate suffix when name already ends with EventInvokeConfig' do
+      res = described_class.for_event_invoke_config('convert_function_event_invoke_config')
+      expect(res).to eq('ConvertFunctionEventInvokeConfig')
+    end
+  end
+
   describe 'standalone loading' do
     it 'allows individual compiler files to be loaded independently' do
       expect do

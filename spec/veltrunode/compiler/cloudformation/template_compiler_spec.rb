@@ -792,5 +792,73 @@ RSpec.describe Veltrunode::Compiler::CloudFormation::TemplateCompiler do
       legacy_role = resources['LegacyFunctionRole']
       expect(legacy_role['Properties']['ManagedPolicyArns']).to be_nil
     end
+
+    it 'compiles AWS::Lambda::EventInvokeConfig resources and manages destination IAM permissions' do
+      code = <<~RUBY
+        Veltrunode.application "async-invoke-app" do
+          aws region: "ap-northeast-1"
+
+          function :worker do
+            handler "worker.handler"
+            runtime "nodejs20.x"
+            async_invoke max_retries: 2, max_age_seconds: 3600
+          end
+
+          function :notifier do
+            handler "notifier.handler"
+            runtime "ruby3.3"
+            async_invoke max_retries: 1,
+                         on_success: "arn:aws:sqs:ap-northeast-1:123456789012:success-queue",
+                         on_failure: "arn:aws:sns:ap-northeast-1:123456789012:failure-topic"
+          end
+
+          function :custom_dest do
+            handler "custom.handler"
+            runtime "ruby3.3"
+            async_invoke on_failure: :failed_events_queue
+          end
+        end
+      RUBY
+
+      app = Veltrunode.parse(code)
+      yaml_output = described_class.to_yaml(app)
+      parsed = YAML.safe_load(yaml_output)
+
+      resources = parsed['Resources']
+      params = parsed['Parameters']
+
+      # 1. worker EventInvokeConfig
+      worker_eic = resources['WorkerFunctionEventInvokeConfig']
+      expect(worker_eic).not_to be_nil
+      expect(worker_eic['Type']).to eq('AWS::Lambda::EventInvokeConfig')
+      expect(worker_eic['Properties']).to eq(
+        'FunctionName' => { 'Ref' => 'WorkerFunction' },
+        'MaximumEventAgeInSeconds' => 3600,
+        'MaximumRetryAttempts' => 2,
+        'Qualifier' => '$LATEST'
+      )
+
+      # 2. notifier EventInvokeConfig and IAM role permissions
+      notifier_eic = resources['NotifierFunctionEventInvokeConfig']
+      expect(notifier_eic).not_to be_nil
+      expect(notifier_eic['Properties']['DestinationConfig']).to eq(
+        'OnFailure' => {
+          'Destination' => 'arn:aws:sns:ap-northeast-1:123456789012:failure-topic'
+        },
+        'OnSuccess' => {
+          'Destination' => 'arn:aws:sqs:ap-northeast-1:123456789012:success-queue'
+        }
+      )
+
+      notifier_role = resources['NotifierFunctionRole']
+      stmts = notifier_role['Properties']['Policies'].first['PolicyDocument']['Statement']
+      sqs_stmt = stmts.find { |s| s['Action'] == ['sqs:SendMessage'] }
+      sns_stmt = stmts.find { |s| s['Action'] == ['sns:Publish'] }
+      expect(sqs_stmt['Resource']).to eq(['arn:aws:sqs:ap-northeast-1:123456789012:success-queue'])
+      expect(sns_stmt['Resource']).to eq(['arn:aws:sns:ap-northeast-1:123456789012:failure-topic'])
+
+      # 3. custom_dest parameter registration
+      expect(params).to have_key('FailedEventsQueueArn')
+    end
   end
 end

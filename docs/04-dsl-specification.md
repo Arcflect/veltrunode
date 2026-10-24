@@ -103,6 +103,44 @@ end
 - **`insights version: 53`**: 拡張レイヤーの特定バージョンを指定。
 - **`insights layer_arn: "arn:..."`**: カスタム拡張レイヤー ARN を指定。
 
+## Lambda 非同期呼び出し設定 (Async Invoke Configuration)
+
+非同期実行時の意図しない過剰リトライや古いイベントの滞留を防ぐため、`function` 内または `defaults` ブロックで `async_invoke` を指定し、リトライ回数やイベント有効期限、成功/失敗時の送信先（On-Success / On-Failure）を設定できます。
+
+```ruby
+Veltrunode.application "async-app" do
+  defaults do
+    # アプリケーション共通の非同期呼び出し制御
+    async_invoke max_retries: 2, max_age_seconds: 3600
+  end
+
+  function :worker do
+    handler "worker.handler"
+    runtime "nodejs20.x"
+  end
+
+  function :critical_job do
+    handler "critical.handler"
+    runtime "ruby3.3"
+    # 送信先連携（SQS / SNS / EventBridge / Lambda）および個別リトライ制御
+    async_invoke max_retries: 1,
+                 on_success: "arn:aws:sqs:ap-northeast-1:123456789012:success-queue",
+                 on_failure: "arn:aws:sns:ap-northeast-1:123456789012:failure-topic"
+  end
+
+  function :sync_only do
+    handler "sync.handler"
+    runtime "python3.12"
+    async_invoke false # 個別関数でのオプトアウト
+  end
+end
+```
+
+- **`max_retries` / `maximum_retry_attempts`**: 最大リトライ回数（0〜2）。
+- **`max_age` / `max_age_seconds` / `maximum_event_age_in_seconds`**: イベント最大有効期限（秒数、60〜21,600秒）。
+- **`on_success` / `on_failure`**: 成功時または失敗時のイベント送信先 ARN、参照（SQS キュー、SNS トピック、EventBridge イベントバス、Lambda 関数）。
+- **個別関数のオプトアウト**: `defaults` で有効化している場合でも、`async_invoke false` を指定することで非同期呼び出し設定を無効化できます。
+
 ## CloudWatch メトリクスダッシュボード (CloudWatch Dashboard)
 
 Application レベルで `dashboard` を宣言することで、デプロイされた全 Lambda 関数の稼働状態を一目で把握できる `AWS::CloudWatch::Dashboard` リソースを自動生成できます。

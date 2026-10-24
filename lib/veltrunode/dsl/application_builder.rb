@@ -71,6 +71,7 @@ module Veltrunode
         @runtime_defaults[:logs] = defaults_builder.logs_config if defaults_builder.logs_config
         @runtime_defaults[:tracing] = defaults_builder.tracing_config if defaults_builder.tracing_config
         @runtime_defaults[:insights] = defaults_builder.insights_config if defaults_builder.insights_config
+        @runtime_defaults[:async_invoke] = defaults_builder.async_invoke_config if defaults_builder.async_invoke_config
         @tags.merge!(defaults_builder.tags_config)
       end
 
@@ -110,13 +111,14 @@ module Veltrunode
       alias efs_security_groups security_group_helper
       alias efs_security_group security_group_helper
 
-      def function(name, tracing: nil, insights: nil, **, &)
+      def function(name, tracing: nil, insights: nil, async_invoke: nil, **, &)
         builder = FunctionBuilder.new(
           name,
           runtime_default: resolve_default_runtime,
           architecture_default: @runtime_defaults[:architecture] || :x86_64,
           tracing_default: tracing || @runtime_defaults[:tracing],
-          insights_default: insights || @runtime_defaults[:insights]
+          insights_default: insights || @runtime_defaults[:insights],
+          async_invoke_default: async_invoke || @runtime_defaults[:async_invoke]
         )
         builder.instance_eval(&) if block_given?
         @function_builders << builder
@@ -293,7 +295,7 @@ module Veltrunode
     end
 
     class DefaultsBuilder < BaseBuilder
-      attr_reader :logs_config, :tags_config, :tracing_config, :insights_config
+      attr_reader :logs_config, :tags_config, :tracing_config, :insights_config, :async_invoke_config
 
       def initialize
         super
@@ -301,6 +303,7 @@ module Veltrunode
         @tags_config = {}
         @tracing_config = nil
         @insights_config = nil
+        @async_invoke_config = nil
       end
 
       def logs(retention_days: nil, **, &)
@@ -329,6 +332,18 @@ module Veltrunode
                            else
                              { enabled: enabled_or_opts }.merge(kwargs)
                            end
+      end
+
+      def async_invoke(opts_or_arg = nil, **kwargs)
+        @async_invoke_config = if opts_or_arg.is_a?(Hash)
+                                 opts_or_arg.merge(kwargs)
+                               elsif opts_or_arg.nil?
+                                 kwargs.empty? ? nil : kwargs
+                               elsif kwargs.empty?
+                                 opts_or_arg
+                               else
+                                 kwargs.merge(enabled: opts_or_arg)
+                               end
       end
 
       def tags(hash = {})

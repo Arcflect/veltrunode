@@ -1,0 +1,34 @@
+# frozen_string_literal: true
+
+Veltrunode.application "with-async-invoke" do
+  aws region: "ap-northeast-1", account: "123456789012"
+
+  defaults do
+    async_invoke max_retries: 2, max_age_seconds: 3600
+  end
+
+  function :worker do
+    handler "handlers/worker.handler"
+    runtime "ruby3.3"
+    memory 256
+    timeout 60
+  end
+
+  function :notifier do
+    handler "handlers/notifier.handler"
+    runtime "nodejs20.x"
+    memory 512
+    timeout 30
+    async_invoke max_retries: 1,
+                 on_success: "arn:aws:sqs:ap-northeast-1:123456789012:success-queue",
+                 on_failure: "arn:aws:sns:ap-northeast-1:123456789012:failure-topic"
+  end
+
+  function :synchronous do
+    handler "handlers/sync.handler"
+    runtime "python3.12"
+    memory 128
+    timeout 15
+    async_invoke false
+  end
+end
