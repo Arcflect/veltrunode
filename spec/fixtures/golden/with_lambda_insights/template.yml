@@ -1,6 +1,6 @@
 ---
 AWSTemplateFormatVersion: '2010-09-09'
-Description: with-lambda-insights - dev (compiled by Veltrunode v0.1.69)
+Description: with-lambda-insights - dev (compiled by Veltrunode v0.1.70)
 Parameters:
   ArtifactBucket:
     Description: S3 bucket name where function and layer zip packages are stored
