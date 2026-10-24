@@ -10,7 +10,7 @@ module Veltrunode
   module DSL
     class FunctionBuilder < BaseBuilder
       def initialize(logical_name, runtime_default: nil, architecture_default: :x86_64, tracing_default: nil,
-                     insights_default: nil, async_invoke_default: nil)
+                     insights_default: nil, async_invoke_default: nil, alarms_default: nil)
         super()
         @logical_name = logical_name.to_s
         @handler = nil
@@ -27,6 +27,9 @@ module Veltrunode
         @concurrency = nil
         @logging = nil
         @alarms = []
+        @alarms_builder = nil
+        @alarms_disabled = alarms_default == false
+        @alarms_default = alarms_default
         @subscription_filters = []
         @tracing = tracing_default
         @insights = insights_default
@@ -146,28 +149,46 @@ module Veltrunode
       end
 
       def alarms(topic_or_opts = nil, **kwargs, &)
+        if topic_or_opts == false || kwargs[:enabled] == false
+          @alarms_disabled = true
+          @alarms_builder = nil
+          @alarms = []
+          return
+        end
+
+        @alarms_disabled = false
+
+        if @alarms_builder.nil? && @alarms_default
+          init_default = @alarms_default
+          @alarms_default = nil
+          apply_alarms_default(init_default)
+        end
+
         opts = if topic_or_opts.is_a?(Hash)
                  topic_or_opts.merge(kwargs)
+               elsif topic_or_opts.is_a?(Symbol) && Model::Alarm::PRESET_NAMES.include?(topic_or_opts)
+                 { preset: topic_or_opts }.merge(kwargs)
                elsif topic_or_opts
                  { topic: topic_or_opts }.merge(kwargs)
                else
                  kwargs
                end
 
-        default_topic = opts[:topic]
-        builder = AlarmsBuilder.new(default_topic: default_topic)
+        @alarms_builder ||= AlarmsBuilder.new(default_topic: opts[:topic], function_timeout: @timeout)
+        @alarms_builder.topic(opts[:topic]) if opts[:topic]
+        @alarms_builder.preset(opts[:preset]) if opts[:preset]
 
         if block_given?
-          builder.instance_eval(&)
+          @alarms_builder.instance_eval(&)
         else
           opts.each do |k, v|
-            next if k == :topic
+            next if %i[topic preset enabled].include?(k)
 
-            builder.send(k, v) if builder.respond_to?(k)
+            @alarms_builder.send(k, v) if @alarms_builder.respond_to?(k)
           end
         end
 
-        @alarms.concat(builder.build)
+        @alarms = @alarms_builder.build
       end
 
       def tracing(mode_or_opts = nil, **kwargs)
@@ -203,6 +224,13 @@ module Veltrunode
       end
 
       def build
+        apply_alarms_default(@alarms_default) if !@alarms_disabled && @alarms_builder.nil? && @alarms_default
+
+        if @alarms_builder
+          @alarms_builder.function_timeout = @timeout
+          @alarms = @alarms_builder.build
+        end
+
         Model::Function.new(
           logical_name: @logical_name,
           handler: @handler,
@@ -224,6 +252,18 @@ module Veltrunode
           insights: @insights,
           async_invoke: @async_invoke
         )
+      end
+
+      private
+
+      def apply_alarms_default(default_cfg)
+        if default_cfg.is_a?(Hash) && default_cfg[:block]
+          alarms(default_cfg[:arg], **(default_cfg[:kwargs] || {}), &default_cfg[:block])
+        elsif default_cfg.is_a?(Hash)
+          alarms(**default_cfg)
+        else
+          alarms(default_cfg)
+        end
       end
     end
   end
