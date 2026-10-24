@@ -178,6 +178,31 @@ RSpec.describe Veltrunode::Compiler::CloudFormation::RoleCompiler do
 
       expect(efs_stmt['Resource']).to eq([{ 'Fn::GetAtt' => %w[SharedStorageAccessPoint Arn] }])
     end
+
+    it 'automatically attaches IAM permissions for async_invoke destinations (SQS, SNS)' do
+      fn = Veltrunode::Model::Function.new(
+        logical_name: 'async_worker',
+        handler: 'functions/worker.handler',
+        runtime: 'ruby3.3',
+        async_invoke: {
+          max_retries: 2,
+          on_success: 'arn:aws:sqs:ap-northeast-1:123456789012:success-queue',
+          on_failure: 'arn:aws:sns:ap-northeast-1:123456789012:failure-topic'
+        }
+      )
+
+      result = described_class.compile_lambda_role(fn)
+      policy_stmts = result['AsyncWorkerFunctionRole']['Properties']['Policies'].first['PolicyDocument']['Statement']
+
+      sqs_stmt = policy_stmts.find { |s| s['Action'] == ['sqs:SendMessage'] }
+      sns_stmt = policy_stmts.find { |s| s['Action'] == ['sns:Publish'] }
+
+      expect(sqs_stmt).not_to be_nil
+      expect(sqs_stmt['Resource']).to eq(['arn:aws:sqs:ap-northeast-1:123456789012:success-queue'])
+
+      expect(sns_stmt).not_to be_nil
+      expect(sns_stmt['Resource']).to eq(['arn:aws:sns:ap-northeast-1:123456789012:failure-topic'])
+    end
   end
 
   describe '#to_h and properties for Scheduler Invocation Role' do
