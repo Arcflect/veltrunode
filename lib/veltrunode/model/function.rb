@@ -498,8 +498,10 @@ module Veltrunode
         return val if val.is_a?(AsyncInvokeConfig)
 
         raise ValidationError, "Invalid async_invoke configuration: #{val.class}" unless val.is_a?(Hash)
+        return nil if val[:enabled] == false || val['enabled'] == false
 
-        kwargs = val.each_with_object({}) do |(k, v), memo|
+        cleaned = val.reject { |k, _| k.to_s == 'enabled' }
+        kwargs = cleaned.each_with_object({}) do |(k, v), memo|
           memo[k.to_sym] = v
         end
         AsyncInvokeConfig.new(**kwargs)

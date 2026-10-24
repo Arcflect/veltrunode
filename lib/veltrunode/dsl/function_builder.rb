@@ -10,7 +10,7 @@ module Veltrunode
   module DSL
     class FunctionBuilder < BaseBuilder
       def initialize(logical_name, runtime_default: nil, architecture_default: :x86_64, tracing_default: nil,
-                     insights_default: nil)
+                     insights_default: nil, async_invoke_default: nil)
         super()
         @logical_name = logical_name.to_s
         @handler = nil
@@ -30,6 +30,7 @@ module Veltrunode
         @subscription_filters = []
         @tracing = tracing_default
         @insights = insights_default
+        @async_invoke = async_invoke_default
       end
 
       def handler(h)
@@ -189,6 +190,18 @@ module Veltrunode
                     end
       end
 
+      def async_invoke(opts_or_arg = nil, **kwargs)
+        @async_invoke = if opts_or_arg.is_a?(Hash)
+                          opts_or_arg.merge(kwargs)
+                        elsif opts_or_arg.nil?
+                          kwargs.empty? ? nil : kwargs
+                        elsif kwargs.empty?
+                          opts_or_arg
+                        else
+                          kwargs.merge(enabled: opts_or_arg)
+                        end
+      end
+
       def build
         Model::Function.new(
           logical_name: @logical_name,
@@ -208,7 +221,8 @@ module Veltrunode
           alarms: @alarms,
           subscription_filters: @subscription_filters,
           tracing: @tracing,
-          insights: @insights
+          insights: @insights,
+          async_invoke: @async_invoke
         )
       end
     end
