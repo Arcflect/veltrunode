@@ -33,6 +33,7 @@ RSpec.describe Veltrunode::Compiler::Manifest do
           concurrency: { reserved: 5 },
           logging: { format: 'JSON', level: 'INFO' },
           insights: true,
+          async_invoke: { max_retries: 2, max_age: 3600 },
           iam_capabilities: [
             Veltrunode::Model::Capability.new(
               type: :read_from_s3,
@@ -128,6 +129,10 @@ RSpec.describe Veltrunode::Compiler::Manifest do
       expect(fn_data['concurrency']).to eq({ 'reserved' => 5 })
       expect(fn_data['logging']).to eq({ 'format' => 'JSON', 'level' => 'INFO' })
       expect(fn_data['insights']).to eq({ 'enabled' => true })
+      expect(fn_data['async_invoke']).to eq({
+                                              'maximum_event_age_in_seconds' => 3600,
+                                              'maximum_retry_attempts' => 2
+                                            })
       expect(fn_data['content_hash']).to eq(fn_result.content_hash)
       expect(fn_data['sha256']).to eq(fn_result.sha256)
       expect(fn_data['artifact_hash']).to eq(fn_result.sha256)

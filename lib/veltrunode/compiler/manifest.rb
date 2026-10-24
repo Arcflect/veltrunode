@@ -225,6 +225,11 @@ module Veltrunode
           insights_cfg = extract_val(fn, :insights)
           fn_info['insights'] = insights_cfg if present?(insights_cfg)
 
+          async_cfg = extract_val(fn, :async_invoke)
+          if present?(async_cfg)
+            fn_info['async_invoke'] = async_cfg.respond_to?(:to_h) ? async_cfg.to_h : async_cfg
+          end
+
           memo[fn_name] = fn_info
         end
       end
