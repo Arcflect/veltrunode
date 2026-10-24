@@ -76,5 +76,42 @@ RSpec.describe Veltrunode::Compiler::CloudFormation::AlarmCompiler do
       expect(props['MetricName']).to eq('Throttles')
       expect(props).not_to have_key('AlarmActions')
     end
+
+    it 'compiles an error_rate alarm with CloudWatch Metric Math Metrics property' do
+      alarm = Veltrunode::Model::Alarm.new(
+        metric: :error_rate,
+        threshold: 1,
+        comparison_operator: 'GreaterThanThreshold',
+        alarm_actions: [Veltrunode::DSL::Reference.new(:alert_topic)]
+      )
+
+      res = described_class.compile(fn, alarm)
+      expect(res.keys).to eq(['ConverterFunctionErrorRateAlarm'])
+
+      alarm_def = res['ConverterFunctionErrorRateAlarm']
+      expect(alarm_def['Type']).to eq('AWS::CloudWatch::Alarm')
+
+      props = alarm_def['Properties']
+      expect(props).not_to have_key('MetricName')
+      expect(props).not_to have_key('Namespace')
+      expect(props).not_to have_key('Statistic')
+      expect(props).not_to have_key('Dimensions')
+
+      expect(props['Threshold']).to eq(1)
+      expect(props['ComparisonOperator']).to eq('GreaterThanThreshold')
+      expect(props['AlarmActions']).to eq([{ 'Ref' => 'AlertTopic' }])
+
+      metrics = props['Metrics']
+      expect(metrics.size).to eq(3)
+
+      errors_metric = metrics.find { |m| m['Id'] == 'e1' }
+      invocations_metric = metrics.find { |m| m['Id'] == 'i1' }
+      math_metric = metrics.find { |m| m['Id'] == 'm1' }
+
+      expect(errors_metric['MetricStat']['Metric']['MetricName']).to eq('Errors')
+      expect(invocations_metric['MetricStat']['Metric']['MetricName']).to eq('Invocations')
+      expect(math_metric['Expression']).to eq('100 * (e1 / MAX([i1, 1]))')
+      expect(math_metric['ReturnData']).to be true
+    end
   end
 end
