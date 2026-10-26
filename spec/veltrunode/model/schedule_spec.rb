@@ -309,5 +309,60 @@ RSpec.describe Veltrunode::Model::Schedule do
         end.to raise_error(Veltrunode::ValidationError, /state/)
       end
     end
+
+    context 'dlq helper methods and hash configurations' do
+      it 'handles string queue name' do
+        s = described_class.new(
+          name: 's', target_function: 'fn', expression_type: :cron, expression: '0 12 * * ? *',
+          dlq: 'nightly_dlq'
+        )
+        expect(s.dlq_name).to eq('nightly_dlq')
+        expect(s.dlq_arn).to be_nil
+        expect(s.dlq_alarm?).to be false
+        expect(s.dlq_alarm_topic).to be_nil
+      end
+
+      it 'handles string ARN' do
+        arn = 'arn:aws:sqs:ap-northeast-1:123456789012:my-queue'
+        s = described_class.new(
+          name: 's', target_function: 'fn', expression_type: :cron, expression: '0 12 * * ? *',
+          dlq: arn
+        )
+        expect(s.dlq_name).to be_nil
+        expect(s.dlq_arn).to eq(arn)
+        expect(s.dlq_alarm?).to be false
+        expect(s.dlq_alarm_topic).to be_nil
+      end
+
+      it 'handles hash configuration with alarm: true and topic' do
+        s = described_class.new(
+          name: 's', target_function: 'fn', expression_type: :cron, expression: '0 12 * * ? *',
+          dlq: { name: 'nightly_dlq', alarm: true, topic: 'arn:aws:sns:ap-northeast-1:123456789012:alert' }
+        )
+        expect(s.dlq_name).to eq('nightly_dlq')
+        expect(s.dlq_arn).to be_nil
+        expect(s.dlq_alarm?).to be true
+        expect(s.dlq_alarm_topic).to eq('arn:aws:sns:ap-northeast-1:123456789012:alert')
+      end
+
+      it 'handles nested alarm configuration hash' do
+        s = described_class.new(
+          name: 's', target_function: 'fn', expression_type: :cron, expression: '0 12 * * ? *',
+          dlq: { name: 'nightly_dlq', alarm: { topic: :alert_topic } }
+        )
+        expect(s.dlq_name).to eq('nightly_dlq')
+        expect(s.dlq_alarm?).to be true
+        expect(s.dlq_alarm_topic).to eq(:alert_topic)
+      end
+
+      it 'raises ValidationError when hash contains invalid ARN' do
+        expect do
+          described_class.new(
+            name: 's', target_function: 'fn', expression_type: :cron, expression: '0 12 * * ? *',
+            dlq: { arn: 'invalid-arn', alarm: true }
+          )
+        end.to raise_error(Veltrunode::ValidationError, /Invalid SQS DLQ ARN/)
+      end
+    end
   end
 end

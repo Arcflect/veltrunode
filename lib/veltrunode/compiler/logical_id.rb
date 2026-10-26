@@ -126,6 +126,8 @@ module Veltrunode
           for_schedule(name)
         when :queue
           for_queue(name)
+        when :queue_alarm
+          for_queue_alarm(name)
         when :log_group
           for_log_group(name)
         when :role, :lambda_role
@@ -231,6 +233,19 @@ module Veltrunode
         fn_id = for_function(function_name)
         metric_str = pascalize(metric)
         "#{fn_id}#{metric_str}Alarm"
+      end
+
+      # SQS キューの CloudWatch メトリクスアラームの論理IDを生成します（サフィックス: QueueAlarm または Alarm）
+      #
+      # @param queue_name [String, Symbol] キューシンボリック名または論理名 (例: :nightly_dlq)
+      # @return [String] 論理ID (例: "NightlyDlqQueueAlarm")
+      def for_queue_alarm(queue_name)
+        base = pascalize(queue_name)
+        return 'QueueAlarm' if base.empty?
+        return base if base.end_with?('QueueAlarm')
+        return "#{base}Alarm" if base.end_with?('Queue')
+
+        "#{base}QueueAlarm"
       end
 
       # CloudWatch Logs サブスクリプションフィルターの論理IDを生成します

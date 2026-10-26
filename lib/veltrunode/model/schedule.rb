@@ -65,6 +65,52 @@ module Veltrunode
         freeze
       end
 
+      # DLQ のキュー名（シンボリック名または論理名）を取得します
+      def dlq_name
+        return nil if dlq.nil?
+
+        if dlq.is_a?(Hash)
+          val = dlq[:name] || dlq['name'] || dlq[:queue_name] || dlq['queue_name']
+          val&.to_s
+        elsif !dlq.to_s.start_with?('arn:')
+          dlq.to_s
+        end
+      end
+
+      # DLQ の外部 ARN を取得します
+      def dlq_arn
+        return nil if dlq.nil?
+
+        if dlq.is_a?(Hash)
+          val = dlq[:arn] || dlq['arn']
+          val&.to_s
+        elsif dlq.to_s.start_with?('arn:')
+          dlq.to_s
+        end
+      end
+
+      # DLQ アラームが有効化されているかどうか
+      def dlq_alarm?
+        return false unless dlq.is_a?(Hash)
+
+        alarm_val = dlq[:alarm].nil? ? dlq['alarm'] : dlq[:alarm]
+        return false if alarm_val.nil? || alarm_val == false
+
+        true
+      end
+
+      # DLQ アラームの通知先トピック（設定されている場合）
+      def dlq_alarm_topic
+        return nil unless dlq.is_a?(Hash)
+
+        alarm_val = dlq[:alarm].nil? ? dlq['alarm'] : dlq[:alarm]
+        if alarm_val.is_a?(Hash)
+          alarm_val[:topic] || alarm_val['topic']
+        else
+          dlq[:topic] || dlq['topic'] || dlq[:alarm_actions] || dlq['alarm_actions']
+        end
+      end
+
       private
 
       def validate!(name:, target_function:, expression_type:, expression:, timezone:, state:, retry_policy:, dlq:)
@@ -170,16 +216,25 @@ module Veltrunode
 
       def validate_dlq!(dlq)
         return if dlq.nil?
-        return if dlq.is_a?(Hash)
+
+        if dlq.is_a?(Hash)
+          arn_val = dlq[:arn] || dlq['arn']
+          validate_arn_format!(arn_val.to_s.strip) if arn_val && !arn_val.to_s.strip.empty?
+          return
+        end
 
         dlq_str = dlq.to_s.strip
         return if dlq_str.empty?
         return unless dlq_str.start_with?('arn:')
 
-        return if SQS_ARN_PATTERN.match?(dlq_str)
+        validate_arn_format!(dlq_str)
+      end
+
+      def validate_arn_format!(arn_str)
+        return if SQS_ARN_PATTERN.match?(arn_str)
 
         raise ValidationError,
-              "Invalid SQS DLQ ARN '#{dlq_str}'. " \
+              "Invalid SQS DLQ ARN '#{arn_str}'. " \
               'Must match arn:aws:sqs:<region>:<account>:<queue-name>'
       end
 
