@@ -490,5 +490,27 @@ RSpec.describe Veltrunode::DSL do
       expect(app.security_groups.first.symbolic_name).to eq(:shared_data)
       expect(app.security_groups.first.vpc_id).to eq('vpc-98765432')
     end
+
+    it 'supports schedule dlq with alarm: true and topic reference' do
+      code = <<~RUBY
+        Veltrunode.application "dlq-alarm-app" do
+          function :worker do
+            handler "worker.handler"
+          end
+
+          schedule :nightly do
+            target :worker
+            cron "0 1 * * ? *"
+            dlq :nightly_dlq, alarm: true, topic: ref(:alert_topic)
+          end
+        end
+      RUBY
+
+      app = Veltrunode.parse(code)
+      sched = app.schedules.first
+      expect(sched.dlq_name).to eq('nightly_dlq')
+      expect(sched.dlq_alarm?).to be(true)
+      expect(sched.dlq_alarm_topic).to eq(Veltrunode::DSL::Reference.new(:alert_topic))
+    end
   end
 end
