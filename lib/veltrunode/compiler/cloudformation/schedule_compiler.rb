@@ -231,7 +231,13 @@ module Veltrunode
           dlq = schedule.dlq
           return nil if dlq.nil?
 
-          arn = if dlq.is_a?(String)
+          arn = if schedule.respond_to?(:dlq_arn) && schedule.dlq_arn
+                  schedule.dlq_arn
+                elsif schedule.respond_to?(:dlq_name) && schedule.dlq_name
+                  q_id = self.class.pascalize(schedule.dlq_name)
+                  q_id = "#{q_id}Queue" unless q_id.end_with?('Queue')
+                  { 'Fn::GetAtt' => [q_id, 'Arn'] }
+                elsif dlq.is_a?(String)
                   if dlq.start_with?('arn:')
                     dlq
                   else

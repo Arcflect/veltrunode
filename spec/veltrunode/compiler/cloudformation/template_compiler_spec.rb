@@ -115,6 +115,61 @@ RSpec.describe Veltrunode::Compiler::CloudFormation::TemplateCompiler do
       expect(outputs).to have_key('NightlySyncScheduleArn')
     end
 
+    it 'compiles SQS DLQ with CloudWatch Alarm when dlq has alarm: true' do
+      app_with_dlq_alarm = Veltrunode::Model::Application.new(
+        name: 'dlq-alarm-app',
+        region: 'ap-northeast-1',
+        stage: 'dev',
+        functions: [
+          Veltrunode::Model::Function.new(
+            logical_name: 'worker',
+            handler: 'worker.handler',
+            runtime: 'nodejs20.x'
+          )
+        ],
+        schedules: [
+          Veltrunode::Model::Schedule.new(
+            name: 'sync_job',
+            target_function: 'worker',
+            expression_type: :rate,
+            expression: 'rate(1 hour)',
+            dlq: { name: 'sync_dlq', alarm: true, topic: Veltrunode::DSL::Reference.new(:alert_topic) }
+          )
+        ]
+      )
+
+      result = described_class.compile(app_with_dlq_alarm)
+      resources = result['Resources']
+
+      # Queue & Alarm
+      expect(resources).to have_key('SyncDlqQueue')
+      expect(resources['SyncDlqQueue']['Type']).to eq('AWS::SQS::Queue')
+
+      expect(resources).to have_key('SyncDlqQueueAlarm')
+      alarm_res = resources['SyncDlqQueueAlarm']
+      expect(alarm_res['Type']).to eq('AWS::CloudWatch::Alarm')
+
+      props = alarm_res['Properties']
+      expect(props['AlarmName']).to eq({ 'Fn::Sub' => '${AWS::StackName}-SyncDlqQueueAlarm' })
+      expect(props['MetricName']).to eq('ApproximateNumberOfMessagesVisible')
+      expect(props['Namespace']).to eq('AWS/SQS')
+      expect(props['Threshold']).to eq(0)
+      expect(props['ComparisonOperator']).to eq('GreaterThanThreshold')
+      expect(props['Period']).to eq(60)
+      expect(props['EvaluationPeriods']).to eq(1)
+      expect(props['AlarmActions']).to eq([{ 'Ref' => 'AlertTopic' }])
+
+      # Schedule DeadLetterConfig
+      sched_props = resources['SyncJobSchedule']['Properties']
+      expect(sched_props['Target']['DeadLetterConfig']).to eq({
+                                                                'Arn' => { 'Fn::GetAtt' => %w[SyncDlqQueue Arn] }
+                                                              })
+
+      # SNS Topic parameter
+      expect(result['Parameters']).to have_key('AlertTopic')
+      expect(result['Parameters']['AlertTopic']['Type']).to eq('String')
+    end
+
     it 'correctly normalizes layer Ref when layer name already ends with layer_version' do
       app_with_suffixed_layer = Veltrunode::Model::Application.new(
         name: 'suffixed-layer-app',

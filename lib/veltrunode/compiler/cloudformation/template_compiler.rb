@@ -176,6 +176,23 @@ module Veltrunode
             end
           end
 
+          # Include referenced SNS topic ARN parameters from schedule DLQ alarms
+          sched_nodes = extract_collection(:schedules)
+          sched_nodes.each do |sched|
+            next unless sched.respond_to?(:dlq_alarm?) && sched.dlq_alarm?
+
+            topic = sched.respond_to?(:dlq_alarm_topic) ? sched.dlq_alarm_topic : nil
+            next if topic.nil?
+
+            param_key = resolve_sns_topic_param_key(topic)
+            next if param_key.nil? || params.key?(param_key)
+
+            params[param_key] = {
+              'Description' => "SNS topic ARN for #{param_key}",
+              'Type' => 'String'
+            }
+          end
+
           deep_sort_keys(params)
         end
 
@@ -199,6 +216,21 @@ module Veltrunode
           generated_queues.each do |q_name|
             queue_res = QueueCompiler.compile(q_name, context: context)
             resources.merge!(queue_res)
+          end
+
+          # 2.1. Compile DLQ Alarms
+          sched_nodes = extract_collection(:schedules)
+          compiled_dlq_alarms = {}
+          sched_nodes.each do |sched|
+            next unless sched.respond_to?(:dlq_alarm?) && sched.dlq_alarm?
+
+            q_name = sched.respond_to?(:dlq_name) ? sched.dlq_name : nil
+            next if q_name.nil? || q_name.empty?
+            next if compiled_dlq_alarms.key?(q_name)
+
+            alarm_res = DlqAlarmCompiler.compile(q_name, topic: sched.dlq_alarm_topic, context: context)
+            resources.merge!(alarm_res)
+            compiled_dlq_alarms[q_name] = true
           end
 
           # 3. Compile EFS Access Points (AWS::EFS::AccessPoint)
@@ -476,14 +508,21 @@ module Veltrunode
           queues = []
 
           sched_nodes.each do |sched|
-            dlq = sched.respond_to?(:dlq) ? sched.dlq : nil
-            next if dlq.nil?
-            next if dlq.is_a?(Hash)
+            q_name = if sched.respond_to?(:dlq_name) && sched.dlq_name
+                       sched.dlq_name
+                     else
+                       dlq = sched.respond_to?(:dlq) ? sched.dlq : nil
+                       next if dlq.nil? || dlq.is_a?(Hash)
 
-            dlq_str = dlq.to_s.strip
-            next if dlq_str.empty? || dlq_str.start_with?('arn:')
+                       dlq_str = dlq.to_s.strip
+                       next if dlq_str.empty? || dlq_str.start_with?('arn:')
 
-            queues << dlq_str
+                       dlq_str
+                     end
+
+            next if q_name.nil? || q_name.empty? || q_name.start_with?('arn:')
+
+            queues << q_name
           end
 
           queues.uniq.sort
