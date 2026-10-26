@@ -118,6 +118,19 @@ RSpec.describe Veltrunode::Compiler::LogicalId do
     end
   end
 
+  describe '.for_queue_alarm' do
+    it 'generates PascalCase QueueAlarm logical ID with Alarm suffix' do
+      expect(described_class.for_queue_alarm(:nightly_dlq)).to eq('NightlyDlqQueueAlarm')
+      expect(described_class.for_queue_alarm('orders_dlq')).to eq('OrdersDlqQueueAlarm')
+      expect(described_class.for(:nightly_dlq, type: :queue_alarm)).to eq('NightlyDlqQueueAlarm')
+    end
+
+    it 'does not duplicate suffix when name already ends with Alarm' do
+      expect(described_class.for_queue_alarm('nightly_dlq_queue_alarm')).to eq('NightlyDlqQueueAlarm')
+      expect(described_class.for_queue_alarm('NightlyDlqQueueAlarm')).to eq('NightlyDlqQueueAlarm')
+    end
+  end
+
   describe '.for_log_group' do
     it 'generates PascalCase LogGroup logical ID based on function logical ID' do
       expect(described_class.for_log_group(:convert)).to eq('ConvertFunctionLogGroup')
