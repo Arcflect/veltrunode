@@ -220,6 +220,34 @@ Veltrunode.application "document-converter" do
 end
 ```
 
+## SQS デッドレターキュー監視アラーム (SQS DLQ Message Alarm)
+
+`schedule` ブロック内で `dlq`（または `dead_letter_queue`）を定義する際、`alarm: true` を指定することで、DLQ にメッセージが蓄積されたことを検知する `AWS::CloudWatch::Alarm` リソースを自動生成できます。
+
+```ruby
+Veltrunode.application "document-converter" do
+  schedule :nightly do
+    target :convert
+    cron "0 1 * * ? *", timezone: "Asia/Tokyo"
+    input source: "nightly"
+    retry maximum_attempts: 2, maximum_event_age: 7200
+
+    # 1. 簡易指定（自動生成キュー + 即時アラーム発報）
+    dlq :nightly_dlq, alarm: true, topic: ref(:alert_topic)
+
+    # またはブロック構文
+    # dlq :nightly_dlq do
+    #   alarm true
+    #   topic ref(:alert_topic)
+    # end
+  end
+end
+```
+
+- **`alarm: true`**: `ApproximateNumberOfMessagesVisible > 0`（即時発報: Period 60秒、EvaluationPeriods 1、Statistic: Maximum）の CloudWatch Alarm を自動展開。
+- **`topic`**: アラーム発報時の通知先 SNS トピック ARN または `ref(...)` 参照。
+- **統一プレフィックス規約**: 生成されるアラームの `AlarmName` には、スタック名に基づいたプレフィックス `{ 'Fn::Sub' => "${AWS::StackName}-#{LogicalId}" }` が自動適用されます。
+
 ## エスケープハッチ (Escape Hatch)
 
 初期フェーズ以降に、管理された `cloudformation_patch` 機能が導入される予定です（設計方針の詳細は [ADR-0003](adr/0003-cloudformation-patch-escape-hatch.md) を参照）。これは、既存の論理リソースをターゲットにし、スキーマ検証およびセキュリティポリシー検証を通過する必要があります。テンプレート全体の任意の置き換えはサポートされません。

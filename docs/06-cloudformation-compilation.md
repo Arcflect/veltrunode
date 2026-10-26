@@ -43,6 +43,7 @@ CloudFormation の論理ID（Logical ID）は、`Veltrunode::Compiler::LogicalId
 | **Lambda Permission** | `:convert` | `ConvertFunctionLogsPermission` | CloudWatch Logs からの Lambda 呼び出し権限 (`AWS::Lambda::Permission`) |
 | **IAM Role (Logs Delivery)** | `:convert` | `ConvertFunctionLogsRole` | CloudWatch Logs から Kinesis/Firehose への配信ロール (`AWS::IAM::Role`) |
 | **Alarm** | `:convert` (errors) | `ConvertFunctionErrorsAlarm` | CloudWatch アラーム (`AWS::CloudWatch::Alarm`) |
+| **DLQ Alarm** | `:nightly_dlq` | `NightlyDlqQueueAlarm` | SQS DLQ メッセージ監視アラーム (`AWS::CloudWatch::Alarm`) |
 | **IAM Role (Lambda)** | `:convert` | `ConvertFunctionRole` | Lambda 実行ロール (`AWS::IAM::Role`) |
 | **IAM Role (Scheduler)** | `:nightly` | `NightlyScheduleRole` | Scheduler 呼び出しロール (`AWS::IAM::Role`) |
 | **EventInvokeConfig** | `:convert` | `ConvertFunctionEventInvokeConfig` | Lambda 非同期呼び出し設定 (`AWS::Lambda::EventInvokeConfig`) |
@@ -55,6 +56,22 @@ Lambda 関数で定義された `alarms` 設定は、`Veltrunode::Compiler::Clou
 - **論理ID**: `#{FunctionName}#{Metric}Alarm` 形式（例: `ConvertFunctionErrorsAlarm`, `ConvertFunctionDurationAlarm`, `ConvertFunctionThrottlesAlarm`）。
 - **ターゲット関数紐付け**: `Dimensions` の `FunctionName` プロパティに `{ 'Ref' => FunctionLogicalId }` が設定され、Lambda 関数への参照依存が自動的に解決されます。
 - **SNS 通知先パラメータ化**: アラーム通知先（`AlarmActions`）にシンボルや `ref(...)` でパラメータ名が指定された場合、CloudFormation テンプレートの `Parameters` に該当パラメータ（例: `AlertTopic: { Type: String, ... }`）が自動登録されます。リテラル ARN（`arn:aws:sns:...`）が指定された場合はそのまま展開されます。
+
+## SQS デッドレターキュー (DLQ) メッセージ監視アラームのコンパイル (SQS DLQ Alarm Compilation)
+
+Schedule の `dlq` 設定で `alarm: true` を指定した場合、Veltrunode が管理する SQS キューに対し、`Veltrunode::Compiler::CloudFormation::DlqAlarmCompiler` により `AWS::CloudWatch::Alarm` リソースが自動生成されます。
+
+- **論理ID**: `#{QueueLogicalId}Alarm` 形式（例: `NightlyDlqQueueAlarm`）。
+- **アラーム名のプレフィックス規約 (`AlarmName`)**:
+  スタック名に基づいたプレフィックス規約 `{ 'Fn::Sub' => "${AWS::StackName}-#{LogicalId}" }`（例: `${AWS::StackName}-NightlyDlqQueueAlarm`）を統一適用し、CloudWatch コンソールや複数環境デプロイ時における一貫性と識別性を保証します。
+- **即時発報メトリクス仕様**:
+  - **MetricName**: `ApproximateNumberOfMessagesVisible`（可視メッセージ数）
+  - **Namespace**: `AWS/SQS`
+  - **Dimensions**: `QueueName` に `{ 'Fn::GetAtt' => [QueueLogicalId, 'QueueName'] }`
+  - **Threshold**: `0`（`ComparisonOperator`: `GreaterThanThreshold`）
+  - **即時検知**: `Period: 60`（1分）、`EvaluationPeriods: 1`、`Statistic: Maximum`、`TreatMissingData: notBreaching` により、DLQ にメッセージが到着した直後（最短1分）に即時発報されます。
+- **SNS 通知先パラメータ化**:
+  `topic`（例: `topic: ref(:alert_topic)`）が指定された場合、CloudFormation テンプレートの `Parameters` に該当パラメータが自動登録され、`AlarmActions` に通知先が設定されます。
 
 ## CloudWatch Logs サブスクリプションフィルターのコンパイルとクロスサービス権限 (Subscription Filter Compilation)
 
