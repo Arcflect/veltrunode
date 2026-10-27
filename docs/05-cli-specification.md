@@ -55,6 +55,22 @@
 ### `veltrunode schedule preview NAME --count 10`
 設定されたタイムゾーンにおける、将来の実行予定時刻の一覧を表示します。
 
+### `veltrunode tail <function_name...>`
+CloudWatch Logs を用いて、Lambda 関数のログをリアルタイムにターミナル上でストリーミング追跡・表示します。デバッグやステージング環境テスト時のログ確認に使用します。
+
+- **引数**:
+  - `function_name...`: ログを取得する対象関数名（1つ以上指定可能。複数指定時は各関数のログをタイムスタンプ順にマージして同時ストリーミング表示）
+- **オプション**:
+  - `--filter-pattern <pattern>`: CloudWatch Logs のフィルタパターン（例: `"ERROR"`, `"[timestamp, id, message]"` 等）
+  - `--since <duration>`: ログの遡り取得開始時間（例: `5m`, `1h`, `30s`, `1d`。デフォルト: `5m`）
+  - `--follow`: ログをリアルタイムに継続追跡（デフォルト: 有効）
+  - `--no-follow`: 過去ログの最新イベントを取得・表示した後に終了
+  - `--format <text|json>`: 出力形式（デフォルト: `text`）
+  - `--region <region>`: AWS リージョン（Veltrunodefile または環境変数 `AWS_REGION` を上書き指定）
+  - `--file <path>`: カスタム `Veltrunodefile` のパス
+- **複数関数の同時ストリーミング**:
+  - 複数関数を指定した場合（例: `veltrunode tail api worker`）、出力各行に関数名プレフィックス（`[api]`, `[worker]`）が付与され、複数サービス間の呼び出し連動ログをリアルタイムに追跡可能です。
+
 ## 終了コード (Exit Codes)
 
 - 0: 成功
