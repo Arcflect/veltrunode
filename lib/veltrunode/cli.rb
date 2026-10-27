@@ -39,7 +39,8 @@ module Veltrunode
           file: 'Veltrunodefile',
           aws: false,
           runtime: 'ruby',
-          count: 10
+          count: 10,
+          follow: true
         }
         @current_command = nil
       end
@@ -80,6 +81,8 @@ module Veltrunode
           execute_layer_prune
         elsif match_command?('schedule preview')
           execute_schedule_preview
+        elsif match_command?('tail')
+          execute_tail
         else
           handle_unknown_command(@argv.join(' '))
         end
@@ -205,6 +208,63 @@ module Veltrunode
           @argv.delete_at(idx)
         elsif (idx = @argv.find_index { |arg| arg.start_with?('--retain=') })
           @options[:retain] = @argv[idx].split('=', 2)[1].to_i
+          @argv.delete_at(idx)
+        end
+
+        # --filter-pattern オプションの抽出
+        if (idx = @argv.index('--filter-pattern'))
+          if (val = @argv[idx + 1])
+            @options[:filter_pattern] = val
+            @argv.delete_at(idx + 1)
+          end
+          @argv.delete_at(idx)
+        elsif (idx = @argv.find_index { |arg| arg.start_with?('--filter-pattern=') })
+          @options[:filter_pattern] = @argv[idx].split('=', 2)[1]
+          @argv.delete_at(idx)
+        end
+
+        # --since オプションの抽出
+        if (idx = @argv.index('--since'))
+          if (val = @argv[idx + 1])
+            @options[:since] = val
+            @argv.delete_at(idx + 1)
+          end
+          @argv.delete_at(idx)
+        elsif (idx = @argv.find_index { |arg| arg.start_with?('--since=') })
+          @options[:since] = @argv[idx].split('=', 2)[1]
+          @argv.delete_at(idx)
+        end
+
+        # --follow / --no-follow フラグの抽出
+        if @argv.include?('--no-follow')
+          @options[:follow] = false
+          @argv.delete('--no-follow')
+        elsif @argv.include?('--follow')
+          @options[:follow] = true
+          @argv.delete('--follow')
+        end
+
+        # --region オプションの抽出
+        if (idx = @argv.index('--region'))
+          if (val = @argv[idx + 1])
+            @options[:region] = val
+            @argv.delete_at(idx + 1)
+          end
+          @argv.delete_at(idx)
+        elsif (idx = @argv.find_index { |arg| arg.start_with?('--region=') })
+          @options[:region] = @argv[idx].split('=', 2)[1]
+          @argv.delete_at(idx)
+        end
+
+        # --stage オプションの抽出
+        if (idx = @argv.index('--stage'))
+          if (val = @argv[idx + 1])
+            @options[:stage] = val
+            @argv.delete_at(idx + 1)
+          end
+          @argv.delete_at(idx)
+        elsif (idx = @argv.find_index { |arg| arg.start_with?('--stage=') })
+          @options[:stage] = @argv[idx].split('=', 2)[1]
           @argv.delete_at(idx)
         end
 
@@ -1110,6 +1170,70 @@ module Veltrunode
         EXIT_SUCCESS
       end
 
+      def execute_tail
+        @current_command = 'tail'
+        targets = @argv.dup
+        return handle_error('Function name is required for tail command.', EXIT_INVALID_INPUT) if targets.empty?
+
+        application = nil
+        begin
+          application = load_application!
+        rescue StandardError
+          # Veltrunodefile がない場合でも直接指定された関数名で実行可能
+        end
+
+        resolved_targets = targets.map do |name|
+          if application.respond_to?(:functions)
+            matching_fn = application.functions.find { |f| f.logical_name == name }
+            matching_fn ? matching_fn.logical_name : name
+          else
+            name
+          end
+        end
+
+        region = @options[:region] || (application.respond_to?(:region) ? application.region : nil)
+
+        begin
+          streamer = Veltrunode::AWS::LogStreamer.new(
+            targets: resolved_targets,
+            region: region,
+            filter_pattern: @options[:filter_pattern],
+            since: @options[:since],
+            follow: @options[:follow],
+            format: @options[:format]
+          )
+        rescue ArgumentError => e
+          return handle_error(e.message, EXIT_INVALID_INPUT)
+        end
+
+        trap_installed = false
+        begin
+          trap('INT') do
+            streamer.stop!
+          end
+          trap_installed = true
+        rescue ArgumentError
+          # シグナル非サポート環境ではトラップをスキップ
+        end
+
+        begin
+          streamer.stream
+        rescue Veltrunode::AWS::LogStreamError => e
+          exit_code = if e.message.include?('authorization failed') || e.message.include?('MissingCredentials')
+                        EXIT_AWS_AUTH_FAILED
+                      else
+                        EXIT_INVALID_INPUT
+                      end
+          return handle_error(e.message, exit_code)
+        rescue Interrupt
+          return EXIT_SUCCESS
+        ensure
+          trap('INT', 'DEFAULT') if trap_installed
+        end
+
+        EXIT_SUCCESS
+      end
+
       def print_schedule_preview_text(result)
         $stdout.puts '=' * 80
         $stdout.puts '  Veltrunode Schedule Preview'
@@ -1187,6 +1311,12 @@ module Veltrunode
             --confirm                Explicitly confirm production cleanup / destroy
             --dry-run                Perform trial run without changing AWS resources
             --retain <num>           Number of latest layer versions to keep
+            --filter-pattern <pat>   Filter pattern for CloudWatch Logs
+            --since <duration>       Start time for logs (e.g. 5m, 1h, 30s, default: 5m)
+            --follow                 Stream logs continuously (default: true)
+            --no-follow              Do not stream logs, print existing events and exit
+            --region <region>        AWS region for API calls
+            --stage <stage>          Stage name for deployment/lookup
 
           Commands:
             init                       # Initialize a new Veltrunode project
@@ -1200,6 +1330,7 @@ module Veltrunode
             layer inspect NAME         # Inspect Lambda Layer version
             layer prune NAME           # Prune old Lambda Layer versions
             schedule preview NAME      # Preview future run times for schedule
+            tail NAME [NAME2...]       # Stream CloudWatch Logs for Lambda functions in real time
         HELP
 
         if @options[:format] == :json
@@ -1214,7 +1345,8 @@ module Veltrunode
             { name: 'efs verify NAME', description: 'Verify EFS access and configuration' },
             { name: 'layer inspect NAME', description: 'Inspect Lambda Layer version' },
             { name: 'layer prune NAME', description: 'Prune old Lambda Layer versions' },
-            { name: 'schedule preview NAME', description: 'Preview future run times for schedule' }
+            { name: 'schedule preview NAME', description: 'Preview future run times for schedule' },
+            { name: 'tail NAME [NAME2...]', description: 'Stream CloudWatch Logs for Lambda functions in real time' }
           ]
           output_json_success({ 'commands' => commands }, command: 'help')
         else
