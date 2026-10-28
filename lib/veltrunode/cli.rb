@@ -40,7 +40,8 @@ module Veltrunode
           aws: false,
           runtime: 'ruby',
           count: 10,
-          follow: true
+          follow: true,
+          period: '24h'
         }
         @current_command = nil
       end
@@ -83,6 +84,8 @@ module Veltrunode
           execute_schedule_preview
         elsif match_command?('tail')
           execute_tail
+        elsif match_command?('metrics')
+          execute_metrics
         else
           handle_unknown_command(@argv.join(' '))
         end
@@ -265,6 +268,18 @@ module Veltrunode
           @argv.delete_at(idx)
         elsif (idx = @argv.find_index { |arg| arg.start_with?('--stage=') })
           @options[:stage] = @argv[idx].split('=', 2)[1]
+          @argv.delete_at(idx)
+        end
+
+        # --period オプションの抽出
+        if (idx = @argv.index('--period'))
+          if (val = @argv[idx + 1])
+            @options[:period] = val
+            @argv.delete_at(idx + 1)
+          end
+          @argv.delete_at(idx)
+        elsif (idx = @argv.find_index { |arg| arg.start_with?('--period=') })
+          @options[:period] = @argv[idx].split('=', 2)[1]
           @argv.delete_at(idx)
         end
 
@@ -1234,6 +1249,130 @@ module Veltrunode
         EXIT_SUCCESS
       end
 
+      def execute_metrics
+        @current_command = 'metrics'
+        fn_arg = @argv.first
+
+        application = nil
+        begin
+          application = load_application!
+        rescue StandardError
+          # Veltrunodefile がないディレクトリでも直接関数名を指定して実行可能
+        end
+
+        target_functions = []
+        if fn_arg && !fn_arg.strip.empty?
+          target_functions = [fn_arg.strip]
+        elsif application.respond_to?(:functions) && !application.functions.empty?
+          target_functions = application.functions.map(&:logical_name)
+        else
+          return handle_error(
+            'Function name is required when Veltrunodefile is not found or has no functions.',
+            EXIT_INVALID_INPUT
+          )
+        end
+
+        period = @options[:period] || '24h'
+        region = @options[:region] || (application.respond_to?(:region) ? application.region : nil)
+
+        begin
+          collector = Veltrunode::AWS::MetricsCollector.new(
+            region: region,
+            period: period
+          )
+        rescue ArgumentError => e
+          return handle_error(e.message, EXIT_INVALID_INPUT)
+        end
+
+        begin
+          metrics_results = collector.collect_all(target_functions)
+        rescue Veltrunode::AWS::MetricsError => e
+          exit_code = if e.message.include?('authorization failed') || e.message.include?('MissingCredentials')
+                        EXIT_AWS_AUTH_FAILED
+                      else
+                        EXIT_INVALID_INPUT
+                      end
+          return handle_error(e.message, exit_code)
+        rescue StandardError => e
+          return handle_error("Failed to collect metrics: #{e.message}", EXIT_INVALID_INPUT)
+        end
+
+        if @options[:format] == :json
+          output_metrics_json(metrics_results, period: period, region: collector.region)
+        else
+          print_metrics_table(metrics_results, period: period, region: collector.region)
+        end
+
+        EXIT_SUCCESS
+      end
+
+      def print_metrics_table(metrics_results, period:, region:)
+        $stdout.puts '=' * 115
+        $stdout.puts "  Veltrunode Lambda Metrics (Period: #{period}, Region: #{region})"
+        $stdout.puts '=' * 115
+
+        headers = [
+          'Function'.ljust(20),
+          'Invocations'.rjust(14),
+          'Errors'.rjust(10),
+          'Error Rate'.rjust(12),
+          'Throttles'.rjust(12),
+          'Duration (p50)'.rjust(16),
+          '(p95)'.rjust(12),
+          '(p99)'.rjust(12)
+        ].join(' ')
+        $stdout.puts headers
+        $stdout.puts '-' * 115
+
+        metrics_results.each do |m|
+          inv_str = format_number(m.invocations)
+          err_str = format_number(m.errors)
+          rate_str = "#{format('%.2f', m.error_rate)}%"
+          thr_str = format_number(m.throttles)
+          p50_str = m.duration_p50 ? "#{m.duration_p50} ms" : '-'
+          p95_str = m.duration_p95 ? "#{m.duration_p95} ms" : '-'
+          p99_str = m.duration_p99 ? "#{m.duration_p99} ms" : '-'
+
+          row = [
+            m.function_name.ljust(20),
+            inv_str.rjust(14),
+            err_str.rjust(10),
+            rate_str.rjust(12),
+            thr_str.rjust(12),
+            p50_str.rjust(16),
+            p95_str.rjust(12),
+            p99_str.rjust(12)
+          ].join(' ')
+          $stdout.puts row
+        end
+
+        $stdout.puts '=' * 115
+      end
+
+      def format_number(num)
+        num.to_s.reverse.gsub(/(\d{3})(?=\d)/, '\1,').reverse
+      end
+
+      def output_metrics_json(metrics_results, period:, region:)
+        start_time = metrics_results.first&.start_time&.iso8601
+        end_time = metrics_results.first&.end_time&.iso8601
+
+        data = {
+          'period' => period,
+          'region' => region,
+          'start_time' => start_time,
+          'end_time' => end_time,
+          'functions' => metrics_results.map(&:to_h)
+        }
+
+        output_json(
+          command: 'metrics',
+          status: 'success',
+          diagnostics: [],
+          data: data
+        )
+      end
+
       def print_schedule_preview_text(result)
         $stdout.puts '=' * 80
         $stdout.puts '  Veltrunode Schedule Preview'
@@ -1317,6 +1456,7 @@ module Veltrunode
             --no-follow              Do not stream logs, print existing events and exit
             --region <region>        AWS region for API calls
             --stage <stage>          Stage name for deployment/lookup
+            --period <duration>      Time period for metrics (e.g. 1h, 24h, 7d, default: 24h)
 
           Commands:
             init                       # Initialize a new Veltrunode project
@@ -1331,6 +1471,7 @@ module Veltrunode
             layer prune NAME           # Prune old Lambda Layer versions
             schedule preview NAME      # Preview future run times for schedule
             tail NAME [NAME2...]       # Stream CloudWatch Logs for Lambda functions in real time
+            metrics [NAME]             # Display CloudWatch metrics for Lambda functions
         HELP
 
         if @options[:format] == :json
@@ -1346,7 +1487,8 @@ module Veltrunode
             { name: 'layer inspect NAME', description: 'Inspect Lambda Layer version' },
             { name: 'layer prune NAME', description: 'Prune old Lambda Layer versions' },
             { name: 'schedule preview NAME', description: 'Preview future run times for schedule' },
-            { name: 'tail NAME [NAME2...]', description: 'Stream CloudWatch Logs for Lambda functions in real time' }
+            { name: 'tail NAME [NAME2...]', description: 'Stream CloudWatch Logs for Lambda functions in real time' },
+            { name: 'metrics [NAME]', description: 'Display CloudWatch metrics for Lambda functions' }
           ]
           output_json_success({ 'commands' => commands }, command: 'help')
         else
