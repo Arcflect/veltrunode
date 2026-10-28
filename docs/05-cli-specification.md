@@ -71,6 +71,23 @@ CloudWatch Logs を用いて、Lambda 関数のログをリアルタイムにタ
 - **複数関数の同時ストリーミング**:
   - 複数関数を指定した場合（例: `veltrunode tail api worker`）、出力各行に関数名プレフィックス（`[api]`, `[worker]`）が付与され、複数サービス間の呼び出し連動ログをリアルタイムに追跡可能です。
 
+### `veltrunode metrics [function]`
+CloudWatch Metrics を用いて、Lambda 関数の主要メトリクス（Invocations, Errors, Error Rate, Throttles, Duration p50/p95/p99）を取得し、ターミナル上に表形式で表示します。デプロイ直後や運用の簡易ヘルスチェックを AWS コンソールを開かずに素早く実行可能です。
+
+- **引数**:
+  - `function`: メトリクスを確認する対象関数名（省略時は `Veltrunodefile` に定義された全関数のメトリクスを一覧表示）
+- **オプション**:
+  - `--period <1h|24h|7d>`: 集計期間（`1h`（直近1時間）、`24h`（直近24時間）、`7d`（直近7日間）等。デフォルト: `24h`）
+  - `--format <text|json>`: 出力形式（デフォルト: `text`）
+  - `--region <region>`: AWS リージョン（Veltrunodefile または環境変数 `AWS_REGION` を上書き指定）
+  - `--file <path>`: カスタム `Veltrunodefile` のパス
+- **主要メトリクス一覧**:
+  - `Invocations`: 呼び出し回数合計（Sum）
+  - `Errors`: エラー発生回数合計（Sum）
+  - `Error Rate`: 呼び出しに対するエラー発生率（%）
+  - `Throttles`: スロットル発生回数合計（Sum）
+  - `Duration (p50, p95, p99)`: 実行所要時間の 50/95/99 パーセンタイル値（ミリ秒）
+
 ## 終了コード (Exit Codes)
 
 - 0: 成功
