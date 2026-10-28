@@ -1,6 +1,6 @@
 ---
 AWSTemplateFormatVersion: '2010-09-09'
-Description: with-xray-tracing - dev (compiled by Veltrunode v0.1.72)
+Description: with-xray-tracing - dev (compiled by Veltrunode v0.1.73)
 Parameters:
   ArtifactBucket:
     Description: S3 bucket name where function and layer zip packages are stored
