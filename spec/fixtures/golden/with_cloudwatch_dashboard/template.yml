@@ -1,6 +1,6 @@
 ---
 AWSTemplateFormatVersion: '2010-09-09'
-Description: with-cloudwatch-dashboard - dev (compiled by Veltrunode v0.1.73)
+Description: with-cloudwatch-dashboard - dev (compiled by Veltrunode v0.1.74)
 Parameters:
   ArtifactBucket:
     Description: S3 bucket name where function and layer zip packages are stored
