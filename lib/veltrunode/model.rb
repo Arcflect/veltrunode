@@ -25,6 +25,7 @@ require_relative 'model/policy_pack'
 require_relative 'model/managed_access_point'
 require_relative 'model/security_group_helper'
 require_relative 'model/dashboard'
+require_relative 'model/event_source'
 
 module Veltrunode
   module Model
@@ -42,4 +43,5 @@ module Veltrunode
   ManagedAccessPoint = Model::ManagedAccessPoint
   SecurityGroupHelper = Model::SecurityGroupHelper
   Dashboard = Model::Dashboard
+  EventSource = Model::EventSource
 end

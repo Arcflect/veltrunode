@@ -73,6 +73,9 @@ module Veltrunode
         @runtime_defaults[:insights] = defaults_builder.insights_config if defaults_builder.insights_config
         @runtime_defaults[:async_invoke] = defaults_builder.async_invoke_config if defaults_builder.async_invoke_config
         @runtime_defaults[:alarms] = defaults_builder.alarms_config if defaults_builder.alarms_config
+        if defaults_builder.event_sources_config
+          @runtime_defaults[:event_sources] = defaults_builder.event_sources_config
+        end
         @tags.merge!(defaults_builder.tags_config)
       end
 
@@ -112,8 +115,10 @@ module Veltrunode
       alias efs_security_groups security_group_helper
       alias efs_security_group security_group_helper
 
-      def function(name, tracing: nil, insights: nil, async_invoke: nil, alarms: nil, **, &)
+      def function(name, tracing: nil, insights: nil, async_invoke: nil, alarms: nil,
+                   event_source: nil, event_sources: nil, **, &)
         alarms_cfg = alarms.nil? ? @runtime_defaults[:alarms] : alarms
+        es_cfg = event_source || event_sources || @runtime_defaults[:event_sources]
         builder = FunctionBuilder.new(
           name,
           runtime_default: resolve_default_runtime,
@@ -121,7 +126,8 @@ module Veltrunode
           tracing_default: tracing || @runtime_defaults[:tracing],
           insights_default: insights || @runtime_defaults[:insights],
           async_invoke_default: async_invoke || @runtime_defaults[:async_invoke],
-          alarms_default: alarms_cfg
+          alarms_default: alarms_cfg,
+          event_sources_default: es_cfg
         )
         builder.instance_eval(&) if block_given?
         @function_builders << builder
@@ -298,7 +304,8 @@ module Veltrunode
     end
 
     class DefaultsBuilder < BaseBuilder
-      attr_reader :logs_config, :tags_config, :tracing_config, :insights_config, :async_invoke_config, :alarms_config
+      attr_reader :logs_config, :tags_config, :tracing_config, :insights_config, :async_invoke_config, :alarms_config,
+                  :event_sources_config
 
       def initialize
         super
@@ -308,6 +315,7 @@ module Veltrunode
         @insights_config = nil
         @async_invoke_config = nil
         @alarms_config = nil
+        @event_sources_config = nil
       end
 
       def alarms(arg = nil, **kwargs, &block)
@@ -361,6 +369,27 @@ module Veltrunode
                                  kwargs.merge(enabled: opts_or_arg)
                                end
       end
+
+      def event_source(type_or_opts = nil, **kwargs, &)
+        @event_sources_config ||= []
+        opts = kwargs.dup
+        opts.merge!(type_or_opts) if type_or_opts.is_a?(Hash)
+
+        if opts.key?(:sqs)
+          sqs_val = opts.delete(:sqs)
+          sqs_opts = sqs_val.is_a?(Hash) ? sqs_val.merge(opts) : opts.merge(queue: sqs_val)
+          builder = EventSourceBuilder.new(:sqs, **sqs_opts)
+          builder.instance_eval(&) if block_given?
+          @event_sources_config << builder.build
+          return
+        end
+
+        type = type_or_opts.is_a?(Symbol) || type_or_opts.is_a?(String) ? type_or_opts : :sqs
+        builder = EventSourceBuilder.new(type, **opts)
+        builder.instance_eval(&) if block_given?
+        @event_sources_config << builder.build
+      end
+      alias event_sources event_source
 
       def tags(hash = {})
         @tags_config.merge!(hash)
