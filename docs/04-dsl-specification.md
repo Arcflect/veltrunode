@@ -191,6 +191,60 @@ end
 - **`on_success` / `on_failure`**: 成功時または失敗時のイベント送信先 ARN、参照（SQS キュー、SNS トピック、EventBridge イベントバス、Lambda 関数）。
 - **個別関数のオプトアウト**: `defaults` で有効化している場合でも、`async_invoke false` を指定することで非同期呼び出し設定を無効化できます。
 
+## SQS イベントソースマッピング (SQS Event Source Mapping)
+
+SQS キューをトリガーとするワーカー関数において、バッチサイズやバッチ集約ウィンドウ、部分失敗（ReportBatchItemFailures）を制御する `AWS::Lambda::EventSourceMapping` を宣言的に定義できます。
+
+```ruby
+Veltrunode.application "sqs-worker-app" do
+  defaults do
+    # アプリケーション全体の標準バッチ設定（必要に応じて）
+    event_source sqs: :orders,
+                 batch_size: 10,
+                 maximum_batching_window_in_seconds: 20,
+                 report_batch_item_failures: true
+  end
+
+  # 1. ハッシュ形式の指定
+  function :order_processor do
+    handler "processor.handler"
+    runtime "ruby3.3"
+    event_source sqs: :orders,
+                 batch_size: 50,
+                 maximum_batching_window_in_seconds: 10,
+                 report_batch_item_failures: true
+  end
+
+  # 2. 外部キュー ARN の指定とブロック構文
+  function :external_worker do
+    handler "external.handler"
+    runtime "ruby3.3"
+    event_source :sqs do
+      queue "arn:aws:sqs:ap-northeast-1:123456789012:external-queue"
+      batch_size 100
+      batch_window 5
+      report_batch_item_failures true
+    end
+  end
+
+  # 3. defaults からのオプトアウト
+  function :api_handler do
+    handler "api.handler"
+    runtime "ruby3.3"
+    event_source false
+  end
+end
+```
+
+### パラメータ仕様
+
+- **`queue` / `sqs`**: 対象の SQS キュー。スタック内シンボル（例: `:orders`）または完全な SQS キュー ARN（`arn:aws:sqs:...`）を指定します。
+- **`batch_size`**: 1 回の呼び出しで関数に渡される最大メッセージ数（1〜10,000、デフォルト: AWS 標準の 10）。
+- **`maximum_batching_window_in_seconds` / `batch_window`**: メッセージをバッチに蓄積するために待機する最大秒数（0〜300秒）。
+- **`report_batch_item_failures`**: 部分バッチ応答を有効化（`true` の場合、`FunctionResponseTypes: ['ReportBatchItemFailures']` が設定され、バッチ内の一部の失敗メッセージのみを安全にリトライ可能）。
+- **`enabled`**: イベントソースマッピングの有効/無効フラグ（デフォルト: `true`）。
+- **自動 IAM 権限付与**: `event_source` が定義された関数には、SQS キューからの読込・削除に必要な権限（`sqs:ReceiveMessage`, `sqs:DeleteMessage`, `sqs:GetQueueAttributes`）が Lambda 実行ロールに自動付与されます。
+
 ## CloudWatch メトリクスダッシュボード (CloudWatch Dashboard)
 
 Application レベルで `dashboard` を宣言することで、デプロイされた全 Lambda 関数の稼働状態を一目で把握できる `AWS::CloudWatch::Dashboard` リソースを自動生成できます。
