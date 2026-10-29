@@ -10,7 +10,7 @@ module Veltrunode
   module DSL
     class FunctionBuilder < BaseBuilder
       def initialize(logical_name, runtime_default: nil, architecture_default: :x86_64, tracing_default: nil,
-                     insights_default: nil, async_invoke_default: nil, alarms_default: nil)
+                     insights_default: nil, async_invoke_default: nil, alarms_default: nil, event_sources_default: nil)
         super()
         @logical_name = logical_name.to_s
         @handler = nil
@@ -34,6 +34,8 @@ module Veltrunode
         @tracing = tracing_default
         @insights = insights_default
         @async_invoke = async_invoke_default
+        @event_sources = []
+        apply_event_sources_default(event_sources_default) if event_sources_default
       end
 
       def handler(h)
@@ -223,6 +225,40 @@ module Veltrunode
                         end
       end
 
+      def event_source(type_or_opts = nil, **kwargs, &)
+        if type_or_opts == false || kwargs[:enabled] == false
+          @event_sources = []
+          return
+        end
+
+        if type_or_opts.is_a?(Model::EventSource)
+          @event_sources << type_or_opts
+          return
+        end
+
+        opts = kwargs.dup
+        opts.merge!(type_or_opts) if type_or_opts.is_a?(Hash)
+
+        if opts.key?(:sqs)
+          sqs_val = opts.delete(:sqs)
+          sqs_opts = if sqs_val.is_a?(Hash)
+                       sqs_val.merge(opts)
+                     else
+                       opts.merge(queue: sqs_val)
+                     end
+          builder = EventSourceBuilder.new(:sqs, **sqs_opts)
+          builder.instance_eval(&) if block_given?
+          @event_sources << builder.build
+          return
+        end
+
+        type = type_or_opts.is_a?(Symbol) || type_or_opts.is_a?(String) ? type_or_opts : :sqs
+        builder = EventSourceBuilder.new(type, **opts)
+        builder.instance_eval(&) if block_given?
+        @event_sources << builder.build
+      end
+      alias event_sources event_source
+
       def build
         apply_alarms_default(@alarms_default) if !@alarms_disabled && @alarms_builder.nil? && @alarms_default
 
@@ -250,11 +286,19 @@ module Veltrunode
           subscription_filters: @subscription_filters,
           tracing: @tracing,
           insights: @insights,
-          async_invoke: @async_invoke
+          async_invoke: @async_invoke,
+          event_sources: @event_sources
         )
       end
 
       private
+
+      def apply_event_sources_default(default_cfg)
+        list = default_cfg.is_a?(Array) ? default_cfg : [default_cfg]
+        list.each do |cfg|
+          event_source(cfg)
+        end
+      end
 
       def apply_alarms_default(default_cfg)
         if default_cfg.is_a?(Hash) && default_cfg[:block]

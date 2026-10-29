@@ -8,7 +8,7 @@ module Veltrunode
     class Function
       attr_reader :handler, :runtime, :logical_name, :architecture, :memory, :timeout, :ephemeral_storage,
                   :environment, :vpc_reference, :layers, :mounts, :iam_capabilities, :concurrency, :logging,
-                  :alarms, :subscription_filters, :tracing, :insights, :async_invoke
+                  :alarms, :subscription_filters, :tracing, :insights, :async_invoke, :event_sources
 
       def initialize(
         positional_logical_name = nil,
@@ -30,7 +30,8 @@ module Veltrunode
         subscription_filters: [],
         tracing: nil,
         insights: nil,
-        async_invoke: nil
+        async_invoke: nil,
+        event_sources: []
       )
         name_val = positional_logical_name || logical_name
         validate_logical_name!(name_val)
@@ -54,6 +55,7 @@ module Veltrunode
         @tracing = normalize_tracing(tracing)
         @insights = normalize_insights(insights)
         @async_invoke = normalize_async_invoke(async_invoke)
+        @event_sources = normalize_event_sources(event_sources)
 
         freeze if @handler || @runtime
       end
@@ -108,6 +110,10 @@ module Veltrunode
         !async_invoke.nil?
       end
       alias async_invoke_enabled? async_invoke?
+
+      def event_sources?
+        !@event_sources.empty?
+      end
 
       def validate_invariants(context = {})
         diagnostics = []
@@ -505,6 +511,22 @@ module Veltrunode
           memo[k.to_sym] = v
         end
         AsyncInvokeConfig.new(**kwargs)
+      end
+
+      def normalize_event_sources(sources)
+        return [].freeze if sources.nil?
+
+        list = sources.is_a?(Array) ? sources : [sources]
+        normalized = list.map do |src|
+          if src.is_a?(EventSource)
+            src
+          elsif src.is_a?(Hash)
+            EventSource.new(**src)
+          else
+            raise ValidationError, "Invalid event_source configuration: #{src.class}"
+          end
+        end
+        normalized.freeze
       end
     end
   end

@@ -153,6 +153,12 @@ module Veltrunode
             statements.concat(dest_statements)
           end
 
+          # SQS イベントソースマッピング (EventSourceMapping) 権限を自動付与
+          if target.respond_to?(:event_sources) && target.event_sources&.any?(&:sqs?)
+            sqs_statements = build_sqs_event_source_statements(target.event_sources)
+            statements.concat(sqs_statements)
+          end
+
           policy = {
             'PolicyName' => "#{logical_id}Policy",
             'PolicyDocument' => {
@@ -269,6 +275,36 @@ module Veltrunode
               'Action' => [action],
               'Resource' => resources.uniq
             }
+          end
+        end
+
+        def build_sqs_event_source_statements(event_sources)
+          sqs_sources = event_sources.select(&:sqs?)
+          queue_arns = sqs_sources.map { |src| resolve_sqs_queue_arn(src.queue) }.compact.uniq
+          return [] if queue_arns.empty?
+
+          [
+            {
+              'Effect' => 'Allow',
+              'Action' => [
+                'sqs:ReceiveMessage',
+                'sqs:DeleteMessage',
+                'sqs:GetQueueAttributes'
+              ],
+              'Resource' => queue_arns
+            }
+          ]
+        end
+
+        def resolve_sqs_queue_arn(queue)
+          return queue if queue.is_a?(Hash)
+
+          q_str = queue.to_s.strip
+          if queue.is_a?(Symbol) || (!q_str.empty? && !q_str.start_with?('arn:') && !q_str.include?(':'))
+            q_id = LogicalId.for_queue(q_str)
+            { 'Fn::GetAtt' => [q_id, 'Arn'] }
+          else
+            q_str
           end
         end
 

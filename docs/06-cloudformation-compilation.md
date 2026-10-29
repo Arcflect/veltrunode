@@ -47,6 +47,7 @@ CloudFormation の論理ID（Logical ID）は、`Veltrunode::Compiler::LogicalId
 | **IAM Role (Lambda)** | `:convert` | `ConvertFunctionRole` | Lambda 実行ロール (`AWS::IAM::Role`) |
 | **IAM Role (Scheduler)** | `:nightly` | `NightlyScheduleRole` | Scheduler 呼び出しロール (`AWS::IAM::Role`) |
 | **EventInvokeConfig** | `:convert` | `ConvertFunctionEventInvokeConfig` | Lambda 非同期呼び出し設定 (`AWS::Lambda::EventInvokeConfig`) |
+| **EventSourceMapping** | `:worker` (`:orders`) | `WorkerFunctionOrdersEventSourceMapping` | Lambda イベントソースマッピング (`AWS::Lambda::EventSourceMapping`) |
 | **Dashboard** | `:default` (`:operations`) | `Dashboard` (`OperationsDashboard`) | CloudWatch メトリクスダッシュボード (`AWS::CloudWatch::Dashboard`) |
 
 ## CloudWatch アラームのコンパイルと通知パラメータ (CloudWatch Alarms Compilation)
@@ -136,6 +137,26 @@ Lambda 関数で `async_invoke`（または `defaults` ブロックでの指定�
   - **Lambda**: `lambda:InvokeFunction`
 - **送信先パラメータ化**:
   送信先にシンボル名や Ref が指定された場合、CloudFormation テンプレートの `Parameters`（例: `FailedEventsQueueArn: { Type: String, ... }`）に自動登録されます。リテラル ARN（`arn:aws:...`）が指定された場合はそのまま展開されます。
+
+## SQS イベントソースマッピングのコンパイルと IAM 権限の自動付与 (SQS Event Source Mapping Compilation)
+
+Lambda 関数で `event_source sqs: ...`（または `defaults` ブロックでの指定）を設定した場合、`Veltrunode::Compiler::CloudFormation::EventSourceMappingCompiler` および `RoleCompiler` により `AWS::Lambda::EventSourceMapping` リソースおよび必要な実行権限が自動構成されます。
+
+- **論理ID**: `#{FunctionName}#{SourceIdentifier}EventSourceMapping`（例: `WorkerFunctionOrdersEventSourceMapping`、識別子がない場合は `WorkerFunctionEventSourceMapping`）。
+- **リソースプロパティ (`Properties`)**:
+  - `EventSourceArn`: 対象 SQS キューの ARN。シンボル指定時は `{ 'Fn::GetAtt' => [QueueLogicalId, 'Arn'] }`、ARN 指定時はその文字列。
+  - `FunctionName`: `{ 'Fn::GetAtt' => [FunctionLogicalId, 'Arn'] }`。
+  - `BatchSize`: 1 バッチあたりのメッセージ件数（指定時のみ設定、1〜10,000）。
+  - `MaximumBatchingWindowInSeconds`: バッチ待機ウィンドウ秒数（指定時のみ設定、0〜300秒）。
+  - `FunctionResponseTypes`: `report_batch_item_failures: true` 指定時に `['ReportBatchItemFailures']` を自動構成。
+  - `Enabled`: マッピングの有効状態（指定時、またはデフォルト `true`）。
+- **SQS 読込・削除権限の自動付与**:
+  `event_source` が定義された関数では、Lambda 実行ロール（`AWS::IAM::Role`）のインラインポリシーに以下のステートメントが自動的に追加されます。
+  - **Action**:
+    - `sqs:ReceiveMessage`
+    - `sqs:DeleteMessage`
+    - `sqs:GetQueueAttributes`
+  - **Resource**: 対象キューの ARN（複数キュー指定時はすべて含まれます）。
 
 ## CloudWatch メトリクスダッシュボードのコンパイルと URL 出力 (CloudWatch Dashboard Compilation & Output)
 
