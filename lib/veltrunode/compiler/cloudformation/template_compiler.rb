@@ -14,6 +14,7 @@ require_relative 'security_group_compiler'
 require_relative 'subscription_filter_compiler'
 require_relative 'dashboard_compiler'
 require_relative 'event_invoke_config_compiler'
+require_relative 'event_source_mapping_compiler'
 require_relative '../../graph/resource_graph'
 require_relative '../../version'
 
@@ -311,6 +312,14 @@ module Veltrunode
               Array(fn.subscription_filters).each do |filter|
                 sf_res = SubscriptionFilterCompiler.compile(fn, filter, context: context)
                 resources.merge!(sf_res)
+              end
+            end
+
+            # EventSourceMapping (AWS::Lambda::EventSourceMapping)
+            if fn.respond_to?(:event_sources) && fn.event_sources
+              Array(fn.event_sources).each do |source|
+                esm_res = EventSourceMappingCompiler.compile(fn, source, context: context)
+                resources.merge!(esm_res)
               end
             end
 

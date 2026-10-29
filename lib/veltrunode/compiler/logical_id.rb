@@ -156,6 +156,8 @@ module Veltrunode
           for_dashboard(name)
         when :event_invoke_config
           for_event_invoke_config(name)
+        when :event_source_mapping
+          for_event_source_mapping(name)
         else
           suffix = pascalize(type)
           base = pascalize(name)
@@ -307,6 +309,21 @@ module Veltrunode
 
         fn_id = for_function(function_name)
         "#{fn_id}EventInvokeConfig"
+      end
+
+      # Lambda 関数の EventSourceMapping の論理IDを生成します（サフィックス: EventSourceMapping）
+      #
+      # @param function_name [String, Symbol] 関数シンボリック名 (例: :worker)
+      # @param source_identifier [String, Symbol, nil] キュー名または識別子 (例: :orders_queue)
+      # @return [String] 論理ID (例: "WorkerFunctionOrdersQueueEventSourceMapping")
+      def for_event_source_mapping(function_name, source_identifier = nil)
+        fn_id = for_function(function_name)
+        if source_identifier && !source_identifier.to_s.strip.empty?
+          src_part = pascalize(source_identifier)
+          "#{fn_id}#{src_part}EventSourceMapping"
+        else
+          "#{fn_id}EventSourceMapping"
+        end
       end
     end
   end

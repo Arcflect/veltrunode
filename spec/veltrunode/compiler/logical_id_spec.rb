@@ -257,6 +257,20 @@ RSpec.describe Veltrunode::Compiler::LogicalId do
     end
   end
 
+  describe '.for_event_source_mapping' do
+    it 'generates EventSourceMapping logical ID with function and source identifier' do
+      expect(described_class.for_event_source_mapping(:worker, :orders)).to eq('WorkerFunctionOrdersEventSourceMapping')
+      expect(described_class.for_event_source_mapping(:worker, :orders_queue)).to eq(
+        'WorkerFunctionOrdersQueueEventSourceMapping'
+      )
+      expect(described_class.for(:worker, type: :event_source_mapping)).to eq('WorkerFunctionEventSourceMapping')
+    end
+
+    it 'generates EventSourceMapping logical ID without source identifier' do
+      expect(described_class.for_event_source_mapping(:worker)).to eq('WorkerFunctionEventSourceMapping')
+    end
+  end
+
   describe 'standalone loading' do
     it 'allows individual compiler files to be loaded independently' do
       expect do
@@ -266,6 +280,7 @@ RSpec.describe Veltrunode::Compiler::LogicalId do
         require 'veltrunode/compiler/cloudformation/queue_compiler'
         require 'veltrunode/compiler/cloudformation/log_group_compiler'
         require 'veltrunode/compiler/cloudformation/role_compiler'
+        require 'veltrunode/compiler/cloudformation/event_source_mapping_compiler'
         require 'veltrunode/compiler/cloudformation'
 
         cf = Veltrunode::Compiler::CloudFormation
@@ -275,6 +290,9 @@ RSpec.describe Veltrunode::Compiler::LogicalId do
         expect(cf::QueueCompiler.logical_id_for(:dlq)).to eq('DlqQueue')
         expect(cf::LogGroupCompiler.logical_id_for(:worker)).to eq('WorkerFunctionLogGroup')
         expect(cf::RoleCompiler.logical_id_for_function(:worker)).to eq('WorkerFunctionRole')
+        expect(cf::EventSourceMappingCompiler.logical_id_for(:worker, :orders)).to eq(
+          'WorkerFunctionOrdersEventSourceMapping'
+        )
       end.not_to raise_error
     end
   end

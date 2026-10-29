@@ -203,6 +203,32 @@ RSpec.describe Veltrunode::Compiler::CloudFormation::RoleCompiler do
       expect(sns_stmt).not_to be_nil
       expect(sns_stmt['Resource']).to eq(['arn:aws:sns:ap-northeast-1:123456789012:failure-topic'])
     end
+
+    it 'automatically attaches IAM permissions for SQS event sources (symbol and ARN)' do
+      fn = Veltrunode::Model::Function.new(
+        logical_name: 'sqs_worker',
+        handler: 'functions/worker.handler',
+        runtime: 'ruby3.3',
+        event_sources: [
+          { queue: :orders, batch_size: 10 },
+          { queue: 'arn:aws:sqs:ap-northeast-1:123456789012:external-queue' }
+        ]
+      )
+
+      result = described_class.compile_lambda_role(fn)
+      policy_stmts = result['SqsWorkerFunctionRole']['Properties']['Policies'].first['PolicyDocument']['Statement']
+
+      sqs_stmt = policy_stmts.find do |s|
+        s['Action'] == %w[sqs:ReceiveMessage sqs:DeleteMessage sqs:GetQueueAttributes]
+      end
+
+      expect(sqs_stmt).not_to be_nil
+      expect(sqs_stmt['Effect']).to eq('Allow')
+      expect(sqs_stmt['Resource']).to contain_exactly(
+        { 'Fn::GetAtt' => %w[OrdersQueue Arn] },
+        'arn:aws:sqs:ap-northeast-1:123456789012:external-queue'
+      )
+    end
   end
 
   describe '#to_h and properties for Scheduler Invocation Role' do

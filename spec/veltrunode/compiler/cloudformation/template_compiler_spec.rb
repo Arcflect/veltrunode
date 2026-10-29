@@ -915,5 +915,52 @@ RSpec.describe Veltrunode::Compiler::CloudFormation::TemplateCompiler do
       # 3. custom_dest parameter registration
       expect(params).to have_key('FailedEventsQueueArn')
     end
+
+    it 'compiles AWS::Lambda::EventSourceMapping and grants IAM permissions for SQS event sources' do
+      code = <<~RUBY
+        Veltrunode.application "sqs-worker-app" do
+          aws region: "ap-northeast-1"
+
+          function :order_processor do
+            handler "processor.handler"
+            runtime "ruby3.3"
+            event_source sqs: :orders,
+                         batch_size: 10,
+                         maximum_batching_window_in_seconds: 20,
+                         report_batch_item_failures: true
+          end
+        end
+      RUBY
+
+      app = Veltrunode.parse(code)
+      yaml_output = described_class.to_yaml(app)
+      parsed = YAML.safe_load(yaml_output)
+
+      resources = parsed['Resources']
+
+      # 1. AWS::Lambda::EventSourceMapping リソースの検証
+      esm = resources['OrderProcessorFunctionOrdersEventSourceMapping']
+      expect(esm).not_to be_nil
+      expect(esm['Type']).to eq('AWS::Lambda::EventSourceMapping')
+      expect(esm['Properties']).to eq(
+        'BatchSize' => 10,
+        'Enabled' => true,
+        'EventSourceArn' => { 'Fn::GetAtt' => %w[OrdersQueue Arn] },
+        'FunctionName' => { 'Fn::GetAtt' => %w[OrderProcessorFunction Arn] },
+        'FunctionResponseTypes' => ['ReportBatchItemFailures'],
+        'MaximumBatchingWindowInSeconds' => 20
+      )
+
+      # 2. IAM ロールの SQS 権限の検証
+      role = resources['OrderProcessorFunctionRole']
+      expect(role).not_to be_nil
+      stmts = role['Properties']['Policies'].first['PolicyDocument']['Statement']
+      sqs_stmt = stmts.find do |s|
+        s['Action'] == %w[sqs:ReceiveMessage sqs:DeleteMessage sqs:GetQueueAttributes]
+      end
+      expect(sqs_stmt).not_to be_nil
+      expect(sqs_stmt['Effect']).to eq('Allow')
+      expect(sqs_stmt['Resource']).to eq([{ 'Fn::GetAtt' => %w[OrdersQueue Arn] }])
+    end
   end
 end
