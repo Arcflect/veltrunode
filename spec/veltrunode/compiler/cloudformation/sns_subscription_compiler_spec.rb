@@ -120,4 +120,3 @@ RSpec.describe Veltrunode::Compiler::CloudFormation::SnsSubscriptionCompiler do
     end
   end
 end
-
