@@ -241,7 +241,7 @@ module Veltrunode
 
         if opts.key?(:sqs)
           sqs_val = opts.delete(:sqs)
-          sqs_opts = if sqs_val.is_a?(Hash)
+          sqs_opts = if sqs_val.is_a?(Hash) && !cfn_intrinsic_hash?(sqs_val)
                        sqs_val.merge(opts)
                      else
                        opts.merge(queue: sqs_val)
@@ -250,9 +250,26 @@ module Veltrunode
           builder.instance_eval(&) if block_given?
           @event_sources << builder.build
           return
+        elsif opts.key?(:sns)
+          sns_val = opts.delete(:sns)
+          sns_opts = if sns_val.is_a?(Hash) && !cfn_intrinsic_hash?(sns_val)
+                       sns_val.merge(opts)
+                     else
+                       opts.merge(topic: sns_val)
+                     end
+          builder = EventSourceBuilder.new(:sns, **sns_opts)
+          builder.instance_eval(&) if block_given?
+          @event_sources << builder.build
+          return
         end
 
-        type = type_or_opts.is_a?(Symbol) || type_or_opts.is_a?(String) ? type_or_opts : :sqs
+        type = if type_or_opts.is_a?(Symbol) || type_or_opts.is_a?(String)
+                 type_or_opts
+               elsif opts.key?(:topic) || opts.key?(:topic_arn)
+                 :sns
+               else
+                 :sqs
+               end
         builder = EventSourceBuilder.new(type, **opts)
         builder.instance_eval(&) if block_given?
         @event_sources << builder.build
@@ -298,6 +315,11 @@ module Veltrunode
         list.each do |cfg|
           event_source(cfg)
         end
+      end
+
+      def cfn_intrinsic_hash?(hash)
+        hash.key?('Ref') || hash.key?(:Ref) || hash.key?(:ref) || hash.key?('ref') ||
+          hash.keys.any? { |k| k.to_s.start_with?('Fn::') }
       end
 
       def apply_alarms_default(default_cfg)
