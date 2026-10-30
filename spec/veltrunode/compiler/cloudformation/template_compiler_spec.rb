@@ -962,5 +962,80 @@ RSpec.describe Veltrunode::Compiler::CloudFormation::TemplateCompiler do
       expect(sqs_stmt['Effect']).to eq('Allow')
       expect(sqs_stmt['Resource']).to eq([{ 'Fn::GetAtt' => %w[OrdersQueue Arn] }])
     end
+
+    it 'compiles AWS::SNS::Subscription, AWS::Lambda::Permission, and FilterPolicy for SNS event sources' do
+      code = <<~RUBY
+        Veltrunode.application "sns-subscriber-app" do
+          aws region: "ap-northeast-1"
+
+          function :order_notifier do
+            handler "notifier.handler"
+            runtime "ruby3.3"
+            event_source sns: ref(:order_events_topic),
+                         filter_policy: {
+                           event_type: ["order_created", "order_cancelled"],
+                           amount: [{ numeric: [">=", 1000] }]
+                         }
+            event_source sns: "arn:aws:sns:ap-northeast-1:123456789012:global-alerts"
+          end
+        end
+      RUBY
+
+      app = Veltrunode.parse(code)
+      yaml_output = described_class.to_yaml(app)
+      parsed = YAML.safe_load(yaml_output)
+
+      params = parsed['Parameters']
+      resources = parsed['Resources']
+
+      # 1. ref(:order_events_topic) パラメータの自動登録
+      expect(params['OrderEventsTopic']).to eq(
+        'Description' => 'SNS topic ARN for OrderEventsTopic',
+        'Type' => 'String'
+      )
+
+      # 2. AWS::SNS::Subscription (ref + FilterPolicy) の検証
+      sub1 = resources['OrderNotifierFunctionOrderEventsTopicSnsSubscription']
+      expect(sub1).not_to be_nil
+      expect(sub1['Type']).to eq('AWS::SNS::Subscription')
+      expect(sub1['Properties']).to eq(
+        'Endpoint' => { 'Fn::GetAtt' => %w[OrderNotifierFunction Arn] },
+        'FilterPolicy' => {
+          'amount' => [{ 'numeric' => ['>=', 1000] }],
+          'event_type' => %w[order_created order_cancelled]
+        },
+        'Protocol' => 'lambda',
+        'TopicArn' => { 'Ref' => 'OrderEventsTopic' }
+      )
+
+      # 3. AWS::Lambda::Permission (ref) の検証
+      perm1 = resources['OrderNotifierFunctionOrderEventsTopicSnsPermission']
+      expect(perm1).not_to be_nil
+      expect(perm1['Type']).to eq('AWS::Lambda::Permission')
+      expect(perm1['Properties']).to eq(
+        'Action' => 'lambda:InvokeFunction',
+        'FunctionName' => { 'Fn::GetAtt' => %w[OrderNotifierFunction Arn] },
+        'Principal' => 'sns.amazonaws.com',
+        'SourceArn' => { 'Ref' => 'OrderEventsTopic' }
+      )
+
+      # 4. AWS::SNS::Subscription & AWS::Lambda::Permission (ARN リテラル) の検証
+      sub2 = resources['OrderNotifierFunctionGlobalAlertsSnsSubscription']
+      expect(sub2).not_to be_nil
+      expect(sub2['Properties']).to eq(
+        'Endpoint' => { 'Fn::GetAtt' => %w[OrderNotifierFunction Arn] },
+        'Protocol' => 'lambda',
+        'TopicArn' => 'arn:aws:sns:ap-northeast-1:123456789012:global-alerts'
+      )
+
+      perm2 = resources['OrderNotifierFunctionGlobalAlertsSnsPermission']
+      expect(perm2).not_to be_nil
+      expect(perm2['Properties']).to eq(
+        'Action' => 'lambda:InvokeFunction',
+        'FunctionName' => { 'Fn::GetAtt' => %w[OrderNotifierFunction Arn] },
+        'Principal' => 'sns.amazonaws.com',
+        'SourceArn' => 'arn:aws:sns:ap-northeast-1:123456789012:global-alerts'
+      )
+    end
   end
 end
