@@ -271,6 +271,24 @@ RSpec.describe Veltrunode::Compiler::LogicalId do
     end
   end
 
+  describe '.for_sns_subscription and .for_sns_permission' do
+    it 'generates SnsSubscription logical ID with function and topic identifier' do
+      expect(described_class.for_sns_subscription(:notify, :order_events)).to eq(
+        'NotifyFunctionOrderEventsSnsSubscription'
+      )
+      expect(described_class.for_sns_subscription(:notify)).to eq('NotifyFunctionSnsSubscription')
+      expect(described_class.for(:notify, type: :sns_subscription)).to eq('NotifyFunctionSnsSubscription')
+    end
+
+    it 'generates SnsPermission logical ID with function and topic identifier' do
+      expect(described_class.for_sns_permission(:notify, :order_events)).to eq(
+        'NotifyFunctionOrderEventsSnsPermission'
+      )
+      expect(described_class.for_sns_permission(:notify)).to eq('NotifyFunctionSnsPermission')
+      expect(described_class.for(:notify, type: :sns_permission)).to eq('NotifyFunctionSnsPermission')
+    end
+  end
+
   describe 'standalone loading' do
     it 'allows individual compiler files to be loaded independently' do
       expect do
