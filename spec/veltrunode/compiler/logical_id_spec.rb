@@ -299,6 +299,7 @@ RSpec.describe Veltrunode::Compiler::LogicalId do
         require 'veltrunode/compiler/cloudformation/log_group_compiler'
         require 'veltrunode/compiler/cloudformation/role_compiler'
         require 'veltrunode/compiler/cloudformation/event_source_mapping_compiler'
+        require 'veltrunode/compiler/cloudformation/sns_subscription_compiler'
         require 'veltrunode/compiler/cloudformation'
 
         cf = Veltrunode::Compiler::CloudFormation
@@ -310,6 +311,12 @@ RSpec.describe Veltrunode::Compiler::LogicalId do
         expect(cf::RoleCompiler.logical_id_for_function(:worker)).to eq('WorkerFunctionRole')
         expect(cf::EventSourceMappingCompiler.logical_id_for(:worker, :orders)).to eq(
           'WorkerFunctionOrdersEventSourceMapping'
+        )
+        expect(cf::SnsSubscriptionCompiler.logical_id_for(:notify, :order_events)).to eq(
+          'NotifyFunctionOrderEventsSnsSubscription'
+        )
+        expect(cf::SnsSubscriptionCompiler.permission_logical_id_for(:notify, :order_events)).to eq(
+          'NotifyFunctionOrderEventsSnsPermission'
         )
       end.not_to raise_error
     end
