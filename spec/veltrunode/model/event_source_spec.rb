@@ -61,6 +61,71 @@ RSpec.describe Veltrunode::Model::EventSource do
       expect { described_class.new(type: :kinesis, queue: 'stream') }
         .to raise_error(ArgumentError, /Unsupported event source type/)
     end
+
+    it 'creates a valid SNS event source with topic ARN and filter_policy' do
+      source = described_class.new(
+        type: :sns,
+        topic: 'arn:aws:sns:ap-northeast-1:123456789012:order-events',
+        filter_policy: { event_type: %i[order_created order_cancelled] },
+        filter_policy_scope: :message_attributes
+      )
+
+      expect(source.sns?).to be true
+      expect(source.sqs?).to be false
+      expect(source.type).to eq(:sns)
+      expect(source.topic).to eq('arn:aws:sns:ap-northeast-1:123456789012:order-events')
+      expect(source.topic_identifier).to eq('order-events')
+      expect(source.source_identifier).to eq('order-events')
+      expect(source.filter_policy).to eq('event_type' => %w[order_created order_cancelled])
+      expect(source.filter_policy_scope).to eq('MessageAttributes')
+      expect(source.enabled?).to be true
+    end
+
+    it 'infers SNS type when sns: or topic: is passed' do
+      source = described_class.new(
+        sns: :order_topic,
+        filter_policy: { status: ['completed'] }
+      )
+
+      expect(source.sns?).to be true
+      expect(source.topic).to eq(:order_topic)
+      expect(source.topic_identifier).to eq('order_topic')
+      expect(source.filter_policy).to eq('status' => ['completed'])
+    end
+
+    it 'supports nested hash in sns: option' do
+      source = described_class.new(
+        sns: {
+          topic: 'arn:aws:sns:ap-northeast-1:123456789012:alerts',
+          filter_policy: { severity: ['high'] },
+          filter_policy_scope: 'MessageBody'
+        }
+      )
+
+      expect(source.sns?).to be true
+      expect(source.topic).to eq('arn:aws:sns:ap-northeast-1:123456789012:alerts')
+      expect(source.filter_policy).to eq('severity' => ['high'])
+      expect(source.filter_policy_scope).to eq('MessageBody')
+    end
+
+    it 'raises ArgumentError if topic is missing for SNS event source' do
+      expect { described_class.new(type: :sns, topic: nil) }
+        .to raise_error(ArgumentError, /Topic must be specified for SNS event source/)
+      expect { described_class.new(type: :sns, topic: '   ') }
+        .to raise_error(ArgumentError, /Topic must be specified for SNS event source/)
+    end
+
+    it 'raises ArgumentError if filter_policy is not a non-empty Hash' do
+      expect { described_class.new(type: :sns, topic: :orders, filter_policy: 'invalid') }
+        .to raise_error(ArgumentError, /Filter policy must be a Hash/)
+      expect { described_class.new(type: :sns, topic: :orders, filter_policy: {}) }
+        .to raise_error(ArgumentError, /Filter policy cannot be empty/)
+    end
+
+    it 'raises ArgumentError if filter_policy_scope is invalid' do
+      expect { described_class.new(type: :sns, topic: :orders, filter_policy_scope: 'InvalidScope') }
+        .to raise_error(ArgumentError, /Invalid filter_policy_scope/)
+    end
   end
 
   describe '#to_h' do
@@ -80,6 +145,22 @@ RSpec.describe Veltrunode::Model::EventSource do
       expect(hash['report_batch_item_failures']).to be true
       expect(hash['enabled']).to be true
     end
+
+    it 'serializes SNS event source attributes' do
+      source = described_class.new(
+        type: :sns,
+        topic: 'arn:aws:sns:ap-northeast-1:123456789012:order-events',
+        filter_policy: { event_type: ['created'] },
+        filter_policy_scope: 'MessageAttributes'
+      )
+
+      hash = source.to_h
+      expect(hash['type']).to eq('sns')
+      expect(hash['topic']).to eq('arn:aws:sns:ap-northeast-1:123456789012:order-events')
+      expect(hash['filter_policy']).to eq('event_type' => ['created'])
+      expect(hash['filter_policy_scope']).to eq('MessageAttributes')
+      expect(hash['enabled']).to be true
+    end
   end
 
   describe 'Function integration' do
@@ -95,6 +176,20 @@ RSpec.describe Veltrunode::Model::EventSource do
       expect(fn.event_sources?).to be true
       expect(fn.event_sources.size).to eq(1)
       expect(fn.event_sources.first.queue).to eq('jobs')
+    end
+
+    it 'accepts SNS event source hash in Function' do
+      fn = Veltrunode::Model::Function.new(
+        'notifier',
+        handler: 'notifier.handler',
+        runtime: 'ruby3.3',
+        event_sources: [{ sns: :order_events, filter_policy: { type: ['alert'] } }]
+      )
+
+      expect(fn.event_sources?).to be true
+      expect(fn.event_sources.first.sns?).to be true
+      expect(fn.event_sources.first.topic).to eq(:order_events)
+      expect(fn.event_sources.first.filter_policy).to eq('type' => ['alert'])
     end
   end
 end
