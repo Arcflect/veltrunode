@@ -122,4 +122,125 @@ RSpec.describe 'DSL event_source support' do
 
     expect(none_fn.event_sources).to be_empty
   end
+
+  describe 'SNS event source DSL' do
+    it 'supports inline hash event_source sns: "topic_arn" with filter_policy' do
+      app = Veltrunode.application 'sns-app' do
+        function :notifier do
+          handler 'notifier.handler'
+          runtime 'ruby3.3'
+          event_source sns: 'arn:aws:sns:ap-northeast-1:123456789012:order-events',
+                       filter_policy: { event_type: %w[order_created order_cancelled] }
+        end
+      end
+
+      fn = app.functions.first
+      expect(fn.event_sources.size).to eq(1)
+
+      es = fn.event_sources.first
+      expect(es.sns?).to be true
+      expect(es.topic).to eq('arn:aws:sns:ap-northeast-1:123456789012:order-events')
+      expect(es.topic_identifier).to eq('order-events')
+      expect(es.filter_policy).to eq('event_type' => %w[order_created order_cancelled])
+    end
+
+    it 'supports ref(:topic) and symbolic topic in event_source sns:' do
+      app = Veltrunode.application 'sns-app' do
+        function :notifier do
+          handler 'notifier.handler'
+          runtime 'ruby3.3'
+          event_source sns: ref(:alert_topic),
+                       filter_policy: { severity: ['critical'] }
+        end
+      end
+
+      es = app.functions.first.event_sources.first
+      expect(es.sns?).to be true
+      expect(es.topic).to be_a(Veltrunode::DSL::Reference)
+      expect(es.topic.name).to eq(:alert_topic)
+      expect(es.topic_identifier).to eq('alert_topic')
+      expect(es.filter_policy).to eq('severity' => ['critical'])
+    end
+
+    it 'supports nested hash event_source sns: { topic: ..., filter_policy: ... }' do
+      app = Veltrunode.application 'sns-app' do
+        function :notifier do
+          handler 'notifier.handler'
+          runtime 'ruby3.3'
+          event_source sns: {
+            topic: :order_events,
+            filter_policy: { store: ['tokyo'] },
+            filter_policy_scope: 'MessageBody'
+          }
+        end
+      end
+
+      es = app.functions.first.event_sources.first
+      expect(es.sns?).to be true
+      expect(es.topic).to eq(:order_events)
+      expect(es.filter_policy).to eq('store' => ['tokyo'])
+      expect(es.filter_policy_scope).to eq('MessageBody')
+    end
+
+    it 'supports block-based event_source :sns DSL' do
+      app = Veltrunode.application 'sns-app' do
+        function :notifier do
+          handler 'notifier.handler'
+          runtime 'ruby3.3'
+          event_source :sns do
+            topic 'arn:aws:sns:ap-northeast-1:123456789012:user-events'
+            filter_policy event_type: ['signup']
+            filter_policy_scope :message_attributes
+          end
+        end
+      end
+
+      es = app.functions.first.event_sources.first
+      expect(es.sns?).to be true
+      expect(es.topic).to eq('arn:aws:sns:ap-northeast-1:123456789012:user-events')
+      expect(es.filter_policy).to eq('event_type' => ['signup'])
+      expect(es.filter_policy_scope).to eq('MessageAttributes')
+    end
+
+    it 'supports passing SNS event_source as function keyword argument' do
+      app = Veltrunode.application 'sns-app' do
+        function :notifier, event_source: { sns: :order_topic, filter_policy: { status: ['paid'] } } do
+          handler 'notifier.handler'
+          runtime 'ruby3.3'
+        end
+      end
+
+      es = app.functions.first.event_sources.first
+      expect(es.sns?).to be true
+      expect(es.topic).to eq(:order_topic)
+      expect(es.filter_policy).to eq('status' => ['paid'])
+    end
+
+    it 'supports SNS event_source in application defaults with opt-out' do
+      app = Veltrunode.application 'sns-default-app' do
+        defaults do
+          event_source sns: :system_events, filter_policy: { env: ['prod'] }
+        end
+
+        function :subscriber do
+          handler 'sub.handler'
+          runtime 'ruby3.3'
+        end
+
+        function :standalone do
+          handler 'none.handler'
+          runtime 'ruby3.3'
+          event_source false
+        end
+      end
+
+      sub_fn = app.functions.find { |f| f.logical_name == 'subscriber' }
+      none_fn = app.functions.find { |f| f.logical_name == 'standalone' }
+
+      expect(sub_fn.event_sources.size).to eq(1)
+      expect(sub_fn.event_sources.first.sns?).to be true
+      expect(sub_fn.event_sources.first.topic).to eq(:system_events)
+      expect(none_fn.event_sources).to be_empty
+    end
+  end
 end

@@ -48,6 +48,8 @@ CloudFormation の論理ID（Logical ID）は、`Veltrunode::Compiler::LogicalId
 | **IAM Role (Scheduler)** | `:nightly` | `NightlyScheduleRole` | Scheduler 呼び出しロール (`AWS::IAM::Role`) |
 | **EventInvokeConfig** | `:convert` | `ConvertFunctionEventInvokeConfig` | Lambda 非同期呼び出し設定 (`AWS::Lambda::EventInvokeConfig`) |
 | **EventSourceMapping** | `:worker` (`:orders`) | `WorkerFunctionOrdersEventSourceMapping` | Lambda イベントソースマッピング (`AWS::Lambda::EventSourceMapping`) |
+| **SNS Subscription** | `:notify` (`:order_events`) | `NotifyFunctionOrderEventsSnsSubscription` | SNS サブスクリプション (`AWS::SNS::Subscription`) |
+| **SNS Lambda Permission** | `:notify` (`:order_events`) | `NotifyFunctionOrderEventsSnsPermission` | SNS からの Lambda 呼び出し権限 (`AWS::Lambda::Permission`) |
 | **Dashboard** | `:default` (`:operations`) | `Dashboard` (`OperationsDashboard`) | CloudWatch メトリクスダッシュボード (`AWS::CloudWatch::Dashboard`) |
 
 ## CloudWatch アラームのコンパイルと通知パラメータ (CloudWatch Alarms Compilation)
@@ -157,6 +159,28 @@ Lambda 関数で `event_source sqs: ...`（または `defaults` ブロックで�
     - `sqs:DeleteMessage`
     - `sqs:GetQueueAttributes`
   - **Resource**: 対象キューの ARN（複数キュー指定時はすべて含まれます）。
+
+## SNS トピックサブスクリプションと呼び出し権限のコンパイル (SNS Subscription & Permission Compilation)
+
+Lambda 関数で `event_source sns: ...`（または `defaults` ブロックでの指定）を設定した場合、`Veltrunode::Compiler::CloudFormation::SnsSubscriptionCompiler` により `AWS::SNS::Subscription` リソースおよび SNS による呼び出し許可 `AWS::Lambda::Permission` リソースが自動構成されます。
+
+- **論理ID**:
+  - **Subscription**: `#{FunctionName}#{TopicIdentifier}SnsSubscription`（例: `OrderNotifierFunctionOrderEventsTopicSnsSubscription`、識別子がない場合は `OrderNotifierFunctionSnsSubscription`）。
+  - **Lambda Permission**: `#{FunctionName}#{TopicIdentifier}SnsPermission`（例: `OrderNotifierFunctionOrderEventsTopicSnsPermission`、識別子がない場合は `OrderNotifierFunctionSnsPermission`）。
+- **`AWS::SNS::Subscription` プロパティ (`Properties`)**:
+  - `Protocol`: `'lambda'`
+  - `Endpoint`: `{ 'Fn::GetAtt' => [FunctionLogicalId, 'Arn'] }`
+  - `TopicArn`: 対象 SNS トピックの ARN。リテラル ARN（`arn:aws:sns:...`）指定時はその文字列、シンボルや `ref(:topic)` 指定時は `{ 'Ref' => TopicParamKey }`。
+  - `FilterPolicy`: `filter_policy` 指定時にフィルタポリシー JSON オブジェクトを展開。
+  - `FilterPolicyScope`: `filter_policy_scope` 指定時に `'MessageAttributes'` または `'MessageBody'` を設定。
+- **`AWS::Lambda::Permission` の自動付与**:
+  SNS トピックが対象 Lambda 関数をプッシュ呼び出しできるよう、以下のプロパティを持つ `AWS::Lambda::Permission` が自動生成されます。
+  - `Action`: `'lambda:InvokeFunction'`
+  - `FunctionName`: `{ 'Fn::GetAtt' => [FunctionLogicalId, 'Arn'] }`
+  - `Principal`: `'sns.amazonaws.com'`
+  - `SourceArn`: 対象 SNS トピックの ARN（`TopicArn` と同一の値または `{ 'Ref' => TopicParamKey }`）。
+- **SNS トピック ARN のパラメータ化**:
+  トピックにシンボルや `ref(...)` が指定された場合、CloudFormation テンプレートの `Parameters`（例: `OrderEventsTopic: { Type: String, Description: "SNS topic ARN for OrderEventsTopic" }`）に自動登録されます。
 
 ## CloudWatch メトリクスダッシュボードのコンパイルと URL 出力 (CloudWatch Dashboard Compilation & Output)
 

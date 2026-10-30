@@ -382,9 +382,22 @@ module Veltrunode
           builder.instance_eval(&) if block_given?
           @event_sources_config << builder.build
           return
+        elsif opts.key?(:sns)
+          sns_val = opts.delete(:sns)
+          sns_opts = sns_val.is_a?(Hash) ? sns_val.merge(opts) : opts.merge(topic: sns_val)
+          builder = EventSourceBuilder.new(:sns, **sns_opts)
+          builder.instance_eval(&) if block_given?
+          @event_sources_config << builder.build
+          return
         end
 
-        type = type_or_opts.is_a?(Symbol) || type_or_opts.is_a?(String) ? type_or_opts : :sqs
+        type = if type_or_opts.is_a?(Symbol) || type_or_opts.is_a?(String)
+                 type_or_opts
+               elsif opts.key?(:topic) || opts.key?(:topic_arn)
+                 :sns
+               else
+                 :sqs
+               end
         builder = EventSourceBuilder.new(type, **opts)
         builder.instance_eval(&) if block_given?
         @event_sources_config << builder.build

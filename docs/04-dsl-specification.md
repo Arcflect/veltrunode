@@ -245,6 +245,43 @@ end
 - **`enabled`**: イベントソースマッピングの有効/無効フラグ（デフォルト: `true`）。
 - **自動 IAM 権限付与**: `event_source` が定義された関数には、SQS キューからの読込・削除に必要な権限（`sqs:ReceiveMessage`, `sqs:DeleteMessage`, `sqs:GetQueueAttributes`）が Lambda 実行ロールに自動付与されます。
 
+## SNS トピックサブスクリプション (SNS Topic Subscription)
+
+イベント駆動アーキテクチャにおいて SNS トピックからのプッシュ通知を Lambda で受信する場合、`event_source sns: ...` でトピック ARN または参照（`ref(:topic)` / シンボル）を指定することで、`AWS::SNS::Subscription` および呼び出し許可 `AWS::Lambda::Permission` を宣言的に定義できます。また、フィルタポリシー（`FilterPolicy`）によるイベントフィルタリングもサポートしています。
+
+```ruby
+Veltrunode.application "sns-subscriber-app" do
+  # 1. ハッシュ形式の指定（トピック参照 + フィルタポリシー）
+  function :order_notifier do
+    handler "notifier.handler"
+    runtime "ruby3.3"
+    event_source sns: ref(:order_events_topic),
+                 filter_policy: {
+                   event_type: ["order_created", "order_cancelled"],
+                   amount: [{ numeric: [">=", 1000] }]
+                 }
+  end
+
+  # 2. 外部トピック ARN の指定とブロック構文
+  function :audit_logger do
+    handler "audit.handler"
+    runtime "ruby3.3"
+    event_source :sns do
+      topic "arn:aws:sns:ap-northeast-1:123456789012:security-alerts"
+      filter_policy severity: ["high", "critical"]
+      filter_policy_scope :message_attributes
+    end
+  end
+end
+```
+
+### パラメータ仕様
+
+- **`topic` / `topic_arn` / `sns`**: 対象の SNS トピック。完全な SNS トピック ARN（`arn:aws:sns:...`）または `ref(:topic_name)` / シンボル（CloudFormation パラメータ参照）を指定します。
+- **`filter_policy`**: サブスクリプションに適用するフィルタポリシー（`FilterPolicy`）を Hash で指定します。条件に合致するメッセージのみが Lambda 関数へ配信されます。
+- **`filter_policy_scope`**: フィルタポリシーの評価対象スコープ（`MessageAttributes` または `MessageBody`、省略時は AWS デフォルトの `MessageAttributes`）。
+- **自動呼び出し権限付与**: SNS サービス（`sns.amazonaws.com`）から対象 Lambda 関数を呼び出すための `AWS::Lambda::Permission`（`lambda:InvokeFunction`、`SourceArn`: 対象トピック ARN）が自動的に付与されます。
+
 ## CloudWatch メトリクスダッシュボード (CloudWatch Dashboard)
 
 Application レベルで `dashboard` を宣言することで、デプロイされた全 Lambda 関数の稼働状態を一目で把握できる `AWS::CloudWatch::Dashboard` リソースを自動生成できます。

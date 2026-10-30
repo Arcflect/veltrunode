@@ -158,6 +158,10 @@ module Veltrunode
           for_event_invoke_config(name)
         when :event_source_mapping
           for_event_source_mapping(name)
+        when :sns_subscription
+          for_sns_subscription(name)
+        when :sns_permission
+          for_sns_permission(name)
         else
           suffix = pascalize(type)
           base = pascalize(name)
@@ -323,6 +327,36 @@ module Veltrunode
           "#{fn_id}#{src_part}EventSourceMapping"
         else
           "#{fn_id}EventSourceMapping"
+        end
+      end
+
+      # SNS サブスクリプション (AWS::SNS::Subscription) の論理IDを生成します（サフィックス: SnsSubscription）
+      #
+      # @param function_name [String, Symbol] 関数シンボリック名 (例: :notify)
+      # @param topic_identifier [String, Symbol, nil] トピック名または識別子 (例: :order_events)
+      # @return [String] 論理ID (例: "NotifyFunctionOrderEventsSnsSubscription")
+      def for_sns_subscription(function_name, topic_identifier = nil)
+        fn_id = for_function(function_name)
+        if topic_identifier && !topic_identifier.to_s.strip.empty?
+          topic_part = pascalize(topic_identifier)
+          "#{fn_id}#{topic_part}SnsSubscription"
+        else
+          "#{fn_id}SnsSubscription"
+        end
+      end
+
+      # SNS -> Lambda 呼び出し権限 (AWS::Lambda::Permission) の論理IDを生成します（サフィックス: SnsPermission）
+      #
+      # @param function_name [String, Symbol] 関数シンボリック名 (例: :notify)
+      # @param topic_identifier [String, Symbol, nil] トピック名または識別子 (例: :order_events)
+      # @return [String] 論理ID (例: "NotifyFunctionOrderEventsSnsPermission")
+      def for_sns_permission(function_name, topic_identifier = nil)
+        fn_id = for_function(function_name)
+        if topic_identifier && !topic_identifier.to_s.strip.empty?
+          topic_part = pascalize(topic_identifier)
+          "#{fn_id}#{topic_part}SnsPermission"
+        else
+          "#{fn_id}SnsPermission"
         end
       end
     end

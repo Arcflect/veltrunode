@@ -2,6 +2,7 @@
 
 require_relative '../diagnostics/diagnostic'
 require_relative 'async_invoke_config'
+require_relative 'event_source'
 
 module Veltrunode
   module Model
@@ -514,14 +515,15 @@ module Veltrunode
       end
 
       def normalize_event_sources(sources)
-        return [].freeze if sources.nil?
+        return [].freeze if sources.nil? || sources == false
 
         list = sources.is_a?(Array) ? sources : [sources]
         normalized = list.map do |src|
           if src.is_a?(EventSource)
             src
           elsif src.is_a?(Hash)
-            EventSource.new(**src)
+            kwargs = src.each_with_object({}) { |(k, v), memo| memo[k.to_sym] = v }
+            EventSource.new(**kwargs)
           else
             raise ValidationError, "Invalid event_source configuration: #{src.class}"
           end

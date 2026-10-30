@@ -271,6 +271,24 @@ RSpec.describe Veltrunode::Compiler::LogicalId do
     end
   end
 
+  describe '.for_sns_subscription and .for_sns_permission' do
+    it 'generates SnsSubscription logical ID with function and topic identifier' do
+      expect(described_class.for_sns_subscription(:notify, :order_events)).to eq(
+        'NotifyFunctionOrderEventsSnsSubscription'
+      )
+      expect(described_class.for_sns_subscription(:notify)).to eq('NotifyFunctionSnsSubscription')
+      expect(described_class.for(:notify, type: :sns_subscription)).to eq('NotifyFunctionSnsSubscription')
+    end
+
+    it 'generates SnsPermission logical ID with function and topic identifier' do
+      expect(described_class.for_sns_permission(:notify, :order_events)).to eq(
+        'NotifyFunctionOrderEventsSnsPermission'
+      )
+      expect(described_class.for_sns_permission(:notify)).to eq('NotifyFunctionSnsPermission')
+      expect(described_class.for(:notify, type: :sns_permission)).to eq('NotifyFunctionSnsPermission')
+    end
+  end
+
   describe 'standalone loading' do
     it 'allows individual compiler files to be loaded independently' do
       expect do
@@ -281,6 +299,7 @@ RSpec.describe Veltrunode::Compiler::LogicalId do
         require 'veltrunode/compiler/cloudformation/log_group_compiler'
         require 'veltrunode/compiler/cloudformation/role_compiler'
         require 'veltrunode/compiler/cloudformation/event_source_mapping_compiler'
+        require 'veltrunode/compiler/cloudformation/sns_subscription_compiler'
         require 'veltrunode/compiler/cloudformation'
 
         cf = Veltrunode::Compiler::CloudFormation
@@ -292,6 +311,12 @@ RSpec.describe Veltrunode::Compiler::LogicalId do
         expect(cf::RoleCompiler.logical_id_for_function(:worker)).to eq('WorkerFunctionRole')
         expect(cf::EventSourceMappingCompiler.logical_id_for(:worker, :orders)).to eq(
           'WorkerFunctionOrdersEventSourceMapping'
+        )
+        expect(cf::SnsSubscriptionCompiler.logical_id_for(:notify, :order_events)).to eq(
+          'NotifyFunctionOrderEventsSnsSubscription'
+        )
+        expect(cf::SnsSubscriptionCompiler.permission_logical_id_for(:notify, :order_events)).to eq(
+          'NotifyFunctionOrderEventsSnsPermission'
         )
       end.not_to raise_error
     end

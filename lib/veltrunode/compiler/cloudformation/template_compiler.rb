@@ -15,6 +15,7 @@ require_relative 'subscription_filter_compiler'
 require_relative 'dashboard_compiler'
 require_relative 'event_invoke_config_compiler'
 require_relative 'event_source_mapping_compiler'
+require_relative 'sns_subscription_compiler'
 require_relative '../../graph/resource_graph'
 require_relative '../../version'
 
@@ -140,6 +141,20 @@ module Veltrunode
                     'Type' => 'String'
                   }
                 end
+              end
+            end
+
+            if fn.respond_to?(:event_sources) && fn.event_sources
+              Array(fn.event_sources).each do |source|
+                next unless source.respond_to?(:sns?) && source.sns?
+
+                param_key = resolve_sns_topic_param_key(source.topic)
+                next if param_key.nil? || params.key?(param_key)
+
+                params[param_key] = {
+                  'Description' => "SNS topic ARN for #{param_key}",
+                  'Type' => 'String'
+                }
               end
             end
 
@@ -315,11 +330,16 @@ module Veltrunode
               end
             end
 
-            # EventSourceMapping (AWS::Lambda::EventSourceMapping)
+            # EventSourceMapping (AWS::Lambda::EventSourceMapping) / SNS Subscription (AWS::SNS::Subscription)
             if fn.respond_to?(:event_sources) && fn.event_sources
               Array(fn.event_sources).each do |source|
-                esm_res = EventSourceMappingCompiler.compile(fn, source, context: context)
-                resources.merge!(esm_res)
+                if source.respond_to?(:sns?) && source.sns?
+                  sns_res = SnsSubscriptionCompiler.compile(fn, source, context: context)
+                  resources.merge!(sns_res)
+                else
+                  esm_res = EventSourceMappingCompiler.compile(fn, source, context: context)
+                  resources.merge!(esm_res)
+                end
               end
             end
 
@@ -653,14 +673,17 @@ module Veltrunode
         def resolve_sns_topic_param_key(action)
           return nil if action.nil?
 
-          if action.is_a?(Hash) && action['Ref']
-            action['Ref'].to_s
+          if action.is_a?(Hash)
+            return action['Ref'].to_s if action['Ref']
+            return LogicalId.pascalize(action[:ref] || action['ref']) if action[:ref] || action['ref']
+
+            nil
           elsif action.respond_to?(:name) || action.is_a?(Symbol)
             name = action.respond_to?(:name) ? action.name : action
             LogicalId.pascalize(name)
           elsif action.is_a?(String)
             str = action.strip
-            return nil if str.start_with?('arn:aws:')
+            return nil if str.start_with?('arn:')
 
             str
           end
