@@ -240,36 +240,17 @@ module Veltrunode
         opts.merge!(type_or_opts) if type_or_opts.is_a?(Hash)
 
         if opts.key?(:sqs)
-          sqs_val = opts.delete(:sqs)
-          sqs_opts = if sqs_val.is_a?(Hash) && !cfn_intrinsic_hash?(sqs_val)
-                       sqs_val.merge(opts)
-                     else
-                       opts.merge(queue: sqs_val)
-                     end
-          builder = EventSourceBuilder.new(:sqs, **sqs_opts)
-          builder.instance_eval(&) if block_given?
-          @event_sources << builder.build
+          @event_sources << build_keyed_event_source(:sqs, opts.delete(:sqs), opts, :queue, &)
           return
         elsif opts.key?(:sns)
-          sns_val = opts.delete(:sns)
-          sns_opts = if sns_val.is_a?(Hash) && !cfn_intrinsic_hash?(sns_val)
-                       sns_val.merge(opts)
-                     else
-                       opts.merge(topic: sns_val)
-                     end
-          builder = EventSourceBuilder.new(:sns, **sns_opts)
-          builder.instance_eval(&) if block_given?
-          @event_sources << builder.build
+          @event_sources << build_keyed_event_source(:sns, opts.delete(:sns), opts, :topic, &)
+          return
+        elsif opts.key?(:s3)
+          @event_sources << build_keyed_event_source(:s3, opts.delete(:s3), opts, :bucket, &)
           return
         end
 
-        type = if type_or_opts.is_a?(Symbol) || type_or_opts.is_a?(String)
-                 type_or_opts
-               elsif opts.key?(:topic) || opts.key?(:topic_arn)
-                 :sns
-               else
-                 :sqs
-               end
+        type = resolve_event_source_type(type_or_opts, opts)
         builder = EventSourceBuilder.new(type, **opts)
         builder.instance_eval(&) if block_given?
         @event_sources << builder.build
@@ -315,6 +296,25 @@ module Veltrunode
         list.each do |cfg|
           event_source(cfg)
         end
+      end
+
+      def build_keyed_event_source(type, val, extra_opts, default_key, &)
+        merged_opts = if val.is_a?(Hash) && !cfn_intrinsic_hash?(val)
+                        val.merge(extra_opts)
+                      else
+                        extra_opts.merge(default_key => val)
+                      end
+        builder = EventSourceBuilder.new(type, **merged_opts)
+        builder.instance_eval(&) if block_given?
+        builder.build
+      end
+
+      def resolve_event_source_type(type_or_opts, opts)
+        return type_or_opts if type_or_opts.is_a?(Symbol) || type_or_opts.is_a?(String)
+        return :sns if opts.key?(:topic) || opts.key?(:topic_arn)
+        return :s3 if opts.key?(:bucket)
+
+        :sqs
       end
 
       def cfn_intrinsic_hash?(hash)

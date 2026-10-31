@@ -243,4 +243,144 @@ RSpec.describe 'DSL event_source support' do
       expect(none_fn.event_sources).to be_empty
     end
   end
+
+  describe 'S3 event source DSL' do
+    it 'supports nested hash event_source s3: { bucket: ..., events: ..., filter: ... }' do
+      app = Veltrunode.application 's3-app' do
+        function :convert do
+          handler 'convert.handler'
+          runtime 'ruby3.3'
+          event_source s3: {
+            bucket: :uploads,
+            events: ['s3:ObjectCreated:*'],
+            filter: { prefix: 'incoming/', suffix: '.jpg' }
+          }
+        end
+      end
+
+      fn = app.functions.first
+      expect(fn.event_sources.size).to eq(1)
+
+      es = fn.event_sources.first
+      expect(es.s3?).to be true
+      expect(es.bucket).to eq(:uploads)
+      expect(es.bucket_identifier).to eq('uploads')
+      expect(es.events).to eq(['s3:ObjectCreated:*'])
+      expect(es.filter).to eq('prefix' => 'incoming/', 'suffix' => '.jpg')
+      expect(es.filter_rules).to eq([
+                                      { 'Name' => 'prefix', 'Value' => 'incoming/' },
+                                      { 'Name' => 'suffix', 'Value' => '.jpg' }
+                                    ])
+    end
+
+    it 'supports inline hash event_source s3: :uploads with events and prefix/suffix' do
+      app = Veltrunode.application 's3-app' do
+        function :convert do
+          handler 'convert.handler'
+          runtime 'ruby3.3'
+          event_source s3: :uploads,
+                       events: ['s3:ObjectCreated:Put', 's3:ObjectCreated:Post'],
+                       prefix: 'raw/',
+                       suffix: '.png'
+        end
+      end
+
+      es = app.functions.first.event_sources.first
+      expect(es.s3?).to be true
+      expect(es.bucket).to eq(:uploads)
+      expect(es.events).to eq(['s3:ObjectCreated:Put', 's3:ObjectCreated:Post'])
+      expect(es.filter_prefix).to eq('raw/')
+      expect(es.filter_suffix).to eq('.png')
+    end
+
+    it 'supports ref(:bucket) in event_source s3:' do
+      app = Veltrunode.application 's3-app' do
+        function :convert do
+          handler 'convert.handler'
+          runtime 'ruby3.3'
+          event_source s3: {
+            bucket: ref(:input_bucket),
+            events: ['s3:ObjectCreated:*'],
+            filter: { prefix: 'uploads/' }
+          }
+        end
+      end
+
+      es = app.functions.first.event_sources.first
+      expect(es.s3?).to be true
+      expect(es.bucket).to be_a(Veltrunode::DSL::Reference)
+      expect(es.bucket.name).to eq(:input_bucket)
+      expect(es.bucket_identifier).to eq('input_bucket')
+      expect(es.external_bucket?).to be true
+    end
+
+    it 'supports block-based event_source :s3 DSL' do
+      app = Veltrunode.application 's3-app' do
+        function :convert do
+          handler 'convert.handler'
+          runtime 'ruby3.3'
+          event_source :s3 do
+            bucket :media_bucket
+            events 's3:ObjectCreated:*', 's3:ObjectRemoved:*'
+            filter prefix: 'videos/', suffix: '.mp4'
+          end
+        end
+      end
+
+      es = app.functions.first.event_sources.first
+      expect(es.s3?).to be true
+      expect(es.bucket).to eq(:media_bucket)
+      expect(es.events).to eq(['s3:ObjectCreated:*', 's3:ObjectRemoved:*'])
+      expect(es.filter).to eq('prefix' => 'videos/', 'suffix' => '.mp4')
+    end
+
+    it 'supports passing S3 event_source as function keyword argument' do
+      app = Veltrunode.application 's3-app' do
+        function :convert, event_source: {
+          s3: {
+            bucket: :uploads,
+            events: ['s3:ObjectCreated:*'],
+            filter: { prefix: 'incoming/', suffix: '.csv' }
+          }
+        } do
+          handler 'convert.handler'
+          runtime 'ruby3.3'
+        end
+      end
+
+      es = app.functions.first.event_sources.first
+      expect(es.s3?).to be true
+      expect(es.bucket).to eq(:uploads)
+      expect(es.events).to eq(['s3:ObjectCreated:*'])
+      expect(es.filter).to eq('prefix' => 'incoming/', 'suffix' => '.csv')
+    end
+
+    it 'supports S3 event_source in application defaults with opt-out' do
+      app = Veltrunode.application 's3-default-app' do
+        defaults do
+          event_source s3: { bucket: :shared_uploads, filter: { prefix: 'jobs/' } }
+        end
+
+        function :processor do
+          handler 'proc.handler'
+          runtime 'ruby3.3'
+        end
+
+        function :standalone do
+          handler 'none.handler'
+          runtime 'ruby3.3'
+          event_source false
+        end
+      end
+
+      proc_fn = app.functions.find { |f| f.logical_name == 'processor' }
+      none_fn = app.functions.find { |f| f.logical_name == 'standalone' }
+
+      expect(proc_fn.event_sources.size).to eq(1)
+      expect(proc_fn.event_sources.first.s3?).to be true
+      expect(proc_fn.event_sources.first.bucket).to eq(:shared_uploads)
+      expect(proc_fn.event_sources.first.filter).to eq('prefix' => 'jobs/')
+      expect(none_fn.event_sources).to be_empty
+    end
+  end
 end

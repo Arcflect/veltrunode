@@ -6,13 +6,19 @@ require_relative '../model/event_source'
 module Veltrunode
   module DSL
     class EventSourceBuilder < BaseBuilder
-      def initialize(type = :sqs, queue: nil, topic: nil, topic_arn: nil, batch_size: nil,
-                     maximum_batching_window_in_seconds: nil, report_batch_item_failures: false,
+      def initialize(type = :sqs, queue: nil, topic: nil, topic_arn: nil, bucket: nil,
+                     events: nil, event: nil, filter: nil, prefix: nil, suffix: nil,
+                     batch_size: nil, maximum_batching_window_in_seconds: nil, report_batch_item_failures: false,
                      filter_policy: nil, filter_policy_scope: nil, enabled: true, **)
         super()
         @type = type.to_sym
         @queue = queue
         @topic = topic || topic_arn
+        @bucket = bucket
+        @events = events || event
+        @filter = filter
+        @prefix = prefix
+        @suffix = suffix
         @batch_size = batch_size
         @maximum_batching_window_in_seconds = maximum_batching_window_in_seconds
         @report_batch_item_failures = report_batch_item_failures
@@ -29,6 +35,33 @@ module Veltrunode
         @topic = t
       end
       alias topic_arn topic
+
+      def bucket(b)
+        @bucket = b
+      end
+
+      def events(*evts)
+        @events = evts.flatten
+      end
+      alias event events
+
+      def filter(f = nil, **kwargs)
+        @filter = if f.is_a?(Hash)
+                    f.merge(kwargs)
+                  elsif kwargs.empty?
+                    f
+                  else
+                    kwargs
+                  end
+      end
+
+      def prefix(p)
+        @prefix = p
+      end
+
+      def suffix(s)
+        @suffix = s
+      end
 
       def batch_size(size)
         @batch_size = size
@@ -67,6 +100,11 @@ module Veltrunode
           type: @type,
           queue: @queue,
           topic: @topic,
+          bucket: @bucket,
+          events: @events,
+          filter: @filter,
+          prefix: @prefix,
+          suffix: @suffix,
           batch_size: @batch_size,
           maximum_batching_window_in_seconds: @maximum_batching_window_in_seconds,
           report_batch_item_failures: @report_batch_item_failures,
