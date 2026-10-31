@@ -159,6 +159,12 @@ module Veltrunode
             statements.concat(sqs_statements)
           end
 
+          # DynamoDB Streams イベントソースマッピング (EventSourceMapping) 権限を自動付与
+          if target.respond_to?(:event_sources) && target.event_sources&.any?(&:dynamodb_stream?)
+            ddb_statements = build_dynamodb_stream_event_source_statements(target.event_sources)
+            statements.concat(ddb_statements)
+          end
+
           policy = {
             'PolicyName' => "#{logical_id}Policy",
             'PolicyDocument' => {
@@ -305,6 +311,44 @@ module Veltrunode
             { 'Fn::GetAtt' => [q_id, 'Arn'] }
           else
             q_str
+          end
+        end
+
+        def build_dynamodb_stream_event_source_statements(event_sources)
+          ddb_sources = event_sources.select(&:dynamodb_stream?)
+          stream_arns = ddb_sources.map { |src| resolve_dynamodb_stream_arn(src.stream) }.compact.uniq
+          return [] if stream_arns.empty?
+
+          [
+            {
+              'Effect' => 'Allow',
+              'Action' => [
+                'dynamodb:GetRecords',
+                'dynamodb:GetShardIterator',
+                'dynamodb:DescribeStream',
+                'dynamodb:ListStreams'
+              ],
+              'Resource' => stream_arns
+            }
+          ]
+        end
+
+        def resolve_dynamodb_stream_arn(stream)
+          if stream.is_a?(Hash)
+            ref_key = stream[:ref] || stream['ref'] || stream[:Ref] || stream['Ref']
+            return { 'Ref' => LogicalId.pascalize(ref_key) } if ref_key
+
+            return stream
+          end
+
+          return { 'Ref' => LogicalId.pascalize(stream.name) } if !stream.is_a?(Symbol) && stream.respond_to?(:name)
+          return { 'Ref' => LogicalId.pascalize(stream) } if stream.is_a?(Symbol)
+
+          s_str = stream.to_s.strip
+          if s_str.start_with?('arn:')
+            s_str
+          else
+            { 'Ref' => s_str }
           end
         end
 

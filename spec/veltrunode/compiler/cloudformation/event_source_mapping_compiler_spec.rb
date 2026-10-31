@@ -5,6 +5,7 @@ require 'yaml'
 require 'veltrunode/compiler/cloudformation/event_source_mapping_compiler'
 require 'veltrunode/model/function'
 require 'veltrunode/model/event_source'
+require 'veltrunode/dsl/reference'
 
 RSpec.describe Veltrunode::Compiler::CloudFormation::EventSourceMappingCompiler do
   let(:function) do
@@ -74,6 +75,55 @@ RSpec.describe Veltrunode::Compiler::CloudFormation::EventSourceMappingCompiler 
       expect(props['Enabled']).to be(true)
       expect(props).not_to have_key('MaximumBatchingWindowInSeconds')
       expect(props).not_to have_key('FunctionResponseTypes')
+    end
+
+    it 'compiles DynamoDB Stream event source mapping with ARN and StartingPosition' do
+      stream_arn = 'arn:aws:dynamodb:ap-northeast-1:123456789012:table/Orders/stream/2026-01-01T00:00:00.000'
+      source = Veltrunode::Model::EventSource.new(
+        dynamodb_stream: stream_arn,
+        starting_position: :trim_horizon,
+        batch_size: 100,
+        maximum_batching_window_in_seconds: 5,
+        report_batch_item_failures: true
+      )
+
+      res = described_class.compile(function, source)
+
+      expect(res).to eq(
+        'WorkerFunctionOrdersEventSourceMapping' => {
+          'Type' => 'AWS::Lambda::EventSourceMapping',
+          'Properties' => {
+            'BatchSize' => 100,
+            'Enabled' => true,
+            'EventSourceArn' => stream_arn,
+            'FunctionName' => { 'Fn::GetAtt' => %w[WorkerFunction Arn] },
+            'FunctionResponseTypes' => ['ReportBatchItemFailures'],
+            'MaximumBatchingWindowInSeconds' => 5,
+            'StartingPosition' => 'TRIM_HORIZON'
+          }
+        }
+      )
+    end
+
+    it 'compiles DynamoDB Stream event source mapping with ref(:stream) and starting_position: :latest' do
+      source = Veltrunode::Model::EventSource.new(
+        dynamodb_stream: Veltrunode::DSL::Reference.new(:orders_stream_arn),
+        starting_position: :latest
+      )
+
+      res = described_class.compile(function, source)
+
+      expect(res).to eq(
+        'WorkerFunctionOrdersStreamArnEventSourceMapping' => {
+          'Type' => 'AWS::Lambda::EventSourceMapping',
+          'Properties' => {
+            'Enabled' => true,
+            'EventSourceArn' => { 'Ref' => 'OrdersStreamArn' },
+            'FunctionName' => { 'Fn::GetAtt' => %w[WorkerFunction Arn] },
+            'StartingPosition' => 'LATEST'
+          }
+        }
+      )
     end
   end
 

@@ -33,7 +33,12 @@ module Veltrunode
 
         def logical_id
           fn_name = extract_name(function)
-          self.class.logical_id_for(fn_name, event_source.queue_identifier)
+          id_part = if event_source.respond_to?(:source_identifier)
+                      event_source.source_identifier
+                    else
+                      event_source.queue_identifier
+                    end
+          self.class.logical_id_for(fn_name, id_part)
         end
 
         def resource_type
@@ -45,10 +50,13 @@ module Veltrunode
           fn_logical_id = FunctionCompiler.logical_id_for(fn_name)
 
           props = {
-            'EventSourceArn' => resolve_queue_arn(event_source.queue),
+            'EventSourceArn' => resolve_event_source_arn,
             'FunctionName' => { 'Fn::GetAtt' => [fn_logical_id, 'Arn'] }
           }
 
+          if event_source.respond_to?(:starting_position) && event_source.starting_position
+            props['StartingPosition'] = event_source.starting_position
+          end
           props['BatchSize'] = event_source.batch_size.to_i if event_source.batch_size
           if event_source.maximum_batching_window_in_seconds
             props['MaximumBatchingWindowInSeconds'] = event_source.maximum_batching_window_in_seconds.to_i
@@ -83,10 +91,18 @@ module Veltrunode
         def extract_name(target)
           if target.respond_to?(:logical_name)
             target.logical_name
-          elsif target.respond_to?(:name)
+          elsif !target.is_a?(Symbol) && target.respond_to?(:name)
             target.name
           else
             target.to_s
+          end
+        end
+
+        def resolve_event_source_arn
+          if event_source.respond_to?(:dynamodb_stream?) && event_source.dynamodb_stream?
+            resolve_stream_arn(event_source.stream)
+          else
+            resolve_queue_arn(event_source.queue)
           end
         end
 
@@ -99,6 +115,25 @@ module Veltrunode
           else
             q_id = LogicalId.for_queue(q_str)
             { 'Fn::GetAtt' => [q_id, 'Arn'] }
+          end
+        end
+
+        def resolve_stream_arn(stream)
+          if stream.is_a?(Hash)
+            ref_key = stream[:ref] || stream['ref'] || stream[:Ref] || stream['Ref']
+            return { 'Ref' => LogicalId.pascalize(ref_key) } if ref_key
+
+            return stream
+          end
+
+          return { 'Ref' => LogicalId.pascalize(stream.name) } if !stream.is_a?(Symbol) && stream.respond_to?(:name)
+          return { 'Ref' => LogicalId.pascalize(stream) } if stream.is_a?(Symbol)
+
+          s_str = stream.to_s.strip
+          if s_str.start_with?('arn:')
+            s_str
+          else
+            { 'Ref' => s_str }
           end
         end
 

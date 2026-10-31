@@ -163,6 +163,14 @@ module Veltrunode
                       'Type' => 'String'
                     }
                   end
+                elsif source.respond_to?(:dynamodb_stream?) && source.dynamodb_stream?
+                  param_key = resolve_sns_topic_param_key(source.stream)
+                  if param_key && !params.key?(param_key)
+                    params[param_key] = {
+                      'Description' => "DynamoDB stream ARN for #{param_key}",
+                      'Type' => 'String'
+                    }
+                  end
                 end
               end
             end
