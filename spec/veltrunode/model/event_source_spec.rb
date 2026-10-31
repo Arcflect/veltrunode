@@ -193,6 +193,60 @@ RSpec.describe Veltrunode::Model::EventSource do
       expect { described_class.new(type: :s3, bucket: :uploads, filter: { pattern: '*.pdf' }) }
         .to raise_error(ArgumentError, /Unsupported S3 filter keys/)
     end
+
+    it 'creates a valid DynamoDB Stream event source with starting_position' do
+      stream_arn = 'arn:aws:dynamodb:ap-northeast-1:123456789012:table/Orders/stream/2026-01-01T00:00:00.000'
+      source = described_class.new(
+        dynamodb_stream: stream_arn,
+        starting_position: :trim_horizon,
+        batch_size: 100,
+        maximum_batching_window_in_seconds: 5,
+        report_batch_item_failures: true
+      )
+
+      expect(source.dynamodb_stream?).to be true
+      expect(source.sqs?).to be false
+      expect(source.sns?).to be false
+      expect(source.s3?).to be false
+      expect(source.type).to eq(:dynamodb_stream)
+      expect(source.stream).to eq(stream_arn)
+      expect(source.dynamodb_stream).to eq(stream_arn)
+      expect(source.stream_arn).to eq(stream_arn)
+      expect(source.stream_identifier).to eq('Orders')
+      expect(source.source_identifier).to eq('Orders')
+      expect(source.starting_position).to eq('TRIM_HORIZON')
+      expect(source.batch_size).to eq(100)
+      expect(source.maximum_batching_window_in_seconds).to eq(5)
+      expect(source.report_batch_item_failures?).to be true
+    end
+
+    it 'defaults starting_position to LATEST and supports nested dynamodb_stream: hash' do
+      source = described_class.new(
+        dynamodb_stream: {
+          stream: :orders_stream,
+          starting_position: :latest,
+          batch_size: 50
+        }
+      )
+
+      expect(source.dynamodb_stream?).to be true
+      expect(source.stream).to eq(:orders_stream)
+      expect(source.stream_identifier).to eq('orders_stream')
+      expect(source.starting_position).to eq('LATEST')
+      expect(source.batch_size).to eq(50)
+
+      default_pos_source = described_class.new(dynamodb_stream: :users_stream)
+      expect(default_pos_source.starting_position).to eq('LATEST')
+    end
+
+    it 'raises ArgumentError if stream is missing or starting_position is invalid' do
+      expect { described_class.new(type: :dynamodb_stream, stream: nil) }
+        .to raise_error(ArgumentError, /Stream must be specified for DynamoDB Stream event source/)
+      expect { described_class.new(type: :dynamodb_stream, stream: '   ') }
+        .to raise_error(ArgumentError, /Stream must be specified for DynamoDB Stream event source/)
+      expect { described_class.new(dynamodb_stream: :orders_stream, starting_position: :at_timestamp) }
+        .to raise_error(ArgumentError, /Invalid starting_position/)
+    end
   end
 
   describe '#to_h' do
@@ -243,6 +297,25 @@ RSpec.describe Veltrunode::Model::EventSource do
       expect(hash['bucket']).to eq(:uploads)
       expect(hash['events']).to eq(['s3:ObjectCreated:*'])
       expect(hash['filter']).to eq('prefix' => 'incoming/', 'suffix' => '.pdf')
+      expect(hash['enabled']).to be true
+    end
+
+    it 'serializes DynamoDB Stream event source attributes' do
+      source = described_class.new(
+        dynamodb_stream: 'arn:aws:dynamodb:ap-northeast-1:123456789012:table/Orders/stream/2026-01-01T00:00:00.000',
+        starting_position: :trim_horizon,
+        batch_size: 25,
+        report_batch_item_failures: true
+      )
+
+      hash = source.to_h
+      expect(hash['type']).to eq('dynamodb_stream')
+      expect(hash['stream']).to eq(
+        'arn:aws:dynamodb:ap-northeast-1:123456789012:table/Orders/stream/2026-01-01T00:00:00.000'
+      )
+      expect(hash['starting_position']).to eq('TRIM_HORIZON')
+      expect(hash['batch_size']).to eq(25)
+      expect(hash['report_batch_item_failures']).to be true
       expect(hash['enabled']).to be true
     end
   end
@@ -297,6 +370,26 @@ RSpec.describe Veltrunode::Model::EventSource do
       expect(fn.event_sources.first.bucket).to eq(:uploads)
       expect(fn.event_sources.first.events).to eq(['s3:ObjectCreated:*'])
       expect(fn.event_sources.first.filter).to eq('prefix' => 'incoming/', 'suffix' => '.pdf')
+    end
+
+    it 'accepts DynamoDB Stream event source hash in Function' do
+      fn = Veltrunode::Model::Function.new(
+        'stream_processor',
+        handler: 'processor.handler',
+        runtime: 'ruby3.3',
+        event_sources: [
+          {
+            dynamodb_stream: 'arn:aws:dynamodb:ap-northeast-1:123456789012:table/Orders/stream/2026-01-01T00:00:00.000',
+            starting_position: :latest,
+            batch_size: 100
+          }
+        ]
+      )
+
+      expect(fn.event_sources?).to be true
+      expect(fn.event_sources.first.dynamodb_stream?).to be true
+      expect(fn.event_sources.first.starting_position).to eq('LATEST')
+      expect(fn.event_sources.first.batch_size).to eq(100)
     end
   end
 end
