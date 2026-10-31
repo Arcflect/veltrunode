@@ -1,6 +1,6 @@
 ---
 AWSTemplateFormatVersion: '2010-09-09'
-Description: efs-security-group-app - dev (compiled by Veltrunode v0.1.76)
+Description: efs-security-group-app - dev (compiled by Veltrunode v0.1.77)
 Parameters:
   ArtifactBucket:
     Description: S3 bucket name where function and layer zip packages are stored
