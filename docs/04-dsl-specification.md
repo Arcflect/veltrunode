@@ -282,6 +282,55 @@ end
 - **`filter_policy_scope`**: フィルタポリシーの評価対象スコープ（`MessageAttributes` または `MessageBody`、省略時は AWS デフォルトの `MessageAttributes`）。
 - **自動呼び出し権限付与**: SNS サービス（`sns.amazonaws.com`）から対象 Lambda 関数を呼び出すための `AWS::Lambda::Permission`（`lambda:InvokeFunction`、`SourceArn`: 対象トピック ARN）が自動的に付与されます。
 
+## S3 バケットイベント通知と Lambda トリガー (S3 Bucket Event Notification)
+
+S3 バケットへのオブジェクト作成（`s3:ObjectCreated:*`）や削除（`s3:ObjectRemoved:*`）等を契機としたファイル処理パイプラインを構築する場合、`event_source s3: { bucket: ..., events: [...], filter: ... }` でバケット、イベント種別、およびキーのプレフィックス/サフィックスフィルタを指定して Lambda トリガーを自動設定できます。
+
+```ruby
+Veltrunode.application "s3-pipeline-app" do
+  # 1. マネージド S3 バケットの指定（AWS::S3::Bucket 通知設定 + AWS::Lambda::Permission を自動生成）
+  function :convert, event_source: {
+    s3: {
+      bucket: :uploads,
+      events: ["s3:ObjectCreated:*"],
+      filter: { prefix: "incoming/", suffix: ".jpg" }
+    }
+  } do
+    handler "convert.handler"
+    runtime "ruby3.3"
+  end
+
+  # 2. ブロック構文での指定
+  function :video_transcoder do
+    handler "transcode.handler"
+    runtime "ruby3.3"
+    event_source :s3 do
+      bucket :uploads
+      events "s3:ObjectCreated:Put", "s3:ObjectCreated:CompleteMultipartUpload"
+      filter prefix: "videos/", suffix: ".mp4"
+    end
+  end
+
+  # 3. 既存バケット（ref パラメータまたは ARN）の指定（AWS::Lambda::Permission のみ生成）
+  function :archive do
+    handler "archive.handler"
+    runtime "ruby3.3"
+    event_source s3: {
+      bucket: ref(:external_archive_bucket),
+      events: ["s3:ObjectCreated:*"]
+    }
+  end
+end
+```
+
+### パラメータ仕様
+
+- **`bucket` / `s3`**: 対象の S3 バケット。
+  - スタック内シンボル（例: `:uploads`）またはバケット識別名を指定した場合は、Veltrunode 管理の `AWS::S3::Bucket`（通知設定 `NotificationConfiguration.LambdaConfigurations` 付き）および `AWS::Lambda::Permission` を生成します。
+  - `ref(:bucket_name)` または完全な S3 バケット ARN（`arn:aws:s3:::...`）を指定した場合は、既存インフラストラクチャ保護ルールに従い `AWS::S3::Bucket` は生成せず、S3 からの呼び出しを許可する `AWS::Lambda::Permission` のみを生成します。
+- **`events` / `event`**: トリガー対象の S3 イベント種別（文字列または配列、デフォルト: `['s3:ObjectCreated:*']`）。`s3:` プレフィックスで始まる有効なイベント名を指定します。
+- **`filter` (`prefix` / `suffix`)**: S3 オブジェクトキーのフィルタ条件（`prefix`: プレフィックス、`suffix`: サフィックス）。`NotificationConfiguration.LambdaConfigurations[].Filter.S3Key.Rules` に展開されます。
+
 ## CloudWatch メトリクスダッシュボード (CloudWatch Dashboard)
 
 Application レベルで `dashboard` を宣言することで、デプロイされた全 Lambda 関数の稼働状態を一目で把握できる `AWS::CloudWatch::Dashboard` リソースを自動生成できます。

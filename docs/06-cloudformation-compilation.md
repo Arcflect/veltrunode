@@ -50,6 +50,8 @@ CloudFormation の論理ID（Logical ID）は、`Veltrunode::Compiler::LogicalId
 | **EventSourceMapping** | `:worker` (`:orders`) | `WorkerFunctionOrdersEventSourceMapping` | Lambda イベントソースマッピング (`AWS::Lambda::EventSourceMapping`) |
 | **SNS Subscription** | `:notify` (`:order_events`) | `NotifyFunctionOrderEventsSnsSubscription` | SNS サブスクリプション (`AWS::SNS::Subscription`) |
 | **SNS Lambda Permission** | `:notify` (`:order_events`) | `NotifyFunctionOrderEventsSnsPermission` | SNS からの Lambda 呼び出し権限 (`AWS::Lambda::Permission`) |
+| **S3 Bucket** | `:uploads` | `UploadsBucket` | S3 バケット (`AWS::S3::Bucket`) |
+| **S3 Lambda Permission** | `:convert` (`:uploads`) | `ConvertFunctionUploadsS3Permission` | S3 からの Lambda 呼び出し権限 (`AWS::Lambda::Permission`) |
 | **Dashboard** | `:default` (`:operations`) | `Dashboard` (`OperationsDashboard`) | CloudWatch メトリクスダッシュボード (`AWS::CloudWatch::Dashboard`) |
 
 ## CloudWatch アラームのコンパイルと通知パラメータ (CloudWatch Alarms Compilation)
@@ -181,6 +183,32 @@ Lambda 関数で `event_source sns: ...`（または `defaults` ブロックで�
   - `SourceArn`: 対象 SNS トピックの ARN（`TopicArn` と同一の値または `{ 'Ref' => TopicParamKey }`）。
 - **SNS トピック ARN のパラメータ化**:
   トピックにシンボルや `ref(...)` が指定された場合、CloudFormation テンプレートの `Parameters`（例: `OrderEventsTopic: { Type: String, Description: "SNS topic ARN for OrderEventsTopic" }`）に自動登録されます。
+
+## S3 バケットイベント通知と循環依存回避のコンパイル (S3 Bucket Notification & Circular Dependency Avoidance)
+
+Lambda 関数で `event_source s3: { bucket: ..., events: [...], filter: ... }` を設定した場合、`Veltrunode::Compiler::CloudFormation::S3NotificationCompiler` により S3 バケット通知設定および `AWS::Lambda::Permission` がコンパイルされます。
+
+### 循環依存（Circular Dependency）を回避するコンパイル戦略
+
+CloudFormation において `AWS::S3::Bucket` の `NotificationConfiguration.LambdaConfigurations` はターゲット Lambda 関数の ARN（`Fn::GetAtt: [FunctionLogicalId, Arn]`）を参照し、かつバケット作成時の通知先検証を通過するために `AWS::Lambda::Permission` が先に存在していること（`DependsOn: [PermissionLogicalId]`）を要求します。
+ここで、もし `AWS::Lambda::Permission` の `SourceArn` に `{ 'Fn::GetAtt' => [BucketLogicalId, 'Arn'] }` や `{ 'Ref' => BucketLogicalId }` を指定してしまうと、`Bucket -> Permission -> Bucket` の循環依存（Circular Dependency）が発生して CloudFormation のデプロイが失敗します。
+
+Veltrunode では以下のコンパイル戦略により循環依存を完全に排除します。
+
+1. **マネージドバケット (`bucket: :uploads` 等のシンボル/識別名指定)**:
+   - **`AWS::S3::Bucket` (論理ID: `UploadsBucket`)**:
+     - `BucketName`: `{ 'Fn::Sub' => '${AWS::StackName}-uploads' }`（スタック名と正規化バケット名から決定論的に導出）
+     - `DependsOn`: `['ConvertFunctionUploadsS3Permission']`（単方向依存のみを定義）
+     - `NotificationConfiguration.LambdaConfigurations`: `Event`、`Function` (`Fn::GetAtt`)、および `Filter.S3Key.Rules` (`prefix` / `suffix`) を展開。同一バケットに対する複数関数・複数トリガーは単一の `AWS::S3::Bucket` リソースへマージされます。
+   - **`AWS::Lambda::Permission` (論理ID: `ConvertFunctionUploadsS3Permission`)**:
+     - `Action`: `'lambda:InvokeFunction'`
+     - `FunctionName`: `{ 'Fn::GetAtt' => ['ConvertFunction', 'Arn'] }`
+     - `Principal`: `'s3.amazonaws.com'`
+     - `SourceAccount`: `{ 'Ref' => 'AWS::AccountId' }`
+     - `SourceArn`: `{ 'Fn::Sub' => 'arn:aws:s3:::${AWS::StackName}-uploads' }`（`UploadsBucket` への `Ref` / `Fn::GetAtt` を一切持たず、決定論的バケット名から ARN を直接構成することで依存グラフを非巡回 `Function -> Permission -> Bucket` に保ちます）。
+2. **外部/既存バケット (`bucket: ref(:external_bucket)` または `bucket: 'arn:aws:s3:::...'`)**:
+   - 既存インフラストラクチャを CloudFormation 管理下にインポートしない原則に従い、`AWS::S3::Bucket` リソースは生成せず、`AWS::Lambda::Permission` のみを生成します。
+   - `ref(:external_bucket)` 指定時は CloudFormation `Parameters` に `ExternalBucket` (`Type: String`) を自動登録し、`SourceArn` を `{ 'Fn::Sub' => 'arn:aws:s3:::${ExternalBucket}' }` で解決します。
 
 ## CloudWatch メトリクスダッシュボードのコンパイルと URL 出力 (CloudWatch Dashboard Compilation & Output)
 
