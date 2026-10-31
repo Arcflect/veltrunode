@@ -319,6 +319,7 @@ RSpec.describe Veltrunode::Compiler::LogicalId do
         require 'veltrunode/compiler/cloudformation/role_compiler'
         require 'veltrunode/compiler/cloudformation/event_source_mapping_compiler'
         require 'veltrunode/compiler/cloudformation/sns_subscription_compiler'
+        require 'veltrunode/compiler/cloudformation/s3_notification_compiler'
         require 'veltrunode/compiler/cloudformation'
 
         cf = Veltrunode::Compiler::CloudFormation
@@ -336,6 +337,10 @@ RSpec.describe Veltrunode::Compiler::LogicalId do
         )
         expect(cf::SnsSubscriptionCompiler.permission_logical_id_for(:notify, :order_events)).to eq(
           'NotifyFunctionOrderEventsSnsPermission'
+        )
+        expect(cf::S3NotificationCompiler.bucket_logical_id_for(:uploads)).to eq('UploadsBucket')
+        expect(cf::S3NotificationCompiler.permission_logical_id_for(:convert, :uploads)).to eq(
+          'ConvertFunctionUploadsS3Permission'
         )
       end.not_to raise_error
     end
