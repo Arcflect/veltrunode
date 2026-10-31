@@ -396,6 +396,13 @@ module Veltrunode
           builder.instance_eval(&) if block_given?
           @event_sources_config << builder.build
           return
+        elsif opts.key?(:dynamodb_stream)
+          ddb_val = opts.delete(:dynamodb_stream)
+          ddb_opts = ddb_val.is_a?(Hash) ? ddb_val.merge(opts) : opts.merge(stream: ddb_val)
+          builder = EventSourceBuilder.new(:dynamodb_stream, **ddb_opts)
+          builder.instance_eval(&) if block_given?
+          @event_sources_config << builder.build
+          return
         end
 
         type = if type_or_opts.is_a?(Symbol) || type_or_opts.is_a?(String)
@@ -404,6 +411,8 @@ module Veltrunode
                  :sns
                elsif opts.key?(:bucket)
                  :s3
+               elsif opts.key?(:stream) || opts.key?(:stream_arn)
+                 :dynamodb_stream
                else
                  :sqs
                end

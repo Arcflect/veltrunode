@@ -229,6 +229,38 @@ RSpec.describe Veltrunode::Compiler::CloudFormation::RoleCompiler do
         'arn:aws:sqs:ap-northeast-1:123456789012:external-queue'
       )
     end
+
+    it 'automatically attaches IAM permissions for DynamoDB Stream event sources (ARN and ref)' do
+      stream_arn = 'arn:aws:dynamodb:ap-northeast-1:123456789012:table/Orders/stream/2026-01-01T00:00:00.000'
+      fn = Veltrunode::Model::Function.new(
+        logical_name: 'ddb_worker',
+        handler: 'functions/worker.handler',
+        runtime: 'ruby3.3',
+        event_sources: [
+          { dynamodb_stream: stream_arn, starting_position: :latest },
+          { dynamodb_stream: :users_stream_arn, starting_position: :trim_horizon }
+        ]
+      )
+
+      result = described_class.compile_lambda_role(fn)
+      policy_stmts = result['DdbWorkerFunctionRole']['Properties']['Policies'].first['PolicyDocument']['Statement']
+
+      ddb_stmt = policy_stmts.find do |s|
+        s['Action'] == %w[
+          dynamodb:GetRecords
+          dynamodb:GetShardIterator
+          dynamodb:DescribeStream
+          dynamodb:ListStreams
+        ]
+      end
+
+      expect(ddb_stmt).not_to be_nil
+      expect(ddb_stmt['Effect']).to eq('Allow')
+      expect(ddb_stmt['Resource']).to contain_exactly(
+        stream_arn,
+        { 'Ref' => 'UsersStreamArn' }
+      )
+    end
   end
 
   describe '#to_h and properties for Scheduler Invocation Role' do

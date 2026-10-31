@@ -383,4 +383,132 @@ RSpec.describe 'DSL event_source support' do
       expect(none_fn.event_sources).to be_empty
     end
   end
+
+  describe 'DynamoDB Stream event source DSL' do
+    let(:stream_arn) do
+      'arn:aws:dynamodb:ap-northeast-1:123456789012:table/Orders/stream/2026-01-01T00:00:00.000'
+    end
+
+    it 'supports inline hash event_source dynamodb_stream: ... with starting_position: :latest' do
+      arn = stream_arn
+      app = Veltrunode.application 'ddb-stream-app' do
+        function :order_projector do
+          handler 'projector.handler'
+          runtime 'ruby3.3'
+          event_source dynamodb_stream: arn,
+                       starting_position: :latest,
+                       batch_size: 100,
+                       maximum_batching_window_in_seconds: 5,
+                       report_batch_item_failures: true
+        end
+      end
+
+      fn = app.functions.first
+      expect(fn.event_sources.size).to eq(1)
+
+      es = fn.event_sources.first
+      expect(es.dynamodb_stream?).to be true
+      expect(es.stream).to eq(stream_arn)
+      expect(es.stream_identifier).to eq('Orders')
+      expect(es.starting_position).to eq('LATEST')
+      expect(es.batch_size).to eq(100)
+      expect(es.maximum_batching_window_in_seconds).to eq(5)
+      expect(es.report_batch_item_failures?).to be true
+    end
+
+    it 'supports nested hash event_source dynamodb_stream: { stream: ..., starting_position: :trim_horizon }' do
+      app = Veltrunode.application 'ddb-stream-app' do
+        function :order_projector do
+          handler 'projector.handler'
+          runtime 'ruby3.3'
+          event_source dynamodb_stream: {
+            stream: ref(:orders_stream_arn),
+            starting_position: :trim_horizon,
+            batch_size: 50
+          }
+        end
+      end
+
+      es = app.functions.first.event_sources.first
+      expect(es.dynamodb_stream?).to be true
+      expect(es.stream).to be_a(Veltrunode::DSL::Reference)
+      expect(es.stream.name).to eq(:orders_stream_arn)
+      expect(es.stream_identifier).to eq('orders_stream_arn')
+      expect(es.starting_position).to eq('TRIM_HORIZON')
+      expect(es.batch_size).to eq(50)
+    end
+
+    it 'supports block-based event_source :dynamodb_stream DSL' do
+      arn = stream_arn
+      app = Veltrunode.application 'ddb-stream-app' do
+        function :order_projector do
+          handler 'projector.handler'
+          runtime 'ruby3.3'
+          event_source :dynamodb_stream do
+            stream arn
+            starting_position :trim_horizon
+            batch_size 200
+            batch_window 10
+            report_batch_item_failures true
+          end
+        end
+      end
+
+      es = app.functions.first.event_sources.first
+      expect(es.dynamodb_stream?).to be true
+      expect(es.stream).to eq(stream_arn)
+      expect(es.starting_position).to eq('TRIM_HORIZON')
+      expect(es.batch_size).to eq(200)
+      expect(es.maximum_batching_window_in_seconds).to eq(10)
+      expect(es.report_batch_item_failures?).to be true
+    end
+
+    it 'supports passing DynamoDB Stream event_source as function keyword argument' do
+      arn = stream_arn
+      app = Veltrunode.application 'ddb-stream-app' do
+        function :order_projector, event_source: {
+          dynamodb_stream: arn,
+          starting_position: :latest,
+          batch_size: 25
+        } do
+          handler 'projector.handler'
+          runtime 'ruby3.3'
+        end
+      end
+
+      es = app.functions.first.event_sources.first
+      expect(es.dynamodb_stream?).to be true
+      expect(es.stream).to eq(stream_arn)
+      expect(es.starting_position).to eq('LATEST')
+      expect(es.batch_size).to eq(25)
+    end
+
+    it 'supports DynamoDB Stream event_source in application defaults with opt-out' do
+      arn = stream_arn
+      app = Veltrunode.application 'ddb-default-app' do
+        defaults do
+          event_source dynamodb_stream: arn, starting_position: :trim_horizon
+        end
+
+        function :projector do
+          handler 'proj.handler'
+          runtime 'ruby3.3'
+        end
+
+        function :standalone do
+          handler 'none.handler'
+          runtime 'ruby3.3'
+          event_source false
+        end
+      end
+
+      proj_fn = app.functions.find { |f| f.logical_name == 'projector' }
+      none_fn = app.functions.find { |f| f.logical_name == 'standalone' }
+
+      expect(proj_fn.event_sources.size).to eq(1)
+      expect(proj_fn.event_sources.first.dynamodb_stream?).to be true
+      expect(proj_fn.event_sources.first.starting_position).to eq('TRIM_HORIZON')
+      expect(none_fn.event_sources).to be_empty
+    end
+  end
 end

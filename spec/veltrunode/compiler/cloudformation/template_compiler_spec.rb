@@ -1130,5 +1130,79 @@ RSpec.describe Veltrunode::Compiler::CloudFormation::TemplateCompiler do
         'SourceArn' => { 'Fn::Sub' => 'arn:aws:s3:::${ExternalArchiveBucket}' }
       )
     end
+
+    it 'compiles AWS::Lambda::EventSourceMapping and IAM permissions for DynamoDB Stream event sources' do
+      orders_stream_arn = 'arn:aws:dynamodb:ap-northeast-1:123456789012:table/Orders/stream/2026-01-01T00:00:00.000'
+      code = <<~RUBY
+        Veltrunode.application "ddb-stream-app" do
+          aws region: "ap-northeast-1"
+
+          function :order_projector do
+            handler "projector.handler"
+            runtime "ruby3.3"
+            event_source dynamodb_stream: "#{orders_stream_arn}",
+                         starting_position: :trim_horizon,
+                         batch_size: 100,
+                         maximum_batching_window_in_seconds: 5,
+                         report_batch_item_failures: true
+            event_source dynamodb_stream: ref(:audit_stream_arn),
+                         starting_position: :latest
+          end
+        end
+      RUBY
+
+      app = Veltrunode.parse(code)
+      yaml_output = described_class.to_yaml(app)
+      parsed = YAML.safe_load(yaml_output)
+
+      params = parsed['Parameters']
+      resources = parsed['Resources']
+
+      # 1. ref(:audit_stream_arn) の Parameters 自動登録
+      expect(params['AuditStreamArn']).to eq(
+        'Description' => 'DynamoDB stream ARN for AuditStreamArn',
+        'Type' => 'String'
+      )
+
+      # 2. AWS::Lambda::EventSourceMapping (ARN + TRIM_HORIZON) の検証
+      esm1 = resources['OrderProjectorFunctionOrdersEventSourceMapping']
+      expect(esm1).not_to be_nil
+      expect(esm1['Type']).to eq('AWS::Lambda::EventSourceMapping')
+      expect(esm1['Properties']).to eq(
+        'BatchSize' => 100,
+        'Enabled' => true,
+        'EventSourceArn' => orders_stream_arn,
+        'FunctionName' => { 'Fn::GetAtt' => %w[OrderProjectorFunction Arn] },
+        'FunctionResponseTypes' => ['ReportBatchItemFailures'],
+        'MaximumBatchingWindowInSeconds' => 5,
+        'StartingPosition' => 'TRIM_HORIZON'
+      )
+
+      # 3. AWS::Lambda::EventSourceMapping (ref + LATEST) の検証
+      esm2 = resources['OrderProjectorFunctionAuditStreamArnEventSourceMapping']
+      expect(esm2).not_to be_nil
+      expect(esm2['Properties']).to eq(
+        'Enabled' => true,
+        'EventSourceArn' => { 'Ref' => 'AuditStreamArn' },
+        'FunctionName' => { 'Fn::GetAtt' => %w[OrderProjectorFunction Arn] },
+        'StartingPosition' => 'LATEST'
+      )
+
+      # 4. IAM ロールの DynamoDB Streams 読み取り権限の検証
+      role = resources['OrderProjectorFunctionRole']
+      expect(role).not_to be_nil
+      stmts = role['Properties']['Policies'].first['PolicyDocument']['Statement']
+      ddb_stmt = stmts.find do |s|
+        s['Action'] == %w[
+          dynamodb:GetRecords
+          dynamodb:GetShardIterator
+          dynamodb:DescribeStream
+          dynamodb:ListStreams
+        ]
+      end
+      expect(ddb_stmt).not_to be_nil
+      expect(ddb_stmt['Effect']).to eq('Allow')
+      expect(ddb_stmt['Resource']).to eq([orders_stream_arn, { 'Ref' => 'AuditStreamArn' }])
+    end
   end
 end

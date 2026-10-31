@@ -331,6 +331,47 @@ end
 - **`events` / `event`**: トリガー対象の S3 イベント種別（文字列または配列、デフォルト: `['s3:ObjectCreated:*']`）。`s3:` プレフィックスで始まる有効なイベント名を指定します。
 - **`filter` (`prefix` / `suffix`)**: S3 オブジェクトキーのフィルタ条件（`prefix`: プレフィックス、`suffix`: サフィックス）。`NotificationConfiguration.LambdaConfigurations[].Filter.S3Key.Rules` に展開されます。
 
+## DynamoDB Streams イベントソースマッピング (DynamoDB Streams Event Source Mapping)
+
+DynamoDB テーブルの変更ストリーム（DynamoDB Streams）を購読してリアクティブなデータ更新や集計を行う場合、`event_source dynamodb_stream: ...` でストリーム ARN または参照（`ref(:stream_arn)`）と読み取り開始位置（`starting_position: :latest / :trim_horizon`）を指定することで、`AWS::Lambda::EventSourceMapping` およびストリーム読み取りに必要な IAM 権限を自動構成できます。
+
+```ruby
+Veltrunode.application "ddb-stream-app" do
+  # 1. ハッシュ形式の指定（ストリーム ARN + starting_position）
+  function :order_projector do
+    handler "projector.handler"
+    runtime "ruby3.3"
+    event_source dynamodb_stream: "arn:aws:dynamodb:ap-northeast-1:123456789012:table/Orders/stream/2026-01-01T00:00:00.000",
+                 starting_position: :trim_horizon,
+                 batch_size: 100,
+                 maximum_batching_window_in_seconds: 5,
+                 report_batch_item_failures: true
+  end
+
+  # 2. パラメータ参照とブロック構文での指定
+  function :audit_aggregator do
+    handler "aggregator.handler"
+    runtime "ruby3.3"
+    event_source :dynamodb_stream do
+      stream ref(:audit_stream_arn)
+      starting_position :latest
+      batch_size 50
+      batch_window 10
+    end
+  end
+end
+```
+
+### パラメータ仕様
+
+- **`stream` / `stream_arn` / `dynamodb_stream`**: 対象の DynamoDB Streams ARN（`arn:aws:dynamodb:...:table/<TableName>/stream/...`）または `ref(:stream_arn)` / シンボル（CloudFormation パラメータ参照）。
+- **`starting_position`**: ストリームの読み取り開始位置。`:latest`（`'LATEST'`: 最新の変更レコードから読み取り、省略時のデフォルト）または `:trim_horizon`（`'TRIM_HORIZON'`: 利用可能な最古のレコードから読み取り）を指定します。
+- **`batch_size`**: 1 回の呼び出しで関数に渡される最大レコード数（1〜10,000）。
+- **`maximum_batching_window_in_seconds` / `batch_window`**: レコードをバッチに蓄積するために待機する最大秒数（0〜300秒）。
+- **`report_batch_item_failures`**: 部分バッチ応答を有効化（`true` の場合、`FunctionResponseTypes: ['ReportBatchItemFailures']` を設定）。
+- **`enabled`**: イベントソースマッピングの有効/無効フラグ（デフォルト: `true`）。
+- **自動 IAM 権限付与**: `dynamodb_stream` が定義された関数には、ストリーム読み取りに必要な IAM 権限（`dynamodb:GetRecords`, `dynamodb:GetShardIterator`, `dynamodb:DescribeStream`, `dynamodb:ListStreams`）が Lambda 実行ロールに自動付与されます。
+
 ## CloudWatch メトリクスダッシュボード (CloudWatch Dashboard)
 
 Application レベルで `dashboard` を宣言することで、デプロイされた全 Lambda 関数の稼働状態を一目で把握できる `AWS::CloudWatch::Dashboard` リソースを自動生成できます。

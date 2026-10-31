@@ -2,17 +2,23 @@
 
 module Veltrunode
   module Model
-    # Lambda 関数のイベントソース（SQS EventSourceMapping / SNS Subscription / S3 Notification）を表す値オブジェクト
+    # Lambda 関数のイベントソース（SQS / DynamoDB Streams EventSourceMapping / SNS Subscription / S3 Notification）を表す値オブジェクト
     class EventSource
-      SUPPORTED_TYPES = %i[sqs sns s3].freeze
+      SUPPORTED_TYPES = %i[sqs sns s3 dynamodb_stream].freeze
       VALID_FILTER_POLICY_SCOPES = %w[MessageAttributes MessageBody].freeze
       DEFAULT_S3_EVENTS = ['s3:ObjectCreated:*'].freeze
       VALID_S3_FILTER_KEYS = %w[prefix suffix].freeze
+      VALID_STARTING_POSITIONS = %w[LATEST TRIM_HORIZON].freeze
+      DEFAULT_STARTING_POSITION = 'LATEST'
 
       attr_reader :type, :queue, :batch_size, :maximum_batching_window_in_seconds, :report_batch_item_failures,
-                  :topic, :filter_policy, :filter_policy_scope, :bucket, :events, :filter
+                  :topic, :filter_policy, :filter_policy_scope, :bucket, :events, :filter,
+                  :stream, :starting_position
 
-      # @param type [Symbol, String, nil] イベントソース種別 (:sqs, :sns, :s3)
+      alias dynamodb_stream stream
+      alias stream_arn stream
+
+      # @param type [Symbol, String, nil] イベントソース種別 (:sqs, :sns, :s3, :dynamodb_stream)
       # @param queue [String, Symbol, nil] SQS キュー名または ARN
       # @param sqs [String, Symbol, Hash, nil] SQS キュー指定またはオプションハッシュ
       # @param topic [String, Symbol, Hash, DSL::Reference, nil] SNS トピック ARN または参照
@@ -25,6 +31,10 @@ module Veltrunode
       # @param filter [Hash, nil] S3 通知フィルタ ({ prefix: '...', suffix: '...' })
       # @param prefix [String, nil] S3 オブジェクトキープレフィックスフィルタ
       # @param suffix [String, nil] S3 オブジェクトキーサフィックスフィルタ
+      # @param stream [String, Symbol, Hash, DSL::Reference, nil] DynamoDB Streams ARN または参照
+      # @param stream_arn [String, Symbol, Hash, DSL::Reference, nil] DynamoDB Streams ARN または参照 (stream のエイリアス)
+      # @param dynamodb_stream [String, Symbol, Hash, DSL::Reference, nil] DynamoDB Streams 指定またはオプションハッシュ
+      # @param starting_position [Symbol, String, nil] ストリーム読み取り開始位置 (:latest / :trim_horizon)
       # @param batch_size [Integer, nil] バッチサイズ (1〜10,000)
       # @param maximum_batching_window_in_seconds [Integer, nil] バッチウィンドウ秒数 (0〜300)
       # @param report_batch_item_failures [Boolean] 部分失敗報告 (ReportBatchItemFailures) を有効化するか
@@ -45,6 +55,10 @@ module Veltrunode
         filter: nil,
         prefix: nil,
         suffix: nil,
+        stream: nil,
+        stream_arn: nil,
+        dynamodb_stream: nil,
+        starting_position: nil,
         batch_size: nil,
         maximum_batching_window_in_seconds: nil,
         report_batch_item_failures: false,
@@ -55,6 +69,8 @@ module Veltrunode
         resolved = resolve_options(
           type: type, queue: queue, sqs: sqs, topic: topic, topic_arn: topic_arn, sns: sns,
           bucket: bucket, s3: s3, events: events, event: event, filter: filter, prefix: prefix, suffix: suffix,
+          stream: stream, stream_arn: stream_arn, dynamodb_stream: dynamodb_stream,
+          starting_position: starting_position,
           batch_size: batch_size, maximum_batching_window_in_seconds: maximum_batching_window_in_seconds,
           report_batch_item_failures: report_batch_item_failures, filter_policy: filter_policy,
           filter_policy_scope: filter_policy_scope, enabled: enabled
@@ -68,6 +84,8 @@ module Veltrunode
           init_sns_attributes(resolved)
         when :s3
           init_s3_attributes(resolved)
+        when :dynamodb_stream
+          init_dynamodb_stream_attributes(resolved)
         end
         @enabled = resolved[:enabled].nil? || resolved[:enabled]
         freeze
@@ -83,6 +101,10 @@ module Veltrunode
 
       def s3?
         @type == :s3
+      end
+
+      def dynamodb_stream?
+        @type == :dynamodb_stream
       end
 
       def report_batch_item_failures?
@@ -182,11 +204,37 @@ module Veltrunode
         end
       end
 
+      def stream_identifier
+        return nil if @stream.nil?
+        return @stream.to_s if @stream.is_a?(Symbol)
+        return @stream.name.to_s if @stream.respond_to?(:name)
+
+        if @stream.is_a?(Hash)
+          ref_val = @stream['Ref'] || @stream[:Ref] || @stream[:ref] || @stream['ref']
+          return ref_val.to_s if ref_val
+
+          get_att = @stream['Fn::GetAtt'] || @stream[:'Fn::GetAtt']
+          return Array(get_att).first.to_s if get_att
+
+          return nil
+        end
+
+        s_str = @stream.to_s
+        if s_str =~ %r{:table/([^/]+)}
+          Regexp.last_match(1)
+        elsif s_str.start_with?('arn:')
+          s_str.split(':').last
+        else
+          s_str
+        end
+      end
+
       def source_identifier
         case @type
         when :sqs then queue_identifier
         when :sns then topic_identifier
         when :s3 then bucket_identifier
+        when :dynamodb_stream then stream_identifier
         end
       end
 
@@ -210,6 +258,17 @@ module Veltrunode
             'filter' => @filter,
             'enabled' => @enabled
           }.compact
+        when :dynamodb_stream
+          stream_val = !@stream.is_a?(Symbol) && @stream.respond_to?(:name) ? @stream.name.to_s : @stream
+          {
+            'type' => @type.to_s,
+            'stream' => stream_val,
+            'starting_position' => @starting_position,
+            'batch_size' => @batch_size,
+            'maximum_batching_window_in_seconds' => @maximum_batching_window_in_seconds,
+            'report_batch_item_failures' => @report_batch_item_failures,
+            'enabled' => @enabled
+          }.compact
         else
           {
             'type' => @type.to_s,
@@ -228,16 +287,20 @@ module Veltrunode
         sns_val = opts[:sns]
         sqs_val = opts[:sqs]
         s3_val = opts[:s3]
+        ddb_val = opts[:dynamodb_stream]
         sns_hash = sns_val.is_a?(Hash) && !cfn_intrinsic_hash?(sns_val) ? symbolize_keys(sns_val) : nil
         sqs_hash = sqs_val.is_a?(Hash) && !cfn_intrinsic_hash?(sqs_val) ? symbolize_keys(sqs_val) : nil
         s3_hash = s3_val.is_a?(Hash) && !cfn_intrinsic_hash?(s3_val) ? symbolize_keys(s3_val) : nil
+        ddb_hash = ddb_val.is_a?(Hash) && !cfn_intrinsic_hash?(ddb_val) ? symbolize_keys(ddb_val) : nil
 
-        inferred_type = infer_type(opts, sns_val: sns_val, s3_val: s3_val)
+        inferred_type = infer_type(opts, sns_val: sns_val, s3_val: s3_val, ddb_val: ddb_val)
 
         resolved_topic = opts[:topic] || opts[:topic_arn] ||
                          (sns_hash ? (sns_hash[:topic] || sns_hash[:topic_arn]) : sns_val)
         resolved_queue = opts[:queue] || (sqs_hash ? sqs_hash[:queue] : sqs_val)
         resolved_bucket = opts[:bucket] || (s3_hash ? s3_hash[:bucket] : s3_val)
+        resolved_stream = opts[:stream] || opts[:stream_arn] ||
+                          (ddb_hash ? (ddb_hash[:stream] || ddb_hash[:stream_arn] || ddb_hash[:arn]) : ddb_val)
 
         {
           type: inferred_type,
@@ -246,19 +309,24 @@ module Veltrunode
           bucket: resolved_bucket,
           events: resolve_s3_events_option(opts, s3_hash),
           filter: resolve_s3_filter_option(opts, s3_hash),
-          batch_size: opts[:batch_size] || (sqs_hash && sqs_hash[:batch_size]),
+          stream: resolved_stream,
+          starting_position: opts[:starting_position] || (ddb_hash && ddb_hash[:starting_position]),
+          batch_size: opts[:batch_size] || (sqs_hash && sqs_hash[:batch_size]) || (ddb_hash && ddb_hash[:batch_size]),
           maximum_batching_window_in_seconds: opts[:maximum_batching_window_in_seconds] ||
-            (sqs_hash && (sqs_hash[:maximum_batching_window_in_seconds] || sqs_hash[:batch_window])),
+            (sqs_hash && (sqs_hash[:maximum_batching_window_in_seconds] || sqs_hash[:batch_window])) ||
+            (ddb_hash && (ddb_hash[:maximum_batching_window_in_seconds] || ddb_hash[:batch_window])),
           report_batch_item_failures: opts[:report_batch_item_failures] ||
-            (sqs_hash && sqs_hash[:report_batch_item_failures]) || false,
+            (sqs_hash && sqs_hash[:report_batch_item_failures]) ||
+            (ddb_hash && ddb_hash[:report_batch_item_failures]) || false,
           filter_policy: opts[:filter_policy] || (sns_hash && sns_hash[:filter_policy]),
           filter_policy_scope: opts[:filter_policy_scope] || (sns_hash && sns_hash[:filter_policy_scope]),
-          enabled: resolve_enabled_option(opts[:enabled], sns_hash, sqs_hash, s3_hash)
+          enabled: resolve_enabled_option(opts[:enabled], sns_hash, sqs_hash, s3_hash, ddb_hash)
         }
       end
 
-      def infer_type(opts, sns_val:, s3_val:)
+      def infer_type(opts, sns_val:, s3_val:, ddb_val: nil)
         return opts[:type] if opts[:type]
+        return :dynamodb_stream if !ddb_val.nil? || !opts[:stream].nil? || !opts[:stream_arn].nil?
         return :s3 if !s3_val.nil? || !opts[:bucket].nil?
         return :sns if !sns_val.nil? || !opts[:topic].nil? || !opts[:topic_arn].nil?
 
@@ -287,13 +355,15 @@ module Veltrunode
         merged
       end
 
-      def resolve_enabled_option(direct_enabled, sns_hash, sqs_hash, s3_hash = nil)
+      def resolve_enabled_option(direct_enabled, sns_hash, sqs_hash, s3_hash = nil, ddb_hash = nil)
         if sns_hash&.key?(:enabled)
           sns_hash[:enabled]
         elsif sqs_hash&.key?(:enabled)
           sqs_hash[:enabled]
         elsif s3_hash&.key?(:enabled)
           s3_hash[:enabled]
+        elsif ddb_hash&.key?(:enabled)
+          ddb_hash[:enabled]
         else
           direct_enabled
         end
@@ -321,6 +391,8 @@ module Veltrunode
         @bucket = nil
         @events = nil
         @filter = nil
+        @stream = nil
+        @starting_position = nil
       end
 
       def init_sns_attributes(resolved)
@@ -334,6 +406,8 @@ module Veltrunode
         @bucket = nil
         @events = nil
         @filter = nil
+        @stream = nil
+        @starting_position = nil
       end
 
       def init_s3_attributes(resolved)
@@ -347,10 +421,28 @@ module Veltrunode
         @topic = nil
         @filter_policy = nil
         @filter_policy_scope = nil
+        @stream = nil
+        @starting_position = nil
+      end
+
+      def init_dynamodb_stream_attributes(resolved)
+        @stream = normalize_stream(resolved[:stream])
+        @starting_position = normalize_starting_position(resolved[:starting_position])
+        @batch_size = normalize_batch_size(resolved[:batch_size])
+        @maximum_batching_window_in_seconds = normalize_batching_window(resolved[:maximum_batching_window_in_seconds])
+        @report_batch_item_failures = resolved[:report_batch_item_failures] ? true : false
+        @queue = nil
+        @topic = nil
+        @filter_policy = nil
+        @filter_policy_scope = nil
+        @bucket = nil
+        @events = nil
+        @filter = nil
       end
 
       def normalize_type(type_val)
         sym = type_val.to_s.downcase.to_sym
+        sym = :dynamodb_stream if %i[dynamodb_streams dynamodb].include?(sym)
         unless SUPPORTED_TYPES.include?(sym)
           raise ArgumentError,
                 "Unsupported event source type '#{type_val}'. Supported types: #{SUPPORTED_TYPES.join(', ')}"
@@ -463,6 +555,35 @@ module Veltrunode
         res['prefix'] = prefix_val.to_s.freeze if prefix_val && !prefix_val.to_s.empty?
         res['suffix'] = suffix_val.to_s.freeze if suffix_val && !suffix_val.to_s.empty?
         res.empty? ? nil : res.freeze
+      end
+
+      def normalize_stream(stream_val)
+        if stream_val.nil? ||
+           (stream_val.is_a?(Hash) && stream_val.empty?) ||
+           (!stream_val.is_a?(Hash) && stream_val.to_s.strip.empty?)
+          raise ArgumentError, 'Stream must be specified for DynamoDB Stream event source.'
+        end
+
+        if stream_val.is_a?(Symbol) || stream_val.respond_to?(:name)
+          stream_val
+        elsif stream_val.is_a?(Hash)
+          deep_stringify_and_freeze(stream_val)
+        else
+          stream_val.to_s.strip.freeze
+        end
+      end
+
+      def normalize_starting_position(pos_val)
+        return DEFAULT_STARTING_POSITION if pos_val.nil?
+
+        normalized = pos_val.to_s.strip.upcase.tr('-', '_')
+        unless VALID_STARTING_POSITIONS.include?(normalized)
+          raise ArgumentError,
+                "Invalid starting_position '#{pos_val}'. " \
+                "Valid positions: #{VALID_STARTING_POSITIONS.join(', ')}"
+        end
+
+        normalized.freeze
       end
 
       def deep_stringify_and_freeze(obj)

@@ -248,6 +248,9 @@ module Veltrunode
         elsif opts.key?(:s3)
           @event_sources << build_keyed_event_source(:s3, opts.delete(:s3), opts, :bucket, &)
           return
+        elsif opts.key?(:dynamodb_stream)
+          @event_sources << build_keyed_event_source(:dynamodb_stream, opts.delete(:dynamodb_stream), opts, :stream, &)
+          return
         end
 
         type = resolve_event_source_type(type_or_opts, opts)
@@ -313,6 +316,7 @@ module Veltrunode
         return type_or_opts if type_or_opts.is_a?(Symbol) || type_or_opts.is_a?(String)
         return :sns if opts.key?(:topic) || opts.key?(:topic_arn)
         return :s3 if opts.key?(:bucket)
+        return :dynamodb_stream if opts.key?(:stream) || opts.key?(:stream_arn)
 
         :sqs
       end
