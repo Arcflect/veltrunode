@@ -126,6 +126,73 @@ RSpec.describe Veltrunode::Model::EventSource do
       expect { described_class.new(type: :sns, topic: :orders, filter_policy_scope: 'InvalidScope') }
         .to raise_error(ArgumentError, /Invalid filter_policy_scope/)
     end
+
+    it 'creates a valid S3 event source with bucket, events, and filter' do
+      source = described_class.new(
+        type: :s3,
+        bucket: :uploads,
+        events: ['s3:ObjectCreated:*'],
+        filter: { prefix: 'incoming/', suffix: '.pdf' }
+      )
+
+      expect(source.s3?).to be true
+      expect(source.sqs?).to be false
+      expect(source.sns?).to be false
+      expect(source.type).to eq(:s3)
+      expect(source.bucket).to eq(:uploads)
+      expect(source.bucket_identifier).to eq('uploads')
+      expect(source.source_identifier).to eq('uploads')
+      expect(source.managed_bucket?).to be true
+      expect(source.external_bucket?).to be false
+      expect(source.events).to eq(['s3:ObjectCreated:*'])
+      expect(source.filter).to eq('prefix' => 'incoming/', 'suffix' => '.pdf')
+      expect(source.filter_prefix).to eq('incoming/')
+      expect(source.filter_suffix).to eq('.pdf')
+      expect(source.filter_rules).to eq(
+        [
+          { 'Name' => 'prefix', 'Value' => 'incoming/' },
+          { 'Name' => 'suffix', 'Value' => '.pdf' }
+        ]
+      )
+    end
+
+    it 'supports nested s3: hash option and default events' do
+      source = described_class.new(
+        s3: {
+          bucket: 'arn:aws:s3:::external-uploads',
+          filter: { prefix: 'raw/' }
+        }
+      )
+
+      expect(source.s3?).to be true
+      expect(source.bucket).to eq('arn:aws:s3:::external-uploads')
+      expect(source.bucket_identifier).to eq('external-uploads')
+      expect(source.external_bucket?).to be true
+      expect(source.managed_bucket?).to be false
+      expect(source.events).to eq(['s3:ObjectCreated:*'])
+      expect(source.filter).to eq('prefix' => 'raw/')
+    end
+
+    it 'raises ArgumentError if bucket is missing for S3 event source' do
+      expect { described_class.new(type: :s3, bucket: nil) }
+        .to raise_error(ArgumentError, /Bucket must be specified for S3 event source/)
+      expect { described_class.new(type: :s3, bucket: '   ') }
+        .to raise_error(ArgumentError, /Bucket must be specified for S3 event source/)
+    end
+
+    it 'raises ArgumentError if S3 events are empty or invalid' do
+      expect { described_class.new(type: :s3, bucket: :uploads, events: []) }
+        .to raise_error(ArgumentError, /Events cannot be empty/)
+      expect { described_class.new(type: :s3, bucket: :uploads, events: ['ObjectCreated:*']) }
+        .to raise_error(ArgumentError, /Invalid S3 event/)
+    end
+
+    it 'raises ArgumentError if S3 filter is invalid' do
+      expect { described_class.new(type: :s3, bucket: :uploads, filter: 'invalid') }
+        .to raise_error(ArgumentError, /Filter must be a Hash/)
+      expect { described_class.new(type: :s3, bucket: :uploads, filter: { pattern: '*.pdf' }) }
+        .to raise_error(ArgumentError, /Unsupported S3 filter keys/)
+    end
   end
 
   describe '#to_h' do
@@ -161,6 +228,23 @@ RSpec.describe Veltrunode::Model::EventSource do
       expect(hash['filter_policy_scope']).to eq('MessageAttributes')
       expect(hash['enabled']).to be true
     end
+
+    it 'serializes S3 event source attributes' do
+      source = described_class.new(
+        s3: {
+          bucket: :uploads,
+          events: ['s3:ObjectCreated:*'],
+          filter: { prefix: 'incoming/', suffix: '.pdf' }
+        }
+      )
+
+      hash = source.to_h
+      expect(hash['type']).to eq('s3')
+      expect(hash['bucket']).to eq(:uploads)
+      expect(hash['events']).to eq(['s3:ObjectCreated:*'])
+      expect(hash['filter']).to eq('prefix' => 'incoming/', 'suffix' => '.pdf')
+      expect(hash['enabled']).to be true
+    end
   end
 
   describe 'Function integration' do
@@ -190,6 +274,29 @@ RSpec.describe Veltrunode::Model::EventSource do
       expect(fn.event_sources.first.sns?).to be true
       expect(fn.event_sources.first.topic).to eq(:order_events)
       expect(fn.event_sources.first.filter_policy).to eq('type' => ['alert'])
+    end
+
+    it 'accepts S3 event source hash in Function' do
+      fn = Veltrunode::Model::Function.new(
+        'converter',
+        handler: 'converter.handler',
+        runtime: 'ruby3.3',
+        event_sources: [
+          {
+            s3: {
+              bucket: :uploads,
+              events: ['s3:ObjectCreated:*'],
+              filter: { prefix: 'incoming/', suffix: '.pdf' }
+            }
+          }
+        ]
+      )
+
+      expect(fn.event_sources?).to be true
+      expect(fn.event_sources.first.s3?).to be true
+      expect(fn.event_sources.first.bucket).to eq(:uploads)
+      expect(fn.event_sources.first.events).to eq(['s3:ObjectCreated:*'])
+      expect(fn.event_sources.first.filter).to eq('prefix' => 'incoming/', 'suffix' => '.pdf')
     end
   end
 end
