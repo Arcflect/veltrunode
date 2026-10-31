@@ -16,6 +16,7 @@ require_relative 'dashboard_compiler'
 require_relative 'event_invoke_config_compiler'
 require_relative 'event_source_mapping_compiler'
 require_relative 'sns_subscription_compiler'
+require_relative 's3_notification_compiler'
 require_relative '../../graph/resource_graph'
 require_relative '../../version'
 
@@ -146,15 +147,23 @@ module Veltrunode
 
             if fn.respond_to?(:event_sources) && fn.event_sources
               Array(fn.event_sources).each do |source|
-                next unless source.respond_to?(:sns?) && source.sns?
-
-                param_key = resolve_sns_topic_param_key(source.topic)
-                next if param_key.nil? || params.key?(param_key)
-
-                params[param_key] = {
-                  'Description' => "SNS topic ARN for #{param_key}",
-                  'Type' => 'String'
-                }
+                if source.respond_to?(:sns?) && source.sns?
+                  param_key = resolve_sns_topic_param_key(source.topic)
+                  if param_key && !params.key?(param_key)
+                    params[param_key] = {
+                      'Description' => "SNS topic ARN for #{param_key}",
+                      'Type' => 'String'
+                    }
+                  end
+                elsif source.respond_to?(:s3?) && source.s3?
+                  param_key = resolve_s3_bucket_param_key(source.bucket)
+                  if param_key && !params.key?(param_key)
+                    params[param_key] = {
+                      'Description' => "S3 bucket name for #{param_key}",
+                      'Type' => 'String'
+                    }
+                  end
+                end
               end
             end
 
@@ -330,12 +339,15 @@ module Veltrunode
               end
             end
 
-            # EventSourceMapping (AWS::Lambda::EventSourceMapping) / SNS Subscription (AWS::SNS::Subscription)
+            # EventSourceMapping / SNS Subscription / S3 Notification
             if fn.respond_to?(:event_sources) && fn.event_sources
               Array(fn.event_sources).each do |source|
                 if source.respond_to?(:sns?) && source.sns?
                   sns_res = SnsSubscriptionCompiler.compile(fn, source, context: context)
                   resources.merge!(sns_res)
+                elsif source.respond_to?(:s3?) && source.s3?
+                  s3_res = S3NotificationCompiler.compile(fn, source, context: context)
+                  S3NotificationCompiler.merge_into_resources!(resources, s3_res)
                 else
                   esm_res = EventSourceMappingCompiler.compile(fn, source, context: context)
                   resources.merge!(esm_res)
@@ -686,6 +698,20 @@ module Veltrunode
             return nil if str.start_with?('arn:')
 
             str
+          end
+        end
+
+        def resolve_s3_bucket_param_key(bucket)
+          return nil if bucket.nil?
+
+          if bucket.is_a?(Hash)
+            return bucket['Ref'].to_s if bucket['Ref']
+            return bucket[:Ref].to_s if bucket[:Ref]
+            return LogicalId.pascalize(bucket[:ref] || bucket['ref']) if bucket[:ref] || bucket['ref']
+
+            nil
+          elsif !bucket.is_a?(Symbol) && bucket.respond_to?(:name)
+            LogicalId.pascalize(bucket.name)
           end
         end
 

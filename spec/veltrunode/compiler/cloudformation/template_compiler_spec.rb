@@ -1037,5 +1037,98 @@ RSpec.describe Veltrunode::Compiler::CloudFormation::TemplateCompiler do
         'SourceArn' => 'arn:aws:sns:ap-northeast-1:123456789012:global-alerts'
       )
     end
+
+    it 'compiles S3 bucket notification and Lambda Permission avoiding circular dependencies' do
+      code = <<~RUBY
+        Veltrunode.application "s3-pipeline-app" do
+          aws region: "ap-northeast-1"
+
+          function :convert, event_source: {
+            s3: {
+              bucket: :uploads,
+              events: ["s3:ObjectCreated:*"],
+              filter: { prefix: "incoming/", suffix: ".jpg" }
+            }
+          } do
+            handler "convert.handler"
+            runtime "ruby3.3"
+          end
+
+          function :archive do
+            handler "archive.handler"
+            runtime "ruby3.3"
+            event_source s3: {
+              bucket: ref(:external_archive_bucket),
+              events: ["s3:ObjectCreated:Put"]
+            }
+          end
+        end
+      RUBY
+
+      app = Veltrunode.parse(code)
+      yaml_output = described_class.to_yaml(app)
+      parsed = YAML.safe_load(yaml_output)
+
+      params = parsed['Parameters']
+      resources = parsed['Resources']
+
+      # 1. ref(:external_archive_bucket) は Parameters に登録され、マネージドの :uploads は登録されない
+      expect(params['ExternalArchiveBucket']).to eq(
+        'Description' => 'S3 bucket name for ExternalArchiveBucket',
+        'Type' => 'String'
+      )
+      expect(params).not_to have_key('Uploads')
+
+      # 2. マネージド S3 バケット (UploadsBucket) の通知設定と DependsOn の検証
+      bucket = resources['UploadsBucket']
+      expect(bucket).not_to be_nil
+      expect(bucket['Type']).to eq('AWS::S3::Bucket')
+      expect(bucket['DependsOn']).to eq(['ConvertFunctionUploadsS3Permission'])
+      expect(bucket['Properties']).to eq(
+        'BucketName' => { 'Fn::Sub' => '${AWS::StackName}-uploads' },
+        'NotificationConfiguration' => {
+          'LambdaConfigurations' => [
+            {
+              'Event' => 's3:ObjectCreated:*',
+              'Filter' => {
+                'S3Key' => {
+                  'Rules' => [
+                    { 'Name' => 'prefix', 'Value' => 'incoming/' },
+                    { 'Name' => 'suffix', 'Value' => '.jpg' }
+                  ]
+                }
+              },
+              'Function' => { 'Fn::GetAtt' => %w[ConvertFunction Arn] }
+            }
+          ]
+        }
+      )
+
+      # 3. マネージドバケット用 AWS::Lambda::Permission の循環依存回避検証
+      perm1 = resources['ConvertFunctionUploadsS3Permission']
+      expect(perm1).not_to be_nil
+      expect(perm1['Type']).to eq('AWS::Lambda::Permission')
+      expect(perm1['Properties']).to eq(
+        'Action' => 'lambda:InvokeFunction',
+        'FunctionName' => { 'Fn::GetAtt' => %w[ConvertFunction Arn] },
+        'Principal' => 's3.amazonaws.com',
+        'SourceAccount' => { 'Ref' => 'AWS::AccountId' },
+        'SourceArn' => { 'Fn::Sub' => 'arn:aws:s3:::${AWS::StackName}-uploads' }
+      )
+      expect(perm1.to_s).not_to include('UploadsBucket')
+
+      # 4. 外部参照バケットは AWS::S3::Bucket を生成せず AWS::Lambda::Permission のみ生成する
+      expect(resources).not_to have_key('ExternalArchiveBucket')
+      expect(resources).not_to have_key('ExternalArchiveBucketBucket')
+      perm2 = resources['ArchiveFunctionExternalArchiveBucketS3Permission']
+      expect(perm2).not_to be_nil
+      expect(perm2['Properties']).to eq(
+        'Action' => 'lambda:InvokeFunction',
+        'FunctionName' => { 'Fn::GetAtt' => %w[ArchiveFunction Arn] },
+        'Principal' => 's3.amazonaws.com',
+        'SourceAccount' => { 'Ref' => 'AWS::AccountId' },
+        'SourceArn' => { 'Fn::Sub' => 'arn:aws:s3:::${ExternalArchiveBucket}' }
+      )
+    end
   end
 end
