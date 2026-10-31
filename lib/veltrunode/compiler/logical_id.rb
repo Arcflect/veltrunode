@@ -71,6 +71,16 @@ module Veltrunode
         base.end_with?('Queue') ? base : "#{base}Queue"
       end
 
+      # S3 バケットの論理IDを生成します（サフィックス: Bucket）
+      #
+      # @param name [String, Symbol] バケットシンボリック名 (例: :uploads)
+      # @return [String] 論理ID (例: "UploadsBucket")
+      def for_bucket(name)
+        base = pascalize(name)
+        base = 'Bucket' if base.empty?
+        base.end_with?('Bucket') ? base : "#{base}Bucket"
+      end
+
       # CloudWatch LogGroup の論理IDを生成します（サフィックス: LogGroup）
       #
       # @param name [String, Symbol] 関数シンボリック名または論理名 (例: :convert)
@@ -162,6 +172,10 @@ module Veltrunode
           for_sns_subscription(name)
         when :sns_permission
           for_sns_permission(name)
+        when :bucket
+          for_bucket(name)
+        when :s3_permission
+          for_s3_permission(name)
         else
           suffix = pascalize(type)
           base = pascalize(name)
@@ -357,6 +371,21 @@ module Veltrunode
           "#{fn_id}#{topic_part}SnsPermission"
         else
           "#{fn_id}SnsPermission"
+        end
+      end
+
+      # S3 -> Lambda 呼び出し権限 (AWS::Lambda::Permission) の論理IDを生成します（サフィックス: S3Permission）
+      #
+      # @param function_name [String, Symbol] 関数シンボリック名 (例: :convert)
+      # @param bucket_identifier [String, Symbol, nil] バケット名または識別子 (例: :uploads)
+      # @return [String] 論理ID (例: "ConvertFunctionUploadsS3Permission")
+      def for_s3_permission(function_name, bucket_identifier = nil)
+        fn_id = for_function(function_name)
+        if bucket_identifier && !bucket_identifier.to_s.strip.empty?
+          bucket_part = pascalize(bucket_identifier)
+          "#{fn_id}#{bucket_part}S3Permission"
+        else
+          "#{fn_id}S3Permission"
         end
       end
     end

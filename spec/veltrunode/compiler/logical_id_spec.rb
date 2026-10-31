@@ -289,6 +289,25 @@ RSpec.describe Veltrunode::Compiler::LogicalId do
     end
   end
 
+  describe '.for_bucket and .for_s3_permission' do
+    it 'generates PascalCase Bucket logical ID with Bucket suffix' do
+      expect(described_class.for_bucket(:uploads)).to eq('UploadsBucket')
+      expect(described_class.for_bucket('media_files')).to eq('MediaFilesBucket')
+      expect(described_class.for_bucket('uploads_bucket')).to eq('UploadsBucket')
+      expect(described_class.for_bucket('')).to eq('Bucket')
+      expect(described_class.for_bucket(nil)).to eq('Bucket')
+      expect(described_class.for(:uploads, type: :bucket)).to eq('UploadsBucket')
+    end
+
+    it 'generates S3Permission logical ID with function and bucket identifier' do
+      expect(described_class.for_s3_permission(:convert, :uploads)).to eq(
+        'ConvertFunctionUploadsS3Permission'
+      )
+      expect(described_class.for_s3_permission(:convert)).to eq('ConvertFunctionS3Permission')
+      expect(described_class.for(:convert, type: :s3_permission)).to eq('ConvertFunctionS3Permission')
+    end
+  end
+
   describe 'standalone loading' do
     it 'allows individual compiler files to be loaded independently' do
       expect do
@@ -300,6 +319,7 @@ RSpec.describe Veltrunode::Compiler::LogicalId do
         require 'veltrunode/compiler/cloudformation/role_compiler'
         require 'veltrunode/compiler/cloudformation/event_source_mapping_compiler'
         require 'veltrunode/compiler/cloudformation/sns_subscription_compiler'
+        require 'veltrunode/compiler/cloudformation/s3_notification_compiler'
         require 'veltrunode/compiler/cloudformation'
 
         cf = Veltrunode::Compiler::CloudFormation
@@ -317,6 +337,10 @@ RSpec.describe Veltrunode::Compiler::LogicalId do
         )
         expect(cf::SnsSubscriptionCompiler.permission_logical_id_for(:notify, :order_events)).to eq(
           'NotifyFunctionOrderEventsSnsPermission'
+        )
+        expect(cf::S3NotificationCompiler.bucket_logical_id_for(:uploads)).to eq('UploadsBucket')
+        expect(cf::S3NotificationCompiler.permission_logical_id_for(:convert, :uploads)).to eq(
+          'ConvertFunctionUploadsS3Permission'
         )
       end.not_to raise_error
     end

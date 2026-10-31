@@ -389,12 +389,21 @@ module Veltrunode
           builder.instance_eval(&) if block_given?
           @event_sources_config << builder.build
           return
+        elsif opts.key?(:s3)
+          s3_val = opts.delete(:s3)
+          s3_opts = s3_val.is_a?(Hash) ? s3_val.merge(opts) : opts.merge(bucket: s3_val)
+          builder = EventSourceBuilder.new(:s3, **s3_opts)
+          builder.instance_eval(&) if block_given?
+          @event_sources_config << builder.build
+          return
         end
 
         type = if type_or_opts.is_a?(Symbol) || type_or_opts.is_a?(String)
                  type_or_opts
                elsif opts.key?(:topic) || opts.key?(:topic_arn)
                  :sns
+               elsif opts.key?(:bucket)
+                 :s3
                else
                  :sqs
                end

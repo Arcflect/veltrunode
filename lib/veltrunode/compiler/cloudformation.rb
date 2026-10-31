@@ -11,6 +11,7 @@ require_relative 'cloudformation/role_compiler'
 require_relative 'cloudformation/schedule_compiler'
 require_relative 'cloudformation/event_source_mapping_compiler'
 require_relative 'cloudformation/sns_subscription_compiler'
+require_relative 'cloudformation/s3_notification_compiler'
 require_relative 'cloudformation/template_compiler'
 
 module Veltrunode
