@@ -210,6 +210,30 @@ Veltrunode では以下のコンパイル戦略により循環依存を完全に
    - 既存インフラストラクチャを CloudFormation 管理下にインポートしない原則に従い、`AWS::S3::Bucket` リソースは生成せず、`AWS::Lambda::Permission` のみを生成します。
    - `ref(:external_bucket)` 指定時は CloudFormation `Parameters` に `ExternalBucket` (`Type: String`) を自動登録し、`SourceArn` を `{ 'Fn::Sub' => 'arn:aws:s3:::${ExternalBucket}' }` で解決します。
 
+## DynamoDB Streams イベントソースマッピングと IAM 権限の自動付与 (DynamoDB Streams Event Source Mapping Compilation)
+
+Lambda 関数で `event_source dynamodb_stream: ...`（または `defaults` ブロックでの指定）を設定した場合、`Veltrunode::Compiler::CloudFormation::EventSourceMappingCompiler` および `RoleCompiler` により `AWS::Lambda::EventSourceMapping` リソースおよびストリーム読み取りに必要な IAM 実行権限が自動構成されます。
+
+- **論理ID**: `#{FunctionName}#{StreamIdentifier}EventSourceMapping`（例: テーブル `Orders` のストリーム ARN 指定時は `OrderProjectorFunctionOrdersEventSourceMapping`、`ref(:audit_stream_arn)` 指定時は `OrderProjectorFunctionAuditStreamArnEventSourceMapping`）。
+- **`AWS::Lambda::EventSourceMapping` プロパティ (`Properties`)**:
+  - `EventSourceArn`: 対象 DynamoDB Streams の ARN。リテラル ARN 指定時はその文字列、`ref(:stream_arn)` やシンボル指定時は `{ 'Ref' => StreamParamKey }`。
+  - `FunctionName`: `{ 'Fn::GetAtt' => [FunctionLogicalId, 'Arn'] }`。
+  - `StartingPosition`: `'LATEST'`（`:latest` 指定時またはデフォルト）または `'TRIM_HORIZON'`（`:trim_horizon` 指定時）。
+  - `BatchSize`: 1 バッチあたりのレコード件数（指定時のみ設定、1〜10,000）。
+  - `MaximumBatchingWindowInSeconds`: バッチ待機ウィンドウ秒数（指定時のみ設定、0〜300秒）。
+  - `FunctionResponseTypes`: `report_batch_item_failures: true` 指定時に `['ReportBatchItemFailures']` を設定。
+  - `Enabled`: マッピングの有効状態（デフォルト `true`）。
+- **ストリーム読み取り IAM 権限の自動付与**:
+  `dynamodb_stream` が定義された関数では、Lambda 実行ロール（`AWS::IAM::Role`）のインラインポリシーに以下のステートメントが自動的に追加されます。
+  - **Action**:
+    - `dynamodb:GetRecords`
+    - `dynamodb:GetShardIterator`
+    - `dynamodb:DescribeStream`
+    - `dynamodb:ListStreams`
+  - **Resource**: 対象 DynamoDB Streams の ARN（または `{ 'Ref' => StreamParamKey }`）。
+- **ストリーム ARN のパラメータ化**:
+  ストリームに `ref(:stream_arn)` やシンボルが指定された場合、CloudFormation テンプレートの `Parameters`（例: `AuditStreamArn: { Type: String, Description: "DynamoDB stream ARN for AuditStreamArn" }`）に自動登録されます。
+
 ## CloudWatch メトリクスダッシュボードのコンパイルと URL 出力 (CloudWatch Dashboard Compilation & Output)
 
 Application レベルで `dashboard` を設定した場合、`Veltrunode::Compiler::CloudFormation::DashboardCompiler` により `AWS::CloudWatch::Dashboard` リソースが自動生成されます。
