@@ -8,6 +8,7 @@ module Veltrunode
     class EventSourceBuilder < BaseBuilder
       def initialize(type = :sqs, queue: nil, topic: nil, topic_arn: nil, bucket: nil,
                      events: nil, event: nil, filter: nil, prefix: nil, suffix: nil,
+                     stream: nil, stream_arn: nil, arn: nil, starting_position: nil,
                      batch_size: nil, maximum_batching_window_in_seconds: nil, report_batch_item_failures: false,
                      filter_policy: nil, filter_policy_scope: nil, enabled: true, **)
         super()
@@ -19,6 +20,8 @@ module Veltrunode
         @filter = filter
         @prefix = prefix
         @suffix = suffix
+        @stream = stream || stream_arn || arn
+        @starting_position = starting_position
         @batch_size = batch_size
         @maximum_batching_window_in_seconds = maximum_batching_window_in_seconds
         @report_batch_item_failures = report_batch_item_failures
@@ -63,6 +66,16 @@ module Veltrunode
         @suffix = s
       end
 
+      def stream(s)
+        @stream = s
+      end
+      alias stream_arn stream
+      alias dynamodb_stream stream
+
+      def starting_position(pos)
+        @starting_position = pos
+      end
+
       def batch_size(size)
         @batch_size = size
       end
@@ -105,6 +118,8 @@ module Veltrunode
           filter: @filter,
           prefix: @prefix,
           suffix: @suffix,
+          stream: @stream,
+          starting_position: @starting_position,
           batch_size: @batch_size,
           maximum_batching_window_in_seconds: @maximum_batching_window_in_seconds,
           report_batch_item_failures: @report_batch_item_failures,
