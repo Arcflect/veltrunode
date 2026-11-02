@@ -247,6 +247,105 @@ RSpec.describe Veltrunode::Model::EventSource do
       expect { described_class.new(dynamodb_stream: :orders_stream, starting_position: :at_timestamp) }
         .to raise_error(ArgumentError, /Invalid starting_position/)
     end
+
+    it 'creates an EventBridge rule event source with bus, pattern, and default enabled state' do
+      source = described_class.new(
+        rule: {
+          bus: 'custom-domain-bus',
+          pattern: {
+            source: ['myapp.orders'],
+            'detail-type': %w[OrderCreated OrderCompleted]
+          }
+        }
+      )
+
+      expect(source.type).to eq(:rule)
+      expect(source.rule?).to be true
+      expect(source.bus).to eq('custom-domain-bus')
+      expect(source.event_bus).to eq('custom-domain-bus')
+      expect(source.pattern).to eq(
+        'source' => ['myapp.orders'],
+        'detail-type' => %w[OrderCreated OrderCompleted]
+      )
+      expect(source.event_pattern).to eq(source.pattern)
+      expect(source.state).to eq(:enabled)
+      expect(source.cfn_state).to eq('ENABLED')
+      expect(source.enabled?).to be true
+      expect(source.disabled?).to be false
+      expect(source.source_identifier).to eq('custom-domain-bus')
+    end
+
+    it 'supports rule disabling with state: :disabled' do
+      source = described_class.new(
+        rule: {
+          bus: :domain_events,
+          pattern: { source: ['myapp.billing'], 'detail-type': ['InvoiceIssued'] },
+          state: :disabled
+        }
+      )
+
+      expect(source.rule?).to be true
+      expect(source.state).to eq(:disabled)
+      expect(source.cfn_state).to eq('DISABLED')
+      expect(source.enabled?).to be false
+      expect(source.disabled?).to be true
+    end
+
+    it 'accepts type: :rule directly without bus (defaults to default bus)' do
+      source = described_class.new(
+        type: :rule,
+        name: :order_created,
+        pattern: {
+          source: ['myapp.orders'],
+          detail: { status: ['PAID'] }
+        },
+        description: 'Trigger on paid orders'
+      )
+
+      expect(source.rule?).to be true
+      expect(source.name).to eq('order_created')
+      expect(source.bus).to be_nil
+      expect(source.pattern).to eq(
+        'source' => ['myapp.orders'],
+        'detail' => { 'status' => ['PAID'] }
+      )
+      expect(source.description).to eq('Trigger on paid orders')
+      expect(source.source_identifier).to eq('order_created')
+    end
+
+    it 'raises ArgumentError when rule pattern is missing or invalid' do
+      expect do
+        described_class.new(type: :rule, bus: 'custom-bus')
+      end.to raise_error(ArgumentError, /Event pattern must be specified for EventBridge rule/)
+
+      expect do
+        described_class.new(rule: { bus: 'custom-bus', pattern: {} })
+      end.to raise_error(ArgumentError, /Event pattern must be specified for EventBridge rule/)
+
+      expect do
+        described_class.new(rule: { bus: 'custom-bus', pattern: 'invalid' })
+      end.to raise_error(ArgumentError, /Event pattern must be a Hash/)
+    end
+
+    it 'raises ArgumentError when rule state or bus is invalid' do
+      expect do
+        described_class.new(
+          rule: {
+            bus: '   ',
+            pattern: { source: ['myapp.orders'] }
+          }
+        )
+      end.to raise_error(ArgumentError, /Event bus cannot be empty for EventBridge rule/)
+
+      expect do
+        described_class.new(
+          rule: {
+            pattern: { source: ['myapp.orders'] },
+            state: :paused
+          }
+        )
+      end.to raise_error(ArgumentError, /Invalid rule state 'paused'/)
+    end
   end
 
   describe '#to_h' do
@@ -317,6 +416,27 @@ RSpec.describe Veltrunode::Model::EventSource do
       expect(hash['batch_size']).to eq(25)
       expect(hash['report_batch_item_failures']).to be true
       expect(hash['enabled']).to be true
+    end
+
+    it 'serializes EventBridge rule event source attributes' do
+      source = described_class.new(
+        rule: {
+          name: :order_created,
+          bus: 'custom-bus',
+          pattern: { source: ['myapp.orders'], 'detail-type': ['OrderCreated'] },
+          state: :disabled,
+          description: 'Disabled order rule'
+        }
+      )
+
+      hash = source.to_h
+      expect(hash['type']).to eq('rule')
+      expect(hash['name']).to eq('order_created')
+      expect(hash['bus']).to eq('custom-bus')
+      expect(hash['pattern']).to eq('source' => ['myapp.orders'], 'detail-type' => ['OrderCreated'])
+      expect(hash['state']).to eq('disabled')
+      expect(hash['description']).to eq('Disabled order rule')
+      expect(hash['enabled']).to be false
     end
   end
 
@@ -390,6 +510,28 @@ RSpec.describe Veltrunode::Model::EventSource do
       expect(fn.event_sources.first.dynamodb_stream?).to be true
       expect(fn.event_sources.first.starting_position).to eq('LATEST')
       expect(fn.event_sources.first.batch_size).to eq(100)
+    end
+
+    it 'accepts rule hash in Function and exposes #rule and #rules helpers' do
+      fn = Veltrunode::Model::Function.new(
+        'order_handler',
+        handler: 'orders.handler',
+        runtime: 'ruby3.3',
+        rule: {
+          bus: 'custom-bus',
+          pattern: { source: ['myapp.orders'], 'detail-type': ['OrderCreated'] },
+          state: :disabled
+        }
+      )
+
+      expect(fn.event_sources?).to be true
+      expect(fn.rules?).to be true
+      expect(fn.rules.size).to eq(1)
+      expect(fn.rule.rule?).to be true
+      expect(fn.rule.bus).to eq('custom-bus')
+      expect(fn.rule.pattern).to eq('source' => ['myapp.orders'], 'detail-type' => ['OrderCreated'])
+      expect(fn.rule.state).to eq(:disabled)
+      expect(fn.rule.disabled?).to be true
     end
   end
 end

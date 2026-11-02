@@ -12,6 +12,7 @@ module Veltrunode
                   :functions,
                   :layers,
                   :schedules,
+                  :rules,
                   :mounts,
                   :security_groups,
                   :policies,
@@ -32,6 +33,7 @@ module Veltrunode
         functions: [],
         layers: [],
         schedules: [],
+        rules: [],
         mounts: [],
         security_groups: [],
         policies: [],
@@ -50,6 +52,7 @@ module Veltrunode
         @functions = normalize_collection_with_lookup(functions, :logical_name).freeze
         @layers = layers.dup.freeze
         @schedules = schedules.dup.freeze
+        @rules = rules.dup.freeze
         @mounts = mounts.dup.freeze
         @security_groups = security_groups.dup.freeze
         @policies = policies.dup.freeze
