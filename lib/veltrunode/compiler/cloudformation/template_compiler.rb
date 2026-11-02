@@ -17,6 +17,7 @@ require_relative 'event_invoke_config_compiler'
 require_relative 'event_source_mapping_compiler'
 require_relative 'sns_subscription_compiler'
 require_relative 's3_notification_compiler'
+require_relative 'event_rule_compiler'
 require_relative '../../graph/resource_graph'
 require_relative '../../version'
 
@@ -171,6 +172,14 @@ module Veltrunode
                       'Type' => 'String'
                     }
                   end
+                elsif source.respond_to?(:rule?) && source.rule?
+                  param_key = resolve_s3_bucket_param_key(source.bus)
+                  if param_key && !params.key?(param_key)
+                    params[param_key] = {
+                      'Description' => "EventBridge event bus name for #{param_key}",
+                      'Type' => 'String'
+                    }
+                  end
                 end
               end
             end
@@ -222,6 +231,20 @@ module Veltrunode
 
             params[param_key] = {
               'Description' => "SNS topic ARN for #{param_key}",
+              'Type' => 'String'
+            }
+          end
+
+          # Include referenced EventBridge event bus parameters from top-level rules
+          rule_nodes = extract_collection(:rules)
+          rule_nodes.each do |rule|
+            next unless rule.respond_to?(:bus) && rule.bus
+
+            param_key = resolve_s3_bucket_param_key(rule.bus)
+            next if param_key.nil? || params.key?(param_key)
+
+            params[param_key] = {
+              'Description' => "EventBridge event bus name for #{param_key}",
               'Type' => 'String'
             }
           end
@@ -347,7 +370,7 @@ module Veltrunode
               end
             end
 
-            # EventSourceMapping / SNS Subscription / S3 Notification
+            # EventSourceMapping / SNS Subscription / S3 Notification / EventBridge Rule
             if fn.respond_to?(:event_sources) && fn.event_sources
               Array(fn.event_sources).each do |source|
                 if source.respond_to?(:sns?) && source.sns?
@@ -356,6 +379,9 @@ module Veltrunode
                 elsif source.respond_to?(:s3?) && source.s3?
                   s3_res = S3NotificationCompiler.compile(fn, source, context: context)
                   S3NotificationCompiler.merge_into_resources!(resources, s3_res)
+                elsif source.respond_to?(:rule?) && source.rule?
+                  rule_res = EventRuleCompiler.compile(fn, source, context: context)
+                  resources.merge!(rule_res)
                 else
                   esm_res = EventSourceMappingCompiler.compile(fn, source, context: context)
                   resources.merge!(esm_res)
@@ -370,7 +396,7 @@ module Veltrunode
             resources.merge!(eic_res)
           end
 
-          # 6. Compile Schedules (Role, Schedule)
+          # 6. Compile Schedules (Role, Schedule) and top-level EventBridge Rules
           sched_nodes = extract_collection(:schedules)
           sched_nodes.each do |sched|
             role_res = RoleCompiler.compile_scheduler_role(sched, context: context)
@@ -378,6 +404,15 @@ module Veltrunode
 
             sched_res = ScheduleCompiler.compile(sched, context: context)
             resources.merge!(sched_res)
+          end
+
+          rule_nodes = extract_collection(:rules)
+          rule_nodes.each do |rule|
+            target_fn = rule.respond_to?(:target_function) ? rule.target_function : nil
+            next if target_fn.nil? || target_fn.to_s.strip.empty?
+
+            rule_res = EventRuleCompiler.compile(target_fn, rule, context: context)
+            resources.merge!(rule_res)
           end
 
           # 7. Compile Dashboard (AWS::CloudWatch::Dashboard)

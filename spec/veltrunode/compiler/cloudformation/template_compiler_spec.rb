@@ -1204,5 +1204,105 @@ RSpec.describe Veltrunode::Compiler::CloudFormation::TemplateCompiler do
       expect(ddb_stmt['Effect']).to eq('Allow')
       expect(ddb_stmt['Resource']).to eq([orders_stream_arn, { 'Ref' => 'AuditStreamArn' }])
     end
+
+    it 'compiles AWS::Events::Rule and AWS::Lambda::Permission for EventBridge rules and custom event buses' do
+      code = <<~RUBY
+        Veltrunode.application "eventbridge-app" do
+          aws region: "ap-northeast-1"
+
+          function :order_handler, rule: {
+            bus: "custom-orders-bus",
+            pattern: {
+              source: ["myapp.orders"],
+              "detail-type": ["OrderCreated", "OrderCompleted"]
+            }
+          } do
+            handler "orders.handler"
+            runtime "ruby3.3"
+          end
+
+          function :billing_handler do
+            handler "billing.handler"
+            runtime "ruby3.3"
+            rule bus: ref(:domain_bus),
+                 pattern: {
+                   source: ["myapp.billing"],
+                   "detail-type": ["InvoiceIssued"]
+                 },
+                 state: :disabled
+          end
+        end
+      RUBY
+
+      app = Veltrunode.parse(code)
+      yaml_output = described_class.to_yaml(app)
+      parsed = YAML.safe_load(yaml_output)
+
+      params = parsed['Parameters']
+      resources = parsed['Resources']
+
+      # 1. ref(:domain_bus) の Parameters 自動登録
+      expect(params['DomainBus']).to eq(
+        'Description' => 'EventBridge event bus name for DomainBus',
+        'Type' => 'String'
+      )
+
+      # 2. AWS::Events::Rule (ENABLED + custom-orders-bus) と AWS::Lambda::Permission の検証
+      rule1 = resources['OrderHandlerFunctionCustomOrdersBusEventRule']
+      expect(rule1).not_to be_nil
+      expect(rule1['Type']).to eq('AWS::Events::Rule')
+      expect(rule1['Properties']).to eq(
+        'EventBusName' => 'custom-orders-bus',
+        'EventPattern' => {
+          'detail-type' => %w[OrderCreated OrderCompleted],
+          'source' => ['myapp.orders']
+        },
+        'State' => 'ENABLED',
+        'Targets' => [
+          {
+            'Arn' => { 'Fn::GetAtt' => %w[OrderHandlerFunction Arn] },
+            'Id' => 'OrderHandlerFunctionTarget'
+          }
+        ]
+      )
+
+      perm1 = resources['OrderHandlerFunctionCustomOrdersBusEventsPermission']
+      expect(perm1).not_to be_nil
+      expect(perm1['Type']).to eq('AWS::Lambda::Permission')
+      expect(perm1['Properties']).to eq(
+        'Action' => 'lambda:InvokeFunction',
+        'FunctionName' => { 'Fn::GetAtt' => %w[OrderHandlerFunction Arn] },
+        'Principal' => 'events.amazonaws.com',
+        'SourceArn' => {
+          'Fn::GetAtt' => %w[OrderHandlerFunctionCustomOrdersBusEventRule Arn]
+        }
+      )
+
+      # 3. AWS::Events::Rule (DISABLED + Ref DomainBus) と AWS::Lambda::Permission の検証
+      rule2 = resources['BillingHandlerFunctionDomainBusEventRule']
+      expect(rule2).not_to be_nil
+      expect(rule2['Type']).to eq('AWS::Events::Rule')
+      expect(rule2['Properties']).to eq(
+        'EventBusName' => { 'Ref' => 'DomainBus' },
+        'EventPattern' => {
+          'detail-type' => ['InvoiceIssued'],
+          'source' => ['myapp.billing']
+        },
+        'State' => 'DISABLED',
+        'Targets' => [
+          {
+            'Arn' => { 'Fn::GetAtt' => %w[BillingHandlerFunction Arn] },
+            'Id' => 'BillingHandlerFunctionTarget'
+          }
+        ]
+      )
+
+      perm2 = resources['BillingHandlerFunctionDomainBusEventsPermission']
+      expect(perm2).not_to be_nil
+      expect(perm2['Type']).to eq('AWS::Lambda::Permission')
+      expect(perm2['Properties']['SourceArn']).to eq(
+        'Fn::GetAtt' => %w[BillingHandlerFunctionDomainBusEventRule Arn]
+      )
+    end
   end
 end
