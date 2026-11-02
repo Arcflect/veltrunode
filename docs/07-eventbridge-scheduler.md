@@ -29,3 +29,55 @@
 ## IAM 権限設計
 
 Schedulerは、デフォルトで専用の呼び出しロール（invocation role）を使用します。このロールの権限は、ターゲットのLambda関数のARN呼び出しのみに制限されます。共有ロールを使用することも可能ですが、セキュリティの観点から非推奨です。
+
+---
+
+## EventBridge ルールとカスタムイベントバストリガー (EventBridge Rule & Custom Event Bus)
+
+定期実行の Scheduler だけでなく、デフォルトまたはカスタムイベントバスに送信されるドメインイベントをイベントパターン（JSON マッチング）でフィルタリングし、Lambda 関数を起動するトリガーを `rule`（または `event_source rule:`）DSL で定義できます。
+
+### DSL 記述例
+
+```ruby
+function :order_handler, rule: {
+  bus: "custom-orders-bus",
+  pattern: {
+    source: ["myapp.orders"],
+    "detail-type": ["OrderCreated", "OrderCompleted"]
+  }
+} do
+  handler "orders.handler"
+end
+
+function :billing_handler do
+  handler "billing.handler"
+  rule bus: ref(:domain_bus),
+       pattern: {
+         source: ["myapp.billing"],
+         "detail-type": ["InvoiceIssued"],
+         detail: { status: ["OVERDUE"] }
+       },
+       state: :disabled
+end
+```
+
+### サポートされる設定項目
+
+- `bus`（エイリアス: `event_bus`, `event_bus_name`）: イベントバス名、ARN、または `ref(:bus_param)` 参照。省略時は `default` イベントバスが使用されます。
+- `pattern`（エイリアス: `event_pattern`, 必須）: `source` や `'detail-type'`、`detail` 等の JSON イベントパターンハッシュ。
+- `state`: `:enabled`（デフォルト: `'ENABLED'`）または `:disabled`（ルール無効化: `'DISABLED'`）。
+- `description`: ルールの説明文（省略可能）。
+- `input`: ターゲットへ渡す定数 JSON インプット（省略可能）。
+
+### CloudFormation コンパイル結果
+
+- **`AWS::Events::Rule`** (`<Function>EventRule` または `<Function><RuleIdentifier>EventRule`):
+  - `EventPattern`: 指定されたイベントパターンハッシュ
+  - `EventBusName`: `bus` 指定時のみ出力（`ref(:domain_bus)` 指定時は `Parameters` に自動登録のうえ `{ "Ref" => "DomainBus" }` を設定）
+  - `State`: `"ENABLED"` または `"DISABLED"`
+  - `Targets`: `[{ "Arn" => { "Fn::GetAtt" => ["<Function>", "Arn"] }, "Id" => "<Function>Target" }]`
+- **`AWS::Lambda::Permission`** (`<Function>EventsPermission` または `<Function><RuleIdentifier>EventsPermission`):
+  - `Action`: `"lambda:InvokeFunction"`
+  - `FunctionName`: `{ "Fn::GetAtt" => ["<Function>", "Arn"] }`
+  - `Principal`: `"events.amazonaws.com"`
+  - `SourceArn`: `{ "Fn::GetAtt" => ["<RuleLogicalId>", "Arn"] }`
