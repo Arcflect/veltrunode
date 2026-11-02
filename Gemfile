@@ -10,6 +10,6 @@ group :development, :test do
   gem 'racc', '1.8.1'
   gem 'rantly', '~> 2.0'
   gem 'rspec', '~> 3.12'
-  gem 'rubocop', '1.92.1'
+  gem 'rubocop', '1.92.2'
   gem 'simplecov', '~> 1.0', require: false
 end
