@@ -25,6 +25,7 @@ module Veltrunode
         @function_builders = []
         @layer_builders = []
         @schedule_builders = []
+        @rule_builders = []
         @efs_mount_builders = []
         @security_group_builders = []
         @policies = []
@@ -116,9 +117,12 @@ module Veltrunode
       alias efs_security_group security_group_helper
 
       def function(name, tracing: nil, insights: nil, async_invoke: nil, alarms: nil,
-                   event_source: nil, event_sources: nil, **, &)
+                   event_source: nil, event_sources: nil, rule: nil, rules: nil, **, &)
         alarms_cfg = alarms.nil? ? @runtime_defaults[:alarms] : alarms
-        es_cfg = event_source || event_sources || @runtime_defaults[:event_sources]
+        es_cfg = combine_event_source_defaults(
+          event_source || event_sources || @runtime_defaults[:event_sources],
+          rule || rules
+        )
         builder = FunctionBuilder.new(
           name,
           runtime_default: resolve_default_runtime,
@@ -137,6 +141,18 @@ module Veltrunode
         builder = ScheduleBuilder.new(name)
         builder.instance_eval(&) if block_given?
         @schedule_builders << builder
+      end
+
+      def rule(name_or_opts = nil, **kwargs, &)
+        opts = kwargs.dup
+        if name_or_opts.is_a?(Hash)
+          opts.merge!(name_or_opts)
+        elsif name_or_opts
+          opts[:name] = name_or_opts
+        end
+        builder = EventSourceBuilder.new(:rule, **opts)
+        builder.instance_eval(&) if block_given?
+        @rule_builders << builder
       end
 
       def stage_policy(stage, pack: nil, deny_wildcard_actions: nil, require_dlq: nil,
@@ -195,6 +211,7 @@ module Veltrunode
         mounts = @efs_mount_builders.map(&:build)
         functions = @function_builders.map(&:build)
         schedules = @schedule_builders.map(&:build)
+        rules = @rule_builders.map(&:build)
 
         mount_sgs = mounts.map(&:security_group_helper).compact
         explicit_sgs = @security_group_builders.map(&:build)
@@ -211,6 +228,7 @@ module Veltrunode
           functions: functions,
           layers: layers,
           schedules: schedules,
+          rules: rules,
           mounts: mounts,
           security_groups: all_sgs,
           policies: @policies,
@@ -220,6 +238,23 @@ module Veltrunode
       end
 
       private
+
+      def combine_event_source_defaults(es_cfg, rule_cfg)
+        return es_cfg if rule_cfg.nil?
+
+        wrapped_rules = if rule_cfg.is_a?(Array)
+                          rule_cfg.map { |r| r.is_a?(Model::EventSource) ? r : { rule: r } }
+                        elsif rule_cfg.is_a?(Model::EventSource)
+                          [rule_cfg]
+                        else
+                          [{ rule: rule_cfg }]
+                        end
+
+        return wrapped_rules if es_cfg.nil?
+
+        es_list = es_cfg.is_a?(Array) ? es_cfg : [es_cfg]
+        es_list + wrapped_rules
+      end
 
       def apply_positional_runtime(str)
         if str.start_with?('python')
@@ -403,10 +438,19 @@ module Veltrunode
           builder.instance_eval(&) if block_given?
           @event_sources_config << builder.build
           return
+        elsif opts.key?(:rule)
+          rule_val = opts.delete(:rule)
+          rule_opts = rule_val.is_a?(Hash) ? rule_val.merge(opts) : opts.merge(name: rule_val)
+          builder = EventSourceBuilder.new(:rule, **rule_opts)
+          builder.instance_eval(&) if block_given?
+          @event_sources_config << builder.build
+          return
         end
 
         type = if type_or_opts.is_a?(Symbol) || type_or_opts.is_a?(String)
                  type_or_opts
+               elsif opts.key?(:pattern) || opts.key?(:event_pattern) || opts.key?(:bus) || opts.key?(:event_bus)
+                 :rule
                elsif opts.key?(:topic) || opts.key?(:topic_arn)
                  :sns
                elsif opts.key?(:bucket)
@@ -421,6 +465,20 @@ module Veltrunode
         @event_sources_config << builder.build
       end
       alias event_sources event_source
+
+      def rule(name_or_opts = nil, **kwargs, &)
+        @event_sources_config ||= []
+        opts = kwargs.dup
+        if name_or_opts.is_a?(Hash)
+          opts.merge!(name_or_opts)
+        elsif name_or_opts
+          opts[:name] = name_or_opts
+        end
+        builder = EventSourceBuilder.new(:rule, **opts)
+        builder.instance_eval(&) if block_given?
+        @event_sources_config << builder.build
+      end
+      alias rules rule
 
       def tags(hash = {})
         @tags_config.merge!(hash)

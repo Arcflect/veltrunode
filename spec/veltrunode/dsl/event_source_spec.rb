@@ -511,4 +511,151 @@ RSpec.describe 'DSL event_source support' do
       expect(none_fn.event_sources).to be_empty
     end
   end
+
+  describe 'EventBridge rule event source DSL' do
+    it 'supports rule: { bus: ..., pattern: { source: [...], "detail-type": [...] } } on function' do
+      app = Veltrunode.application 'eventbridge-app' do
+        function :order_handler, rule: {
+          bus: 'custom-orders-bus',
+          pattern: {
+            source: ['myapp.orders'],
+            'detail-type': %w[OrderCreated OrderUpdated]
+          }
+        } do
+          handler 'orders.handler'
+          runtime 'ruby3.3'
+        end
+      end
+
+      fn = app.functions.first
+      expect(fn.rules?).to be true
+      expect(fn.rule.rule?).to be true
+      expect(fn.rule.bus).to eq('custom-orders-bus')
+      expect(fn.rule.pattern).to eq(
+        'source' => ['myapp.orders'],
+        'detail-type' => %w[OrderCreated OrderUpdated]
+      )
+      expect(fn.rule.state).to eq(:enabled)
+      expect(fn.rule.cfn_state).to eq('ENABLED')
+    end
+
+    it 'supports rule DSL inside function block with state: :disabled' do
+      app = Veltrunode.application 'eventbridge-app' do
+        function :billing_handler do
+          handler 'billing.handler'
+          runtime 'ruby3.3'
+          rule bus: ref(:domain_bus),
+               pattern: {
+                 source: ['myapp.billing'],
+                 'detail-type': ['InvoiceIssued']
+               },
+               state: :disabled
+        end
+      end
+
+      fn = app.functions.first
+      expect(fn.rule.rule?).to be true
+      expect(fn.rule.bus).to be_a(Veltrunode::DSL::Reference)
+      expect(fn.rule.bus.name).to eq(:domain_bus)
+      expect(fn.rule.pattern).to eq(
+        'source' => ['myapp.billing'],
+        'detail-type' => ['InvoiceIssued']
+      )
+      expect(fn.rule.state).to eq(:disabled)
+      expect(fn.rule.disabled?).to be true
+      expect(fn.rule.cfn_state).to eq('DISABLED')
+    end
+
+    it 'supports event_source rule: { bus: ..., pattern: ..., state: :disabled }' do
+      app = Veltrunode.application 'eventbridge-app' do
+        function :audit_handler do
+          handler 'audit.handler'
+          runtime 'ruby3.3'
+          event_source rule: {
+            bus: 'audit-bus',
+            pattern: {
+              source: ['myapp.auth'],
+              'detail-type': ['UserLoggedIn']
+            },
+            state: :disabled
+          }
+        end
+      end
+
+      es = app.functions.first.event_sources.first
+      expect(es.rule?).to be true
+      expect(es.bus).to eq('audit-bus')
+      expect(es.pattern).to eq('source' => ['myapp.auth'], 'detail-type' => ['UserLoggedIn'])
+      expect(es.state).to eq(:disabled)
+    end
+
+    it 'supports block-based rule DSL inside function and top-level application rule' do
+      app = Veltrunode.application 'eventbridge-app' do
+        function :order_handler do
+          handler 'orders.handler'
+          runtime 'ruby3.3'
+          rule :paid_orders do
+            bus 'orders-bus'
+            pattern source: ['myapp.orders'],
+                    'detail-type': ['OrderPaid'],
+                    detail: { currency: ['JPY'] }
+            description 'Trigger on JPY paid orders'
+            state :enabled
+          end
+        end
+
+        rule :cancelled_orders do
+          target :order_handler
+          bus 'orders-bus'
+          pattern source: ['myapp.orders'], 'detail-type': ['OrderCancelled']
+          state :disabled
+        end
+      end
+
+      fn_rule = app.functions.first.rule
+      expect(fn_rule.name).to eq('paid_orders')
+      expect(fn_rule.bus).to eq('orders-bus')
+      expect(fn_rule.pattern).to eq(
+        'source' => ['myapp.orders'],
+        'detail-type' => ['OrderPaid'],
+        'detail' => { 'currency' => ['JPY'] }
+      )
+      expect(fn_rule.description).to eq('Trigger on JPY paid orders')
+      expect(fn_rule.state).to eq(:enabled)
+
+      expect(app.rules.size).to eq(1)
+      top_rule = app.rules.first
+      expect(top_rule.name).to eq('cancelled_orders')
+      expect(top_rule.target_function).to eq('order_handler')
+      expect(top_rule.bus).to eq('orders-bus')
+      expect(top_rule.state).to eq(:disabled)
+    end
+
+    it 'supports rule in application defaults with opt-out via rule false' do
+      app = Veltrunode.application 'eventbridge-default-app' do
+        defaults do
+          rule bus: 'shared-bus',
+               pattern: { source: ['myapp.system'], 'detail-type': ['HealthCheck'] }
+        end
+
+        function :listener do
+          handler 'listener.handler'
+          runtime 'ruby3.3'
+        end
+
+        function :standalone do
+          handler 'none.handler'
+          runtime 'ruby3.3'
+          rule false
+        end
+      end
+
+      listener_fn = app.functions.find { |f| f.logical_name == 'listener' }
+      none_fn = app.functions.find { |f| f.logical_name == 'standalone' }
+
+      expect(listener_fn.rules.size).to eq(1)
+      expect(listener_fn.rule.bus).to eq('shared-bus')
+      expect(none_fn.rules).to be_empty
+    end
+  end
 end
