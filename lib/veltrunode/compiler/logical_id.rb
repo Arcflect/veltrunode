@@ -176,6 +176,10 @@ module Veltrunode
           for_bucket(name)
         when :s3_permission
           for_s3_permission(name)
+        when :event_rule, :rule
+          for_event_rule(name)
+        when :events_permission, :event_rule_permission
+          for_events_permission(name)
         else
           suffix = pascalize(type)
           base = pascalize(name)
@@ -387,6 +391,44 @@ module Veltrunode
         else
           "#{fn_id}S3Permission"
         end
+      end
+
+      # EventBridge ルール (AWS::Events::Rule) の論理IDを生成します（サフィックス: EventRule）
+      #
+      # @param function_name [String, Symbol] 関数シンボリック名 (例: :order_handler)
+      # @param rule_identifier [String, Symbol, nil] ルール名またはイベントバス識別子 (例: :orders_bus)
+      # @return [String] 論理ID (例: "OrderHandlerFunctionOrdersBusEventRule")
+      def for_event_rule(function_name, rule_identifier = nil)
+        fn_id = for_function(function_name)
+        if rule_identifier && !rule_identifier.to_s.strip.empty?
+          rule_part = pascalize(rule_identifier).sub(/(?:Event)?Rule\z/, '')
+          "#{fn_id}#{rule_part}EventRule"
+        else
+          "#{fn_id}EventRule"
+        end
+      end
+
+      def for_rule(function_name, rule_identifier = nil)
+        for_event_rule(function_name, rule_identifier)
+      end
+
+      # EventBridge -> Lambda 呼び出し権限 (AWS::Lambda::Permission) の論理IDを生成します（サフィックス: EventsPermission）
+      #
+      # @param function_name [String, Symbol] 関数シンボリック名 (例: :order_handler)
+      # @param rule_identifier [String, Symbol, nil] ルール名またはイベントバス識別子 (例: :orders_bus)
+      # @return [String] 論理ID (例: "OrderHandlerFunctionOrdersBusEventsPermission")
+      def for_events_permission(function_name, rule_identifier = nil)
+        fn_id = for_function(function_name)
+        if rule_identifier && !rule_identifier.to_s.strip.empty?
+          rule_part = pascalize(rule_identifier).sub(/(?:Event)?Rule\z/, '')
+          "#{fn_id}#{rule_part}EventsPermission"
+        else
+          "#{fn_id}EventsPermission"
+        end
+      end
+
+      def for_event_rule_permission(function_name, rule_identifier = nil)
+        for_events_permission(function_name, rule_identifier)
       end
     end
   end

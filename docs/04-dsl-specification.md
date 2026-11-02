@@ -372,6 +372,45 @@ end
 - **`enabled`**: イベントソースマッピングの有効/無効フラグ（デフォルト: `true`）。
 - **自動 IAM 権限付与**: `dynamodb_stream` が定義された関数には、ストリーム読み取りに必要な IAM 権限（`dynamodb:GetRecords`, `dynamodb:GetShardIterator`, `dynamodb:DescribeStream`, `dynamodb:ListStreams`）が Lambda 実行ロールに自動付与されます。
 
+## EventBridge カスタムイベントバストリガーとルールパターン (EventBridge Rule & Custom Event Bus)
+
+定期実行の Scheduler だけでなく、カスタムイベントバス（またはデフォルトイベントバス）に送信されるドメインイベントを受信して起動する関数を構築する場合、`rule: { bus: ..., pattern: { source: [...], 'detail-type': [...] } }` で EventBridge ルールとイベントパターン（JSON マッチング）を記述し、`AWS::Events::Rule` および `AWS::Lambda::Permission` を自動生成できます。
+
+```ruby
+Veltrunode.application "eventbridge-app" do
+  # 1. function キーワード引数での指定
+  function :order_handler, rule: {
+    bus: "custom-orders-bus",
+    pattern: {
+      source: ["myapp.orders"],
+      "detail-type": ["OrderCreated", "OrderCompleted"]
+    }
+  } do
+    handler "orders.handler"
+    runtime "ruby3.3"
+  end
+
+  # 2. function ブロック内での rule 指定（state: :disabled サポート）
+  function :billing_handler do
+    handler "billing.handler"
+    runtime "ruby3.3"
+    rule bus: ref(:domain_bus),
+         pattern: {
+           source: ["myapp.billing"],
+           "detail-type": ["InvoiceIssued"]
+         },
+         state: :disabled
+  end
+end
+```
+
+### パラメータ仕様
+
+- **`bus` / `event_bus` / `event_bus_name`**: 対象の EventBridge イベントバス名、ARN、または `ref(:bus_param)`（CloudFormation パラメータ参照）。省略時は `default` イベントバスが使用されます。
+- **`pattern` / `event_pattern`**: EventBridge のイベントパターン（`source`, `'detail-type'`, `detail` 等）を Hash で指定します。
+- **`state`**: ルールの有効/無効フラグ。`:enabled`（`'ENABLED'`、デフォルト）または `:disabled`（`'DISABLED'`）を指定します。
+- **自動呼び出し権限付与**: EventBridge（`events.amazonaws.com`）から対象 Lambda 関数を呼び出すための `AWS::Lambda::Permission`（`lambda:InvokeFunction`、`SourceArn`: ルールの ARN）が自動的に付与されます。
+
 ## CloudWatch メトリクスダッシュボード (CloudWatch Dashboard)
 
 Application レベルで `dashboard` を宣言することで、デプロイされた全 Lambda 関数の稼働状態を一目で把握できる `AWS::CloudWatch::Dashboard` リソースを自動生成できます。

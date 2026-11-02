@@ -234,6 +234,24 @@ Lambda 関数で `event_source dynamodb_stream: ...`（または `defaults` ブ�
 - **ストリーム ARN のパラメータ化**:
   ストリームに `ref(:stream_arn)` やシンボルが指定された場合、CloudFormation テンプレートの `Parameters`（例: `AuditStreamArn: { Type: String, Description: "DynamoDB stream ARN for AuditStreamArn" }`）に自動登録されます。
 
+## EventBridge ルールとカスタムイベントバストリガーのコンパイル (EventBridge Rule Compilation)
+
+Lambda 関数で `rule: { bus: ..., pattern: { ... }, state: ... }`（または `event_source rule:`）を設定した場合、`Veltrunode::Compiler::CloudFormation::EventRuleCompiler` により `AWS::Events::Rule` および `AWS::Lambda::Permission` リソースが自動構成されます。
+
+- **論理ID**:
+  - ルール: `#{FunctionName}#{RuleIdentifier}EventRule`（識別子省略時は `#{FunctionName}EventRule`）
+  - 呼び出し許可: `#{FunctionName}#{RuleIdentifier}EventsPermission`（識別子省略時は `#{FunctionName}EventsPermission`）
+- **`AWS::Events::Rule` プロパティ (`Properties`)**:
+  - `EventPattern`: 指定されたイベントパターンハッシュ（キー・シンボル値を文字列に正規化）
+  - `EventBusName`: `bus` 指定時のみ設定（リテラルバス名/ARN または `ref(:bus_param)` 指定時は `{ 'Ref' => BusParamKey }`）
+  - `State`: `'ENABLED'`（`:enabled` 指定時またはデフォルト）または `'DISABLED'`（`state: :disabled` 指定時）
+  - `Targets`: `[{ 'Arn' => { 'Fn::GetAtt' => [FunctionLogicalId, 'Arn'] }, 'Id' => "#{FunctionLogicalId}Target" }]`
+- **`AWS::Lambda::Permission` プロパティ (`Properties`)**:
+  - `Action`: `'lambda:InvokeFunction'`
+  - `FunctionName`: `{ 'Fn::GetAtt' => [FunctionLogicalId, 'Arn'] }`
+  - `Principal`: `'events.amazonaws.com'`
+  - `SourceArn`: `{ 'Fn::GetAtt' => [RuleLogicalId, 'Arn'] }`
+
 ## CloudWatch メトリクスダッシュボードのコンパイルと URL 出力 (CloudWatch Dashboard Compilation & Output)
 
 Application レベルで `dashboard` を設定した場合、`Veltrunode::Compiler::CloudFormation::DashboardCompiler` により `AWS::CloudWatch::Dashboard` リソースが自動生成されます。

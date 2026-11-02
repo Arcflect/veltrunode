@@ -251,6 +251,12 @@ module Veltrunode
         elsif opts.key?(:dynamodb_stream)
           @event_sources << build_keyed_event_source(:dynamodb_stream, opts.delete(:dynamodb_stream), opts, :stream, &)
           return
+        elsif opts.key?(:rule)
+          @event_sources << build_keyed_event_source(:rule, opts.delete(:rule), opts, :name, &)
+          return
+        elsif opts.key?(:eventbridge)
+          @event_sources << build_keyed_event_source(:rule, opts.delete(:eventbridge), opts, :name, &)
+          return
         end
 
         type = resolve_event_source_type(type_or_opts, opts)
@@ -259,6 +265,30 @@ module Veltrunode
         @event_sources << builder.build
       end
       alias event_sources event_source
+
+      def rule(name_or_opts = nil, **kwargs, &)
+        if name_or_opts == false
+          @event_sources.reject!(&:rule?)
+          return
+        end
+
+        if name_or_opts.is_a?(Model::EventSource)
+          @event_sources << name_or_opts
+          return
+        end
+
+        opts = kwargs.dup
+        if name_or_opts.is_a?(Hash)
+          opts.merge!(name_or_opts)
+        elsif name_or_opts
+          opts[:name] = name_or_opts
+        end
+
+        builder = EventSourceBuilder.new(:rule, **opts)
+        builder.instance_eval(&) if block_given?
+        @event_sources << builder.build
+      end
+      alias rules rule
 
       def build
         apply_alarms_default(@alarms_default) if !@alarms_disabled && @alarms_builder.nil? && @alarms_default
@@ -314,6 +344,7 @@ module Veltrunode
 
       def resolve_event_source_type(type_or_opts, opts)
         return type_or_opts if type_or_opts.is_a?(Symbol) || type_or_opts.is_a?(String)
+        return :rule if opts.key?(:pattern) || opts.key?(:event_pattern) || opts.key?(:bus) || opts.key?(:event_bus)
         return :sns if opts.key?(:topic) || opts.key?(:topic_arn)
         return :s3 if opts.key?(:bucket)
         return :dynamodb_stream if opts.key?(:stream) || opts.key?(:stream_arn)

@@ -9,6 +9,9 @@ module Veltrunode
       def initialize(type = :sqs, queue: nil, topic: nil, topic_arn: nil, bucket: nil,
                      events: nil, event: nil, filter: nil, prefix: nil, suffix: nil,
                      stream: nil, stream_arn: nil, arn: nil, starting_position: nil,
+                     name: nil, bus: nil, event_bus: nil, event_bus_name: nil,
+                     pattern: nil, event_pattern: nil, state: nil, description: nil,
+                     input: nil, target: nil, target_function: nil,
                      batch_size: nil, maximum_batching_window_in_seconds: nil, report_batch_item_failures: false,
                      filter_policy: nil, filter_policy_scope: nil, enabled: true, **)
         super()
@@ -22,6 +25,13 @@ module Veltrunode
         @suffix = suffix
         @stream = stream || stream_arn || arn
         @starting_position = starting_position
+        @name = name
+        @bus = bus || event_bus || event_bus_name
+        @pattern = pattern || event_pattern
+        @state = state
+        @description = description
+        @input = input
+        @target_function = target || target_function
         @batch_size = batch_size
         @maximum_batching_window_in_seconds = maximum_batching_window_in_seconds
         @report_batch_item_failures = report_batch_item_failures
@@ -76,6 +86,50 @@ module Veltrunode
         @starting_position = pos
       end
 
+      def name(n)
+        @name = n
+      end
+
+      def bus(b)
+        @bus = b
+      end
+      alias event_bus bus
+      alias event_bus_name bus
+
+      def pattern(p = nil, **kwargs)
+        @pattern = if p.is_a?(Hash)
+                     p.merge(kwargs)
+                   elsif kwargs.empty?
+                     p
+                   else
+                     kwargs
+                   end
+      end
+      alias event_pattern pattern
+
+      def state(s)
+        @state = s
+      end
+
+      def description(d)
+        @description = d
+      end
+
+      def input(i = nil, **kwargs)
+        @input = if i.is_a?(Hash)
+                   i.merge(kwargs)
+                 elsif kwargs.empty?
+                   i
+                 else
+                   kwargs
+                 end
+      end
+
+      def target(t)
+        @target_function = t
+      end
+      alias target_function target
+
       def batch_size(size)
         @batch_size = size
       end
@@ -120,6 +174,13 @@ module Veltrunode
           suffix: @suffix,
           stream: @stream,
           starting_position: @starting_position,
+          name: @name,
+          bus: @bus,
+          pattern: @pattern,
+          state: @state,
+          description: @description,
+          input: @input,
+          target_function: @target_function,
           batch_size: @batch_size,
           maximum_batching_window_in_seconds: @maximum_batching_window_in_seconds,
           report_batch_item_failures: @report_batch_item_failures,

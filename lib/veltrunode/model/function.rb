@@ -32,7 +32,9 @@ module Veltrunode
         tracing: nil,
         insights: nil,
         async_invoke: nil,
-        event_sources: []
+        event_sources: [],
+        rule: nil,
+        rules: []
       )
         name_val = positional_logical_name || logical_name
         validate_logical_name!(name_val)
@@ -56,7 +58,7 @@ module Veltrunode
         @tracing = normalize_tracing(tracing)
         @insights = normalize_insights(insights)
         @async_invoke = normalize_async_invoke(async_invoke)
-        @event_sources = normalize_event_sources(event_sources)
+        @event_sources = normalize_event_sources(event_sources, rule: rule, rules: rules)
 
         freeze if @handler || @runtime
       end
@@ -114,6 +116,18 @@ module Veltrunode
 
       def event_sources?
         !@event_sources.empty?
+      end
+
+      def rules
+        @event_sources.select(&:rule?)
+      end
+
+      def rule
+        rules.first
+      end
+
+      def rules?
+        !rules.empty?
       end
 
       def validate_invariants(context = {})
@@ -514,11 +528,26 @@ module Veltrunode
         AsyncInvokeConfig.new(**kwargs)
       end
 
-      def normalize_event_sources(sources)
-        return [].freeze if sources.nil? || sources == false
+      def normalize_event_sources(sources, rule: nil, rules: [])
+        base_list = if sources.nil? || sources == false
+                      []
+                    else
+                      sources.is_a?(Array) ? sources.dup : [sources]
+                    end
 
-        list = sources.is_a?(Array) ? sources : [sources]
-        normalized = list.map do |src|
+        rule_items = []
+        rule_items << rule if rule && rule != false
+        if rules && rules != false
+          rule_items.concat(rules.is_a?(Array) ? rules : [rules])
+        end
+
+        rule_items.each do |r|
+          base_list << (r.is_a?(EventSource) ? r : { rule: r })
+        end
+
+        return [].freeze if base_list.empty?
+
+        normalized = base_list.map do |src|
           if src.is_a?(EventSource)
             src
           elsif src.is_a?(Hash)

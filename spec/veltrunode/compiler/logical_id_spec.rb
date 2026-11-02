@@ -308,6 +308,29 @@ RSpec.describe Veltrunode::Compiler::LogicalId do
     end
   end
 
+  describe '.for_event_rule and .for_events_permission' do
+    it 'generates EventRule logical ID with function and rule identifier' do
+      expect(described_class.for_event_rule(:order_handler, :orders_bus)).to eq(
+        'OrderHandlerFunctionOrdersBusEventRule'
+      )
+      expect(described_class.for_rule(:order_handler, :order_created_rule)).to eq(
+        'OrderHandlerFunctionOrderCreatedEventRule'
+      )
+      expect(described_class.for_event_rule(:order_handler)).to eq('OrderHandlerFunctionEventRule')
+      expect(described_class.for(:order_handler, type: :event_rule)).to eq('OrderHandlerFunctionEventRule')
+    end
+
+    it 'generates EventsPermission logical ID with function and rule identifier' do
+      expect(described_class.for_events_permission(:order_handler, :orders_bus)).to eq(
+        'OrderHandlerFunctionOrdersBusEventsPermission'
+      )
+      expect(described_class.for_event_rule_permission(:order_handler)).to eq('OrderHandlerFunctionEventsPermission')
+      expect(described_class.for(:order_handler, type: :events_permission)).to eq(
+        'OrderHandlerFunctionEventsPermission'
+      )
+    end
+  end
+
   describe 'standalone loading' do
     it 'allows individual compiler files to be loaded independently' do
       expect do
@@ -320,6 +343,7 @@ RSpec.describe Veltrunode::Compiler::LogicalId do
         require 'veltrunode/compiler/cloudformation/event_source_mapping_compiler'
         require 'veltrunode/compiler/cloudformation/sns_subscription_compiler'
         require 'veltrunode/compiler/cloudformation/s3_notification_compiler'
+        require 'veltrunode/compiler/cloudformation/event_rule_compiler'
         require 'veltrunode/compiler/cloudformation'
 
         cf = Veltrunode::Compiler::CloudFormation
@@ -341,6 +365,12 @@ RSpec.describe Veltrunode::Compiler::LogicalId do
         expect(cf::S3NotificationCompiler.bucket_logical_id_for(:uploads)).to eq('UploadsBucket')
         expect(cf::S3NotificationCompiler.permission_logical_id_for(:convert, :uploads)).to eq(
           'ConvertFunctionUploadsS3Permission'
+        )
+        expect(cf::EventRuleCompiler.logical_id_for(:order_handler, :orders_bus)).to eq(
+          'OrderHandlerFunctionOrdersBusEventRule'
+        )
+        expect(cf::EventRuleCompiler.permission_logical_id_for(:order_handler, :orders_bus)).to eq(
+          'OrderHandlerFunctionOrdersBusEventsPermission'
         )
       end.not_to raise_error
     end
