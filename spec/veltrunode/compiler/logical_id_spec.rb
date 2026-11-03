@@ -331,6 +331,24 @@ RSpec.describe Veltrunode::Compiler::LogicalId do
     end
   end
 
+  describe '.for_http_api family' do
+    it 'generates logical IDs for HTTP API, Stage, Integration, Route, and Permission' do
+      expect(described_class.for_http_api).to eq('HttpApi')
+      expect(described_class.for_http_api(:default)).to eq('HttpApi')
+      expect(described_class.for_http_api(:public_api)).to eq('PublicHttpApi')
+      expect(described_class.for(:default, type: :http_api)).to eq('HttpApi')
+
+      expect(described_class.for_http_api_stage(:default, '$default')).to eq('HttpApiStage')
+      expect(described_class.for_http_api_stage(:public_api, 'v1')).to eq('PublicHttpApiV1Stage')
+
+      expect(described_class.for_http_api_integration(:list_users)).to eq('HttpApiListUsersIntegration')
+      expect(described_class.for_http_api_route(:get, '/users')).to eq('HttpApiGetUsersRoute')
+      expect(described_class.for_http_api_route(:get, '/users/{id}')).to eq('HttpApiGetUsersIdRoute')
+      expect(described_class.for_http_api_route(:get, '/')).to eq('HttpApiGetRootRoute')
+      expect(described_class.for_http_api_permission(:list_users)).to eq('ListUsersFunctionHttpApiPermission')
+    end
+  end
+
   describe 'standalone loading' do
     it 'allows individual compiler files to be loaded independently' do
       expect do
@@ -344,6 +362,7 @@ RSpec.describe Veltrunode::Compiler::LogicalId do
         require 'veltrunode/compiler/cloudformation/sns_subscription_compiler'
         require 'veltrunode/compiler/cloudformation/s3_notification_compiler'
         require 'veltrunode/compiler/cloudformation/event_rule_compiler'
+        require 'veltrunode/compiler/cloudformation/http_api_compiler'
         require 'veltrunode/compiler/cloudformation'
 
         cf = Veltrunode::Compiler::CloudFormation
@@ -372,6 +391,8 @@ RSpec.describe Veltrunode::Compiler::LogicalId do
         expect(cf::EventRuleCompiler.permission_logical_id_for(:order_handler, :orders_bus)).to eq(
           'OrderHandlerFunctionOrdersBusEventsPermission'
         )
+        expect(cf::HttpApiCompiler.logical_id_for(:default)).to eq('HttpApi')
+        expect(cf::HttpApiCompiler.route_logical_id_for(:get, '/users')).to eq('HttpApiGetUsersRoute')
       end.not_to raise_error
     end
   end

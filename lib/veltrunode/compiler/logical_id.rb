@@ -180,6 +180,14 @@ module Veltrunode
           for_event_rule(name)
         when :events_permission, :event_rule_permission
           for_events_permission(name)
+        when :http_api
+          for_http_api(name)
+        when :http_api_stage
+          for_http_api_stage(name)
+        when :http_api_integration
+          for_http_api_integration(name)
+        when :http_api_permission
+          for_http_api_permission(name)
         else
           suffix = pascalize(type)
           base = pascalize(name)
@@ -429,6 +437,69 @@ module Veltrunode
 
       def for_event_rule_permission(function_name, rule_identifier = nil)
         for_events_permission(function_name, rule_identifier)
+      end
+
+      # API Gateway HTTP API (AWS::ApiGatewayV2::Api) の論理IDを生成します（サフィックス: HttpApi）
+      #
+      # @param name [String, Symbol, nil] API 名 (例: :default, :public)
+      # @return [String] 論理ID (例: "HttpApi", "PublicHttpApi")
+      def for_http_api(name = nil)
+        base = pascalize(name)
+        return 'HttpApi' if base.empty? || base == 'Default'
+        return base if base.end_with?('HttpApi')
+
+        "#{base.sub(/Api\z/, '')}HttpApi"
+      end
+
+      # API Gateway HTTP API Stage (AWS::ApiGatewayV2::Stage) の論理IDを生成します（サフィックス: Stage）
+      #
+      # @param api_name [String, Symbol, nil] API 名 (例: :default, :public)
+      # @param stage_name [String, Symbol, nil] ステージ名 (例: '$default', 'v1')
+      # @return [String] 論理ID (例: "HttpApiStage", "HttpApiV1Stage")
+      def for_http_api_stage(api_name = nil, stage_name = nil)
+        api_id = for_http_api(api_name)
+        stg_str = stage_name.to_s.strip
+        return "#{api_id}Stage" if stg_str.empty? || stg_str == '$default' || stg_str.casecmp('default').zero?
+
+        stg_part = pascalize(stg_str).sub(/Stage\z/, '')
+        "#{api_id}#{stg_part}Stage"
+      end
+
+      # API Gateway HTTP API Integration (AWS::ApiGatewayV2::Integration) の論理IDを生成します（サフィックス: Integration）
+      #
+      # @param function_name [String, Symbol] 関数シンボリック名 (例: :list_users)
+      # @param api_name [String, Symbol, nil] API 名 (例: :default)
+      # @return [String] 論理ID (例: "HttpApiListUsersIntegration")
+      def for_http_api_integration(function_name, api_name = nil)
+        api_id = for_http_api(api_name)
+        fn_part = pascalize(function_name).sub(/Function\z/, '')
+        "#{api_id}#{fn_part}Integration"
+      end
+
+      # API Gateway HTTP API Route (AWS::ApiGatewayV2::Route) の論理IDを生成します（サフィックス: Route）
+      #
+      # @param method [String, Symbol] HTTP メソッド (例: :get, 'POST')
+      # @param path [String] ルートパス (例: '/users', '/users/{id}')
+      # @param api_name [String, Symbol, nil] API 名 (例: :default)
+      # @return [String] 論理ID (例: "HttpApiGetUsersRoute", "HttpApiGetUsersIdRoute")
+      def for_http_api_route(method, path, api_name = nil)
+        api_id = for_http_api(api_name)
+        method_part = pascalize(method.to_s.downcase)
+        clean_path = path.to_s.gsub('$default', 'default')
+        path_part = pascalize(clean_path)
+        path_part = 'Root' if path_part.empty?
+        "#{api_id}#{method_part}#{path_part}Route"
+      end
+
+      # API Gateway HTTP API -> Lambda 呼び出し権限 (AWS::Lambda::Permission) の論理IDを生成します（サフィックス: Permission）
+      #
+      # @param function_name [String, Symbol] 関数シンボリック名 (例: :list_users)
+      # @param api_name [String, Symbol, nil] API 名 (例: :default)
+      # @return [String] 論理ID (例: "ListUsersFunctionHttpApiPermission")
+      def for_http_api_permission(function_name, api_name = nil)
+        fn_id = for_function(function_name)
+        api_id = for_http_api(api_name)
+        "#{fn_id}#{api_id}Permission"
       end
     end
   end
