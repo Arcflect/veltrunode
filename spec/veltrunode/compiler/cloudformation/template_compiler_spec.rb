@@ -1304,5 +1304,67 @@ RSpec.describe Veltrunode::Compiler::CloudFormation::TemplateCompiler do
         'Fn::GetAtt' => %w[BillingHandlerFunctionDomainBusEventRule Arn]
       )
     end
+
+    it 'compiles AWS::ApiGatewayV2::Api, Stage, Integration, Route, Permission, and Outputs for http_api' do
+      code = <<~RUBY
+        Veltrunode.application "users-http-api" do
+          aws region: "ap-northeast-1"
+
+          http_api do
+            cors allow_origins: ["https://example.com"],
+                 allow_methods: ["GET", "POST", "OPTIONS"],
+                 allow_headers: ["Content-Type", "Authorization"]
+
+            get "/users", to: :list_users
+            post "/users", to: :create_user
+          end
+
+          function :list_users do
+            handler "users.list"
+            runtime "ruby3.3"
+          end
+
+          function :create_user do
+            handler "users.create"
+            runtime "ruby3.3"
+          end
+        end
+      RUBY
+
+      app = Veltrunode.parse(code)
+      yaml_output = described_class.to_yaml(app)
+      parsed = YAML.safe_load(yaml_output)
+
+      resources = parsed['Resources']
+      outputs = parsed['Outputs']
+
+      expect(resources['HttpApi']['Type']).to eq('AWS::ApiGatewayV2::Api')
+      expect(resources['HttpApi']['Properties']['ProtocolType']).to eq('HTTP')
+      expect(resources['HttpApi']['Properties']['CorsConfiguration']).to eq(
+        'AllowHeaders' => %w[Content-Type Authorization],
+        'AllowMethods' => %w[GET POST OPTIONS],
+        'AllowOrigins' => ['https://example.com']
+      )
+
+      expect(resources['HttpApiStage']['Type']).to eq('AWS::ApiGatewayV2::Stage')
+      expect(resources['HttpApiStage']['Properties']).to eq(
+        'ApiId' => { 'Ref' => 'HttpApi' },
+        'AutoDeploy' => true,
+        'StageName' => '$default'
+      )
+
+      expect(resources['HttpApiListUsersIntegration']['Type']).to eq('AWS::ApiGatewayV2::Integration')
+      expect(resources['HttpApiGetUsersRoute']['Type']).to eq('AWS::ApiGatewayV2::Route')
+      expect(resources['HttpApiGetUsersRoute']['Properties']['RouteKey']).to eq('GET /users')
+      expect(resources['HttpApiPostUsersRoute']['Properties']['RouteKey']).to eq('POST /users')
+      expect(resources['ListUsersFunctionHttpApiPermission']['Type']).to eq('AWS::Lambda::Permission')
+      expect(resources['CreateUserFunctionHttpApiPermission']['Type']).to eq('AWS::Lambda::Permission')
+
+      expect(outputs['HttpApiUrl']).to eq(
+        'Description' => 'Endpoint URL of default HTTP API',
+        'Export' => { 'Name' => { 'Fn::Sub' => '${AWS::StackName}-HttpApiUrl' } },
+        'Value' => { 'Fn::GetAtt' => %w[HttpApi ApiEndpoint] }
+      )
+    end
   end
 end

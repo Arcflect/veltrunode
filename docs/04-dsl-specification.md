@@ -411,6 +411,48 @@ end
 - **`state`**: ルールの有効/無効フラグ。`:enabled`（`'ENABLED'`、デフォルト）または `:disabled`（`'DISABLED'`）を指定します。
 - **自動呼び出し権限付与**: EventBridge（`events.amazonaws.com`）から対象 Lambda 関数を呼び出すための `AWS::Lambda::Permission`（`lambda:InvokeFunction`、`SourceArn`: ルールの ARN）が自動的に付与されます。
 
+## API Gateway HTTP API (v2) とルート・CORS 定義 (HTTP API v2 & Routes)
+
+サーバーレス API を迅速かつ安価に構築する場合、Application レベルで `http_api` ブロックを宣言することで、HTTP メソッドとパスのルート定義および CORS 設定から `AWS::ApiGatewayV2::Api`、`Stage`、`Integration`、`Route`、および `AWS::Lambda::Permission` を自動生成できます。
+
+```ruby
+Veltrunode.application "users-http-api" do
+  http_api do
+    cors allow_origins: ["https://example.com"],
+         allow_methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+         allow_headers: ["Content-Type", "Authorization"],
+         max_age: 86400,
+         allow_credentials: true
+
+    get "/users", to: :list_users
+    post "/users", to: :create_user
+    get "/users/{id}", to: :get_user
+    put "/users/{id}", to: :update_user
+    delete "/users/{id}", to: :delete_user
+  end
+
+  function :list_users do
+    handler "users.list"
+    runtime "ruby3.3"
+  end
+
+  function :create_user do
+    handler "users.create"
+    runtime "ruby3.3"
+  end
+end
+```
+
+### パラメータ仕様
+
+- **ルート定義メソッド (`get`, `post`, `put`, `patch`, `delete`, `head`, `options`, `any`, `route`)**:
+  - 第1引数にルートパス（例: `'/users'`, `'/users/{id}'`）、`to:`（エイリアス: `target:`, `function:`）にターゲット Lambda 関数名を指定します。
+- **`cors`**:
+  - `cors true`: 全オリジン・全メソッド・全ヘッダー（`'*'`）を許可する簡易指定。
+  - ハッシュまたはブロック形式で `allow_origins`（`origins`）、`allow_methods`（`methods`）、`allow_headers`（`headers`）、`expose_headers`、`max_age`、`allow_credentials`（`credentials`）を指定可能。
+- **`stage_name` / `auto_deploy`**:
+  - デフォルトで `StageName: '$default'`、`AutoDeploy: true` の `AWS::ApiGatewayV2::Stage` が生成されます。
+
 ## CloudWatch メトリクスダッシュボード (CloudWatch Dashboard)
 
 Application レベルで `dashboard` を宣言することで、デプロイされた全 Lambda 関数の稼働状態を一目で把握できる `AWS::CloudWatch::Dashboard` リソースを自動生成できます。

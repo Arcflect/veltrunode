@@ -252,6 +252,35 @@ Lambda 関数で `rule: { bus: ..., pattern: { ... }, state: ... }`（または 
   - `Principal`: `'events.amazonaws.com'`
   - `SourceArn`: `{ 'Fn::GetAtt' => [RuleLogicalId, 'Arn'] }`
 
+## API Gateway HTTP API (v2) リソース群のコンパイル (HTTP API v2 Compilation)
+
+Application レベルで `http_api` を設定した場合、`Veltrunode::Compiler::CloudFormation::HttpApiCompiler` により以下の CloudFormation リソース群および `Outputs` が自動生成されます。
+
+- **`AWS::ApiGatewayV2::Api`** (`HttpApi` または `#{Name}HttpApi`):
+  - `Name`: `{ 'Fn::Sub' => "${AWS::StackName}-#{ApiLogicalId}" }`
+  - `ProtocolType`: `'HTTP'`
+  - `CorsConfiguration`: `cors` 指定時に `AllowOrigins`, `AllowMethods`, `AllowHeaders`, `ExposeHeaders`, `MaxAge`, `AllowCredentials` を展開
+- **`AWS::ApiGatewayV2::Stage`** (`HttpApiStage` または `#{ApiLogicalId}#{Stage}Stage`):
+  - `ApiId`: `{ 'Ref' => ApiLogicalId }`
+  - `StageName`: `'$default'`（デフォルト）または指定ステージ名
+  - `AutoDeploy`: `true`（デフォルト）
+- **`AWS::ApiGatewayV2::Integration`** (`#{ApiLogicalId}#{Function}Integration`、ターゲット関数単位で重複排除):
+  - `ApiId`: `{ 'Ref' => ApiLogicalId }`
+  - `IntegrationType`: `'AWS_PROXY'`
+  - `IntegrationUri`: `{ 'Fn::GetAtt' => [FunctionLogicalId, 'Arn'] }`
+  - `PayloadFormatVersion`: `'2.0'`（デフォルト）
+- **`AWS::ApiGatewayV2::Route`** (`#{ApiLogicalId}#{Method}#{Path}Route`):
+  - `ApiId`: `{ 'Ref' => ApiLogicalId }`
+  - `RouteKey`: `"#{Method} #{Path}"`（例: `"GET /users"`, `"POST /users"`）
+  - `Target`: `{ 'Fn::Join' => ['/', ['integrations', { 'Ref' => IntegrationLogicalId }]] }`
+- **`AWS::Lambda::Permission`** (`#{FunctionLogicalId}#{ApiLogicalId}Permission`、ターゲット関数単位で重複排除):
+  - `Action`: `'lambda:InvokeFunction'`
+  - `FunctionName`: `{ 'Fn::GetAtt' => [FunctionLogicalId, 'Arn'] }`
+  - `Principal`: `'apigateway.amazonaws.com'`
+  - `SourceArn`: `{ 'Fn::Sub' => "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${#{ApiLogicalId}}/*/*" }`
+- **エンドポイント出力 (`Outputs.HttpApiUrl`)**:
+  - `{ 'Fn::GetAtt' => [ApiLogicalId, 'ApiEndpoint'] }` を `Outputs` に出力します。
+
 ## CloudWatch メトリクスダッシュボードのコンパイルと URL 出力 (CloudWatch Dashboard Compilation & Output)
 
 Application レベルで `dashboard` を設定した場合、`Veltrunode::Compiler::CloudFormation::DashboardCompiler` により `AWS::CloudWatch::Dashboard` リソースが自動生成されます。

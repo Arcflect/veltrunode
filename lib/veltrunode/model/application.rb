@@ -18,7 +18,9 @@ module Veltrunode
                   :policies,
                   :tags,
                   :cache_config,
-                  :dashboard
+                  :dashboard,
+                  :http_api,
+                  :http_apis
 
       def initialize(
         positional_name = nil,
@@ -38,7 +40,9 @@ module Veltrunode
         security_groups: [],
         policies: [],
         tags: {},
-        dashboard: nil
+        dashboard: nil,
+        http_api: nil,
+        http_apis: []
       )
         app_name = positional_name || name
         validate!(name: app_name, region: region, stage: stage)
@@ -59,8 +63,14 @@ module Veltrunode
         @tags = tags.dup.freeze
         @cache_config = freeze_value(cache || cache_config || {})
         @dashboard = dashboard
+        @http_apis = resolve_http_apis(http_api, http_apis)
+        @http_api = @http_apis.first
 
         freeze
+      end
+
+      def http_api?
+        !@http_api.nil?
       end
 
       def cache
@@ -135,6 +145,12 @@ module Veltrunode
           end
         end
         arr
+      end
+
+      def resolve_http_apis(single_api, multiple_apis)
+        list = Array(multiple_apis).compact
+        list << single_api if single_api && !list.include?(single_api)
+        list.freeze
       end
     end
   end

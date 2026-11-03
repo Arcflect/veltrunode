@@ -18,6 +18,7 @@ require_relative 'event_source_mapping_compiler'
 require_relative 'sns_subscription_compiler'
 require_relative 's3_notification_compiler'
 require_relative 'event_rule_compiler'
+require_relative 'http_api_compiler'
 require_relative '../../graph/resource_graph'
 require_relative '../../version'
 
@@ -425,6 +426,12 @@ module Veltrunode
             resources.merge!(dashboard_res)
           end
 
+          # 8. Compile HTTP APIs (AWS::ApiGatewayV2::Api, Stage, Integration, Route, Permission)
+          extract_http_apis.each do |api|
+            api_res = HttpApiCompiler.compile(api, context: context)
+            resources.merge!(api_res)
+          end
+
           deep_sort_keys(resources)
         end
 
@@ -544,6 +551,18 @@ module Veltrunode
             }
           end
 
+          # HTTP API Outputs
+          extract_http_apis.each do |api|
+            api_name = extract_name(api)
+            api_id = HttpApiCompiler.logical_id_for(api_name)
+
+            outputs["#{api_id}Url"] = {
+              'Description' => "Endpoint URL of #{api_name} HTTP API",
+              'Value' => { 'Fn::GetAtt' => [api_id, 'ApiEndpoint'] },
+              'Export' => { 'Name' => { 'Fn::Sub' => "${AWS::StackName}-#{api_id}Url" } }
+            }
+          end
+
           deep_sort_keys(outputs)
         end
 
@@ -628,6 +647,18 @@ module Veltrunode
           else
             []
           end
+        end
+
+        def extract_http_apis
+          apis = extract_collection(:http_apis)
+          return apis unless apis.empty?
+
+          single = if application.respond_to?(:http_api) && application.http_api
+                     application.http_api
+                   elsif application.is_a?(Hash)
+                     application[:http_api] || application['http_api']
+                   end
+          single ? [single] : []
         end
 
         def extract_name(item)

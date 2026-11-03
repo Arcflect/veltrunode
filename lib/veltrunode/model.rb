@@ -26,6 +26,7 @@ require_relative 'model/managed_access_point'
 require_relative 'model/security_group_helper'
 require_relative 'model/dashboard'
 require_relative 'model/event_source'
+require_relative 'model/http_api'
 
 module Veltrunode
   module Model
@@ -44,4 +45,7 @@ module Veltrunode
   SecurityGroupHelper = Model::SecurityGroupHelper
   Dashboard = Model::Dashboard
   EventSource = Model::EventSource
+  HttpApi = Model::HttpApi
+  HttpRoute = Model::HttpRoute
+  HttpCors = Model::HttpCors
 end
