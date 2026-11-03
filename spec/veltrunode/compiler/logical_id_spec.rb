@@ -349,6 +349,25 @@ RSpec.describe Veltrunode::Compiler::LogicalId do
     end
   end
 
+  describe '.for_rest_api family' do
+    it 'generates logical IDs for REST API, Method, Deployment, Stage, and Permission' do
+      expect(described_class.for_rest_api).to eq('RestApi')
+      expect(described_class.for_rest_api(:default)).to eq('RestApi')
+      expect(described_class.for_rest_api(:corporate_api)).to eq('CorporateRestApi')
+      expect(described_class.for(:default, type: :rest_api)).to eq('RestApi')
+
+      expect(described_class.for_rest_api_method(:get, '/users')).to eq('RestApiGetUsersMethod')
+      expect(described_class.for_rest_api_method(:post, 'users_res', :corporate)).to eq(
+        'CorporateRestApiPostUsersResMethod'
+      )
+      expect(described_class.for_rest_api_deployment).to eq('RestApiDeployment')
+      expect(described_class.for_rest_api_deployment(:corporate)).to eq('CorporateRestApiDeployment')
+      expect(described_class.for_rest_api_stage(:default, 'prod')).to eq('RestApiStage')
+      expect(described_class.for_rest_api_stage(:corporate, 'v1')).to eq('CorporateRestApiV1Stage')
+      expect(described_class.for_rest_api_permission(:list_users)).to eq('ListUsersFunctionRestApiPermission')
+    end
+  end
+
   describe 'standalone loading' do
     it 'allows individual compiler files to be loaded independently' do
       expect do
@@ -363,6 +382,7 @@ RSpec.describe Veltrunode::Compiler::LogicalId do
         require 'veltrunode/compiler/cloudformation/s3_notification_compiler'
         require 'veltrunode/compiler/cloudformation/event_rule_compiler'
         require 'veltrunode/compiler/cloudformation/http_api_compiler'
+        require 'veltrunode/compiler/cloudformation/rest_api_compiler'
         require 'veltrunode/compiler/cloudformation'
 
         cf = Veltrunode::Compiler::CloudFormation
@@ -393,6 +413,8 @@ RSpec.describe Veltrunode::Compiler::LogicalId do
         )
         expect(cf::HttpApiCompiler.logical_id_for(:default)).to eq('HttpApi')
         expect(cf::HttpApiCompiler.route_logical_id_for(:get, '/users')).to eq('HttpApiGetUsersRoute')
+        expect(cf::RestApiCompiler.logical_id_for(:default)).to eq('RestApi')
+        expect(cf::RestApiCompiler.method_logical_id_for(:get, '/users')).to eq('RestApiGetUsersMethod')
       end.not_to raise_error
     end
   end

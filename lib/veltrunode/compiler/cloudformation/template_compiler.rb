@@ -19,6 +19,7 @@ require_relative 'sns_subscription_compiler'
 require_relative 's3_notification_compiler'
 require_relative 'event_rule_compiler'
 require_relative 'http_api_compiler'
+require_relative 'rest_api_compiler'
 require_relative '../../graph/resource_graph'
 require_relative '../../version'
 
@@ -250,6 +251,11 @@ module Veltrunode
             }
           end
 
+          # Include referenced REST API ID / Resource ID / Authorizer ID parameters from rest_apis
+          extract_rest_apis.each do |api|
+            register_rest_api_parameters(api, params)
+          end
+
           deep_sort_keys(params)
         end
 
@@ -429,6 +435,12 @@ module Veltrunode
           # 8. Compile HTTP APIs (AWS::ApiGatewayV2::Api, Stage, Integration, Route, Permission)
           extract_http_apis.each do |api|
             api_res = HttpApiCompiler.compile(api, context: context)
+            resources.merge!(api_res)
+          end
+
+          # 9. Compile REST APIs (AWS::ApiGateway::RestApi, Method, Deployment, Stage, Permission)
+          extract_rest_apis.each do |api|
+            api_res = RestApiCompiler.compile(api, context: context)
             resources.merge!(api_res)
           end
 
@@ -659,6 +671,63 @@ module Veltrunode
                      application[:http_api] || application['http_api']
                    end
           single ? [single] : []
+        end
+
+        def extract_rest_apis
+          apis = extract_collection(:rest_apis)
+          return apis unless apis.empty?
+
+          single = if application.respond_to?(:rest_api) && application.rest_api
+                     application.rest_api
+                   elsif application.is_a?(Hash)
+                     application[:rest_api] || application['rest_api']
+                   end
+          single ? [single] : []
+        end
+
+        def register_rest_api_parameters(api, params)
+          api_id_param = resolve_rest_api_param_key(api.respond_to?(:rest_api_id) ? api.rest_api_id : nil)
+          if api_id_param && !params.key?(api_id_param)
+            params[api_id_param] = {
+              'Description' => "REST API ID for #{api_id_param}",
+              'Type' => 'String'
+            }
+          end
+
+          root_res_param = resolve_rest_api_param_key(api.respond_to?(:root_resource_id) ? api.root_resource_id : nil)
+          if root_res_param && !params.key?(root_res_param)
+            params[root_res_param] = {
+              'Description' => "REST API root resource ID for #{root_res_param}",
+              'Type' => 'String'
+            }
+          end
+
+          return unless api.respond_to?(:methods) && api.methods
+
+          Array(api.methods).each do |m|
+            res_param = resolve_rest_api_param_key(m.resource_id)
+            if res_param && !params.key?(res_param)
+              params[res_param] = {
+                'Description' => "REST API resource ID for #{res_param}",
+                'Type' => 'String'
+              }
+            end
+
+            auth_param = resolve_rest_api_param_key(m.authorizer_id)
+            next unless auth_param && !params.key?(auth_param)
+
+            params[auth_param] = {
+              'Description' => "REST API authorizer ID for #{auth_param}",
+              'Type' => 'String'
+            }
+          end
+        end
+
+        def resolve_rest_api_param_key(val)
+          return nil if val.nil?
+          return LogicalId.pascalize(val) if val.is_a?(Symbol)
+
+          resolve_s3_bucket_param_key(val)
         end
 
         def extract_name(item)
