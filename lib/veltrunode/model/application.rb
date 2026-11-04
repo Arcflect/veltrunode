@@ -20,7 +20,9 @@ module Veltrunode
                   :cache_config,
                   :dashboard,
                   :http_api,
-                  :http_apis
+                  :http_apis,
+                  :rest_api,
+                  :rest_apis
 
       def initialize(
         positional_name = nil,
@@ -42,7 +44,9 @@ module Veltrunode
         tags: {},
         dashboard: nil,
         http_api: nil,
-        http_apis: []
+        http_apis: [],
+        rest_api: nil,
+        rest_apis: []
       )
         app_name = positional_name || name
         validate!(name: app_name, region: region, stage: stage)
@@ -65,12 +69,18 @@ module Veltrunode
         @dashboard = dashboard
         @http_apis = resolve_http_apis(http_api, http_apis)
         @http_api = @http_apis.first
+        @rest_apis = resolve_http_apis(rest_api, rest_apis)
+        @rest_api = @rest_apis.first
 
         freeze
       end
 
       def http_api?
         !@http_api.nil?
+      end
+
+      def rest_api?
+        !@rest_api.nil?
       end
 
       def cache

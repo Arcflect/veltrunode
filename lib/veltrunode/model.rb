@@ -27,6 +27,7 @@ require_relative 'model/security_group_helper'
 require_relative 'model/dashboard'
 require_relative 'model/event_source'
 require_relative 'model/http_api'
+require_relative 'model/rest_api'
 
 module Veltrunode
   module Model
@@ -48,4 +49,6 @@ module Veltrunode
   HttpApi = Model::HttpApi
   HttpRoute = Model::HttpRoute
   HttpCors = Model::HttpCors
+  RestApi = Model::RestApi
+  RestMethod = Model::RestMethod
 end

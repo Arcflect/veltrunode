@@ -188,6 +188,14 @@ module Veltrunode
           for_http_api_integration(name)
         when :http_api_permission
           for_http_api_permission(name)
+        when :rest_api
+          for_rest_api(name)
+        when :rest_api_deployment
+          for_rest_api_deployment(name)
+        when :rest_api_stage
+          for_rest_api_stage(name)
+        when :rest_api_permission
+          for_rest_api_permission(name)
         else
           suffix = pascalize(type)
           base = pascalize(name)
@@ -499,6 +507,67 @@ module Veltrunode
       def for_http_api_permission(function_name, api_name = nil)
         fn_id = for_function(function_name)
         api_id = for_http_api(api_name)
+        "#{fn_id}#{api_id}Permission"
+      end
+
+      # API Gateway REST API (AWS::ApiGateway::RestApi) の論理IDを生成します（サフィックス: RestApi）
+      #
+      # @param name [String, Symbol, nil] API 名 (例: :default, :corporate)
+      # @return [String] 論理ID (例: "RestApi", "CorporateRestApi")
+      def for_rest_api(name = nil)
+        base = pascalize(name)
+        return 'RestApi' if base.empty? || base == 'Default'
+        return base if base.end_with?('RestApi')
+
+        "#{base.sub(/Api\z/, '')}RestApi"
+      end
+
+      # API Gateway REST API Method (AWS::ApiGateway::Method) の論理IDを生成します（サフィックス: Method）
+      #
+      # @param method [String, Symbol] HTTP メソッド (例: :get, 'POST')
+      # @param resource_identifier [String, Symbol] リソース識別子またはパス (例: '/users', 'users_resource')
+      # @param api_name [String, Symbol, nil] API 名 (例: :default)
+      # @return [String] 論理ID (例: "RestApiGetUsersMethod")
+      def for_rest_api_method(method, resource_identifier, api_name = nil)
+        api_id = for_rest_api(api_name)
+        method_part = pascalize(method.to_s.downcase)
+        clean_res = resource_identifier.to_s.gsub('$default', 'default')
+        res_part = pascalize(clean_res)
+        res_part = 'Root' if res_part.empty?
+        "#{api_id}#{method_part}#{res_part}Method"
+      end
+
+      # API Gateway REST API Deployment (AWS::ApiGateway::Deployment) の論理IDを生成します（サフィックス: Deployment）
+      #
+      # @param api_name [String, Symbol, nil] API 名 (例: :default, :corporate)
+      # @return [String] 論理ID (例: "RestApiDeployment", "CorporateRestApiDeployment")
+      def for_rest_api_deployment(api_name = nil)
+        api_id = for_rest_api(api_name)
+        "#{api_id}Deployment"
+      end
+
+      # API Gateway REST API Stage (AWS::ApiGateway::Stage) の論理IDを生成します（サフィックス: Stage）
+      #
+      # @param api_name [String, Symbol, nil] API 名 (例: :default, :corporate)
+      # @param stage_name [String, Symbol, nil] ステージ名 (例: 'prod', 'v1')
+      # @return [String] 論理ID (例: "RestApiStage", "CorporateRestApiStage")
+      def for_rest_api_stage(api_name = nil, stage_name = nil)
+        api_id = for_rest_api(api_name)
+        stg_str = stage_name.to_s.strip
+        return "#{api_id}Stage" if stg_str.empty? || stg_str.casecmp('prod').zero? || stg_str.casecmp('default').zero?
+
+        stg_part = pascalize(stg_str).sub(/Stage\z/, '')
+        "#{api_id}#{stg_part}Stage"
+      end
+
+      # API Gateway REST API -> Lambda 呼び出し権限 (AWS::Lambda::Permission) の論理IDを生成します（サフィックス: Permission）
+      #
+      # @param function_name [String, Symbol] 関数シンボリック名 (例: :list_users)
+      # @param api_name [String, Symbol, nil] API 名 (例: :default)
+      # @return [String] 論理ID (例: "ListUsersFunctionRestApiPermission")
+      def for_rest_api_permission(function_name, api_name = nil)
+        fn_id = for_function(function_name)
+        api_id = for_rest_api(api_name)
         "#{fn_id}#{api_id}Permission"
       end
     end

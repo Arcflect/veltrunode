@@ -8,6 +8,7 @@ require_relative 'schedule_builder'
 require_relative 'logs_builder'
 require_relative 'dashboard_builder'
 require_relative 'http_api_builder'
+require_relative 'rest_api_builder'
 require_relative '../model/application'
 require_relative '../model/stage_policy'
 
@@ -33,6 +34,7 @@ module Veltrunode
         @tags = {}
         @dashboard_builder = nil
         @http_api_builders = []
+        @rest_api_builders = []
       end
 
       def cache(config = nil, remote: nil, &)
@@ -224,6 +226,22 @@ module Veltrunode
         builder
       end
 
+      def rest_api(name_or_opts = nil, **kwargs, &)
+        opts = kwargs.dup
+        target_name = :default
+        if name_or_opts.is_a?(Hash)
+          opts.merge!(name_or_opts)
+          target_name = opts.delete(:name) || :default
+        elsif name_or_opts
+          target_name = name_or_opts
+        end
+
+        builder = RestApiBuilder.new(target_name, **opts)
+        builder.instance_eval(&) if block_given?
+        @rest_api_builders << builder
+        builder
+      end
+
       def build
         layers = @layer_builders.map(&:build)
         mounts = @efs_mount_builders.map(&:build)
@@ -231,6 +249,7 @@ module Veltrunode
         schedules = @schedule_builders.map(&:build)
         rules = @rule_builders.map(&:build)
         http_apis = @http_api_builders.map(&:build)
+        rest_apis = @rest_api_builders.map(&:build)
 
         mount_sgs = mounts.map(&:security_group_helper).compact
         explicit_sgs = @security_group_builders.map(&:build)
@@ -253,7 +272,8 @@ module Veltrunode
           policies: @policies,
           tags: @tags,
           dashboard: @dashboard_builder&.build,
-          http_apis: http_apis
+          http_apis: http_apis,
+          rest_apis: rest_apis
         )
       end
 

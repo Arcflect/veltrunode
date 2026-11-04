@@ -453,6 +453,53 @@ end
 - **`stage_name` / `auto_deploy`**:
   - デフォルトで `StageName: '$default'`、`AutoDeploy: true` の `AWS::ApiGatewayV2::Stage` が生成されます。
 
+## API Gateway REST API (v1) と既存 API / OpenAPI 参照・統合 (REST API v1 & Existing API / OpenAPI Integration)
+
+WAF 連携、プライベートエンドポイント、使用量プラン（API キー）などのエンタープライズ要件で API Gateway REST API (v1) が求められる場合、Application レベルで `rest_api` ブロックを宣言することで、既存の REST API ID・リソース ID の参照や OpenAPI スキーマからの統合定義を行い、`AWS::ApiGateway::Method`、`AWS::Lambda::Permission`、`AWS::ApiGateway::Deployment`、`AWS::ApiGateway::Stage` を自動生成できます。
+
+```ruby
+Veltrunode.application "enterprise-rest-api" do
+  # 1. 既存 REST API ID とリソース ID の参照
+  rest_api :corporate, rest_api_id: ref(:corporate_rest_api_id), stage_name: "prod" do
+    tracing_enabled true
+    stage_variables env: "production"
+
+    get "/users", resource_id: ref(:users_resource_id), to: :list_users, api_key_required: true
+    post "/users", resource_id: ref(:users_resource_id), to: :create_user,
+                   authorization_type: :custom, authorizer_id: ref(:corp_authorizer_id)
+  end
+
+  # 2. OpenAPI スキーマ（S3 またはインライン）の参照・統合
+  rest_api :openapi_gateway do
+    openapi "s3://my-api-specs/openapi.yaml"
+    stage "v1"
+
+    get "/health", to: :health_check
+  end
+
+  function :list_users do
+    handler "users.list"
+    runtime "ruby3.3"
+  end
+
+  function :create_user do
+    handler "users.create"
+    runtime "ruby3.3"
+  end
+end
+```
+
+### パラメータ仕様
+
+- **`rest_api_id` / `api_id`**: 既存の REST API ID（文字列または `ref(:param_name)`）。指定時は既存インフラストラクチャ保護ルールに従い `AWS::ApiGateway::RestApi` 本体を作成せず、その REST API に対して `Method`・`Deployment`・`Stage`・`Permission` を統合します。
+- **`root_resource_id`**: デフォルトのリソース ID（メソッド単位で `resource_id` が省略された場合に使用）。
+- **`openapi` / `openapi_spec` / `body`**: OpenAPI スキーマ定義（Hash、S3 URI `'s3://bucket/key'`、または `{ bucket: ..., key: ... }`）。`rest_api_id` 未指定時に `AWS::ApiGateway::RestApi` の `Body` または `BodyS3Location` として展開されます。
+- **メソッド定義 (`get`, `post`, `put`, `patch`, `delete`, `head`, `options`, `any`, `method`)**:
+  - `resource_id`: 紐付け先の API Gateway リソース ID（文字列または `ref(:resource_id)`）。
+  - `to`（エイリアス: `target`, `function`）: 統合先の Lambda 関数名（`AWS_PROXY` 統合）。
+  - `authorization_type`（デフォルト: `'NONE'`）、`authorizer_id`、`api_key_required`（デフォルト: `false`）を指定可能。
+- **`stage_name` / `stage`**: デプロイメントステージ名（デフォルト: `'prod'`）。`AWS::ApiGateway::Deployment`（全 `Method` への `DependsOn` 付き）および `AWS::ApiGateway::Stage` を生成します。
+
 ## CloudWatch メトリクスダッシュボード (CloudWatch Dashboard)
 
 Application レベルで `dashboard` を宣言することで、デプロイされた全 Lambda 関数の稼働状態を一目で把握できる `AWS::CloudWatch::Dashboard` リソースを自動生成できます。

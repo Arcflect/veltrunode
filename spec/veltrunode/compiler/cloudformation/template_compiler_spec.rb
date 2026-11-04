@@ -1366,5 +1366,89 @@ RSpec.describe Veltrunode::Compiler::CloudFormation::TemplateCompiler do
         'Value' => { 'Fn::GetAtt' => %w[HttpApi ApiEndpoint] }
       )
     end
+
+    it 'compiles AWS::ApiGateway::Method, Permission, Deployment, Stage, and Parameters for rest_api' do
+      code = <<~RUBY
+        Veltrunode.application "enterprise-rest-api" do
+          aws region: "ap-northeast-1"
+
+          rest_api :corporate, rest_api_id: ref(:corporate_rest_api_id), stage_name: "prod" do
+            get "/users", resource_id: ref(:users_resource_id), to: :list_users, api_key_required: true
+            post "/users", resource_id: ref(:users_resource_id), to: :create_user,
+                           authorization_type: :custom, authorizer_id: ref(:corp_authorizer_id)
+          end
+
+          function :list_users do
+            handler "users.list"
+            runtime "ruby3.3"
+          end
+
+          function :create_user do
+            handler "users.create"
+            runtime "ruby3.3"
+          end
+        end
+      RUBY
+
+      app = Veltrunode.parse(code)
+      yaml_output = described_class.to_yaml(app)
+      parsed = YAML.safe_load(yaml_output)
+
+      params = parsed['Parameters']
+      resources = parsed['Resources']
+
+      # 1. Parameters registration for referenced rest_api_id, resource_id, and authorizer_id
+      expect(params['CorporateRestApiId']).to eq(
+        'Description' => 'REST API ID for CorporateRestApiId',
+        'Type' => 'String'
+      )
+      expect(params['UsersResourceId']).to eq(
+        'Description' => 'REST API resource ID for UsersResourceId',
+        'Type' => 'String'
+      )
+      expect(params['CorpAuthorizerId']).to eq(
+        'Description' => 'REST API authorizer ID for CorpAuthorizerId',
+        'Type' => 'String'
+      )
+
+      # 2. Existing REST API does not generate AWS::ApiGateway::RestApi
+      expect(resources).not_to have_key('CorporateRestApi')
+
+      # 3. AWS::ApiGateway::Method resources
+      get_method = resources['CorporateRestApiGetUsersMethod']
+      expect(get_method['Type']).to eq('AWS::ApiGateway::Method')
+      expect(get_method['Properties']['RestApiId']).to eq('Ref' => 'CorporateRestApiId')
+      expect(get_method['Properties']['ResourceId']).to eq('Ref' => 'UsersResourceId')
+      expect(get_method['Properties']['HttpMethod']).to eq('GET')
+      expect(get_method['Properties']['ApiKeyRequired']).to be(true)
+
+      post_method = resources['CorporateRestApiPostUsersMethod']
+      expect(post_method['Type']).to eq('AWS::ApiGateway::Method')
+      expect(post_method['Properties']['AuthorizationType']).to eq('CUSTOM')
+      expect(post_method['Properties']['AuthorizerId']).to eq('Ref' => 'CorpAuthorizerId')
+
+      # 4. AWS::Lambda::Permission resources
+      expect(resources['ListUsersFunctionCorporateRestApiPermission']['Type']).to eq('AWS::Lambda::Permission')
+      expect(resources['CreateUserFunctionCorporateRestApiPermission']['Type']).to eq('AWS::Lambda::Permission')
+
+      # 5. AWS::ApiGateway::Deployment and Stage resources
+      deployment = resources['CorporateRestApiDeployment']
+      expect(deployment['Type']).to eq('AWS::ApiGateway::Deployment')
+      expect(deployment['DependsOn']).to eq(
+        %w[CorporateRestApiGetUsersMethod CorporateRestApiPostUsersMethod]
+      )
+      expect(deployment['Properties']).to eq(
+        'RestApiId' => { 'Ref' => 'CorporateRestApiId' },
+        'StageName' => 'prod'
+      )
+
+      stage = resources['CorporateRestApiStage']
+      expect(stage['Type']).to eq('AWS::ApiGateway::Stage')
+      expect(stage['Properties']).to eq(
+        'DeploymentId' => { 'Ref' => 'CorporateRestApiDeployment' },
+        'RestApiId' => { 'Ref' => 'CorporateRestApiId' },
+        'StageName' => 'prod'
+      )
+    end
   end
 end

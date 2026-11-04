@@ -281,6 +281,29 @@ Application レベルで `http_api` を設定した場合、`Veltrunode::Compile
 - **エンドポイント出力 (`Outputs.HttpApiUrl`)**:
   - `{ 'Fn::GetAtt' => [ApiLogicalId, 'ApiEndpoint'] }` を `Outputs` に出力します。
 
+## API Gateway REST API (v1) リソース群のコンパイル (REST API v1 Compilation)
+
+Application レベルで `rest_api` を設定した場合、`Veltrunode::Compiler::CloudFormation::RestApiCompiler` により以下の CloudFormation リソース群が自動生成されます。
+
+- **既存 REST API の保護と `AWS::ApiGateway::RestApi`**:
+  - `rest_api_id` が指定されている場合は既存インフラストラクチャ保護ルールに従い、`AWS::ApiGateway::RestApi` は生成せず、指定された `RestApiId`（リテラルまたは `Ref`）を参照します。
+  - `rest_api_id` が省略された場合（`openapi` 指定時など）は、`AWS::ApiGateway::RestApi`（`RestApi` または `#{Name}RestApi`）を生成し、`Body` または `BodyS3Location` を設定します。
+- **`AWS::ApiGateway::Method`** (`#{ApiLogicalId}#{Method}#{Resource}Method`):
+  - `RestApiId`: 既存の `RestApiId` または `{ 'Ref' => ApiLogicalId }`
+  - `ResourceId`: 指定された `resource_id` / `root_resource_id`、または `{ 'Fn::GetAtt' => [ApiLogicalId, 'RootResourceId'] }`
+  - `HttpMethod`: `'GET'`, `'POST'`, `'ANY'` 等
+  - `AuthorizationType`: `'NONE'`（デフォルト）または `'CUSTOM'`, `'COGNITO_USER_POOLS'`, `'AWS_IAM'`（`AuthorizerId` 併用可）
+  - `ApiKeyRequired`: `false`（デフォルト）または `true`
+  - `Integration`: `Type: 'AWS_PROXY'`, `IntegrationHttpMethod: 'POST'`, `Uri: arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${FunctionArn}/invocations`
+- **`AWS::Lambda::Permission`** (`#{FunctionLogicalId}#{ApiLogicalId}Permission`、ターゲット関数単位で重複排除):
+  - `Action`: `'lambda:InvokeFunction'`
+  - `FunctionName`: `{ 'Fn::GetAtt' => [FunctionLogicalId, 'Arn'] }`
+  - `Principal`: `'apigateway.amazonaws.com'`
+  - `SourceArn`: `arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${RestApiId}/*/*/*`
+- **`AWS::ApiGateway::Deployment` および `AWS::ApiGateway::Stage`**:
+  - `Deployment` (`#{ApiLogicalId}Deployment`): 定義されたすべての `AWS::ApiGateway::Method` 論理IDを `DependsOn` に保持し、`RestApiId` と `StageName` を設定します。
+  - `Stage` (`#{ApiLogicalId}Stage` または `#{ApiLogicalId}#{Stage}Stage`): `DeploymentId: { 'Ref' => DeploymentLogicalId }`、`RestApiId`、`StageName`（および任意の `TracingEnabled` / `Variables`）を設定します。
+
 ## CloudWatch メトリクスダッシュボードのコンパイルと URL 出力 (CloudWatch Dashboard Compilation & Output)
 
 Application レベルで `dashboard` を設定した場合、`Veltrunode::Compiler::CloudFormation::DashboardCompiler` により `AWS::CloudWatch::Dashboard` リソースが自動生成されます。
