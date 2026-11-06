@@ -1450,5 +1450,82 @@ RSpec.describe Veltrunode::Compiler::CloudFormation::TemplateCompiler do
         'StageName' => 'prod'
       )
     end
+
+    it 'compiles AWS::Lambda::Url, public AWS::Lambda::Permission, and Outputs for function_url' do
+      code = <<~RUBY
+        Veltrunode.application "function-url-app" do
+          aws region: "ap-northeast-1"
+
+          function :webhook, function_url: {
+            auth_type: :none,
+            cors: {
+              allow_origins: ["https://example.com"],
+              allow_methods: ["POST", "OPTIONS"]
+            }
+          } do
+            handler "webhook.handler"
+            runtime "ruby3.3"
+          end
+
+          function :internal_rpc do
+            handler "rpc.handler"
+            runtime "ruby3.3"
+            function_url auth_type: :aws_iam
+          end
+        end
+      RUBY
+
+      app = Veltrunode.parse(code)
+      yaml_output = described_class.to_yaml(app)
+      parsed = YAML.safe_load(yaml_output)
+
+      resources = parsed['Resources']
+      outputs = parsed['Outputs']
+
+      # 1. Public Function URL (AuthType: NONE) + AWS::Lambda::Permission
+      webhook_url = resources['WebhookFunctionUrl']
+      expect(webhook_url).not_to be_nil
+      expect(webhook_url['Type']).to eq('AWS::Lambda::Url')
+      expect(webhook_url['Properties']).to eq(
+        'AuthType' => 'NONE',
+        'Cors' => {
+          'AllowMethods' => %w[POST OPTIONS],
+          'AllowOrigins' => ['https://example.com']
+        },
+        'TargetFunctionArn' => { 'Fn::GetAtt' => %w[WebhookFunction Arn] }
+      )
+
+      webhook_perm = resources['WebhookFunctionUrlPermission']
+      expect(webhook_perm).not_to be_nil
+      expect(webhook_perm['Type']).to eq('AWS::Lambda::Permission')
+      expect(webhook_perm['Properties']).to eq(
+        'Action' => 'lambda:InvokeFunctionUrl',
+        'FunctionName' => { 'Fn::GetAtt' => %w[WebhookFunction Arn] },
+        'FunctionUrlAuthType' => 'NONE',
+        'Principal' => '*'
+      )
+
+      # 2. IAM-authenticated Function URL (AuthType: AWS_IAM) without public Permission
+      rpc_url = resources['InternalRpcFunctionUrl']
+      expect(rpc_url).not_to be_nil
+      expect(rpc_url['Type']).to eq('AWS::Lambda::Url')
+      expect(rpc_url['Properties']).to eq(
+        'AuthType' => 'AWS_IAM',
+        'TargetFunctionArn' => { 'Fn::GetAtt' => %w[InternalRpcFunction Arn] }
+      )
+      expect(resources).not_to have_key('InternalRpcFunctionUrlPermission')
+
+      # 3. Outputs for Function URLs
+      expect(outputs['WebhookFunctionUrl']).to eq(
+        'Description' => 'Function URL of webhook Lambda function',
+        'Export' => { 'Name' => { 'Fn::Sub' => '${AWS::StackName}-WebhookFunctionUrl' } },
+        'Value' => { 'Fn::GetAtt' => %w[WebhookFunctionUrl FunctionUrl] }
+      )
+      expect(outputs['InternalRpcFunctionUrl']).to eq(
+        'Description' => 'Function URL of internal_rpc Lambda function',
+        'Export' => { 'Name' => { 'Fn::Sub' => '${AWS::StackName}-InternalRpcFunctionUrl' } },
+        'Value' => { 'Fn::GetAtt' => %w[InternalRpcFunctionUrl FunctionUrl] }
+      )
+    end
   end
 end

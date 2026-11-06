@@ -368,6 +368,15 @@ RSpec.describe Veltrunode::Compiler::LogicalId do
     end
   end
 
+  describe '.for_function_url and .for_function_url_permission' do
+    it 'generates logical IDs for Function URL and Permission' do
+      expect(described_class.for_function_url(:webhook)).to eq('WebhookFunctionUrl')
+      expect(described_class.for(:webhook, type: :function_url)).to eq('WebhookFunctionUrl')
+      expect(described_class.for_function_url_permission(:webhook)).to eq('WebhookFunctionUrlPermission')
+      expect(described_class.for(:webhook, type: :function_url_permission)).to eq('WebhookFunctionUrlPermission')
+    end
+  end
+
   describe 'standalone loading' do
     it 'allows individual compiler files to be loaded independently' do
       expect do
@@ -383,6 +392,7 @@ RSpec.describe Veltrunode::Compiler::LogicalId do
         require 'veltrunode/compiler/cloudformation/event_rule_compiler'
         require 'veltrunode/compiler/cloudformation/http_api_compiler'
         require 'veltrunode/compiler/cloudformation/rest_api_compiler'
+        require 'veltrunode/compiler/cloudformation/function_url_compiler'
         require 'veltrunode/compiler/cloudformation'
 
         cf = Veltrunode::Compiler::CloudFormation
@@ -415,6 +425,8 @@ RSpec.describe Veltrunode::Compiler::LogicalId do
         expect(cf::HttpApiCompiler.route_logical_id_for(:get, '/users')).to eq('HttpApiGetUsersRoute')
         expect(cf::RestApiCompiler.logical_id_for(:default)).to eq('RestApi')
         expect(cf::RestApiCompiler.method_logical_id_for(:get, '/users')).to eq('RestApiGetUsersMethod')
+        expect(cf::FunctionUrlCompiler.logical_id_for(:webhook)).to eq('WebhookFunctionUrl')
+        expect(cf::FunctionUrlCompiler.permission_logical_id_for(:webhook)).to eq('WebhookFunctionUrlPermission')
       end.not_to raise_error
     end
   end
