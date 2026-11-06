@@ -3,13 +3,14 @@
 require_relative '../diagnostics/diagnostic'
 require_relative 'async_invoke_config'
 require_relative 'event_source'
+require_relative 'function_url'
 
 module Veltrunode
   module Model
     class Function
       attr_reader :handler, :runtime, :logical_name, :architecture, :memory, :timeout, :ephemeral_storage,
                   :environment, :vpc_reference, :layers, :mounts, :iam_capabilities, :concurrency, :logging,
-                  :alarms, :subscription_filters, :tracing, :insights, :async_invoke, :event_sources
+                  :alarms, :subscription_filters, :tracing, :insights, :async_invoke, :event_sources, :function_url
 
       def initialize(
         positional_logical_name = nil,
@@ -34,7 +35,8 @@ module Veltrunode
         async_invoke: nil,
         event_sources: [],
         rule: nil,
-        rules: []
+        rules: [],
+        function_url: nil
       )
         name_val = positional_logical_name || logical_name
         validate_logical_name!(name_val)
@@ -59,6 +61,7 @@ module Veltrunode
         @insights = normalize_insights(insights)
         @async_invoke = normalize_async_invoke(async_invoke)
         @event_sources = normalize_event_sources(event_sources, rule: rule, rules: rules)
+        @function_url = normalize_function_url(function_url)
 
         freeze if @handler || @runtime
       end
@@ -129,6 +132,11 @@ module Veltrunode
       def rules?
         !rules.empty?
       end
+
+      def function_url?
+        !@function_url.nil?
+      end
+      alias function_url_enabled? function_url?
 
       def validate_invariants(context = {})
         diagnostics = []
@@ -558,6 +566,12 @@ module Veltrunode
           end
         end
         normalized.freeze
+      end
+
+      def normalize_function_url(val)
+        FunctionUrl.from(val)
+      rescue ArgumentError => e
+        raise ValidationError, e.message
       end
     end
   end

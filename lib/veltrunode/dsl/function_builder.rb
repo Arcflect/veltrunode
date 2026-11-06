@@ -4,13 +4,15 @@ require_relative 'base_builder'
 require_relative 'permit_builder'
 require_relative 'alarms_builder'
 require_relative 'logs_builder'
+require_relative 'function_url_builder'
 require_relative '../model/function'
 
 module Veltrunode
   module DSL
     class FunctionBuilder < BaseBuilder
       def initialize(logical_name, runtime_default: nil, architecture_default: :x86_64, tracing_default: nil,
-                     insights_default: nil, async_invoke_default: nil, alarms_default: nil, event_sources_default: nil)
+                     insights_default: nil, async_invoke_default: nil, alarms_default: nil, event_sources_default: nil,
+                     function_url_default: nil)
         super()
         @logical_name = logical_name.to_s
         @handler = nil
@@ -35,6 +37,7 @@ module Veltrunode
         @insights = insights_default
         @async_invoke = async_invoke_default
         @event_sources = []
+        @function_url = function_url_default
         apply_event_sources_default(event_sources_default) if event_sources_default
       end
 
@@ -225,6 +228,33 @@ module Veltrunode
                         end
       end
 
+      def function_url(opts_or_arg = nil, **kwargs, &)
+        if opts_or_arg == false || kwargs[:enabled] == false
+          @function_url = nil
+          return
+        end
+
+        init_opts = if opts_or_arg.is_a?(Hash)
+                      opts_or_arg.merge(kwargs)
+                    elsif opts_or_arg.is_a?(Symbol) || opts_or_arg.is_a?(String)
+                      kwargs.merge(auth_type: opts_or_arg)
+                    else
+                      kwargs
+                    end
+
+        if block_given?
+          builder = FunctionUrlBuilder.new(**init_opts)
+          builder.instance_eval(&)
+          @function_url = builder.build
+        elsif opts_or_arg.is_a?(Model::FunctionUrl)
+          @function_url = opts_or_arg
+        elsif init_opts.empty?
+          @function_url = Model::FunctionUrl.from(opts_or_arg.nil? || opts_or_arg)
+        else
+          @function_url = Model::FunctionUrl.from(init_opts)
+        end
+      end
+
       def event_source(type_or_opts = nil, **kwargs, &)
         if type_or_opts == false || kwargs[:enabled] == false
           @event_sources = []
@@ -318,7 +348,8 @@ module Veltrunode
           tracing: @tracing,
           insights: @insights,
           async_invoke: @async_invoke,
-          event_sources: @event_sources
+          event_sources: @event_sources,
+          function_url: @function_url
         )
       end
 

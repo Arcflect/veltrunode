@@ -20,6 +20,7 @@ require_relative 's3_notification_compiler'
 require_relative 'event_rule_compiler'
 require_relative 'http_api_compiler'
 require_relative 'rest_api_compiler'
+require_relative 'function_url_compiler'
 require_relative '../../graph/resource_graph'
 require_relative '../../version'
 
@@ -397,10 +398,16 @@ module Veltrunode
             end
 
             # EventInvokeConfig (AWS::Lambda::EventInvokeConfig)
-            next unless fn.respond_to?(:async_invoke?) && fn.async_invoke?
+            if fn.respond_to?(:async_invoke?) && fn.async_invoke?
+              eic_res = EventInvokeConfigCompiler.compile(fn, context: context)
+              resources.merge!(eic_res)
+            end
 
-            eic_res = EventInvokeConfigCompiler.compile(fn, context: context)
-            resources.merge!(eic_res)
+            # Function URL (AWS::Lambda::Url and AWS::Lambda::Permission)
+            next unless fn.respond_to?(:function_url?) && fn.function_url?
+
+            url_res = FunctionUrlCompiler.compile(fn, context: context)
+            resources.merge!(url_res)
           end
 
           # 6. Compile Schedules (Role, Schedule) and top-level EventBridge Rules
@@ -481,6 +488,15 @@ module Veltrunode
               'Description' => "Name of #{fn_name} Lambda function",
               'Value' => { 'Ref' => fn_id },
               'Export' => { 'Name' => { 'Fn::Sub' => "${AWS::StackName}-#{fn_id}Name" } }
+            }
+
+            next unless fn.respond_to?(:function_url?) && fn.function_url?
+
+            url_id = FunctionUrlCompiler.logical_id_for(fn_name)
+            outputs[url_id] = {
+              'Description' => "Function URL of #{fn_name} Lambda function",
+              'Value' => { 'Fn::GetAtt' => [url_id, 'FunctionUrl'] },
+              'Export' => { 'Name' => { 'Fn::Sub' => "${AWS::StackName}-#{url_id}" } }
             }
           end
 

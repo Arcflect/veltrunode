@@ -500,6 +500,52 @@ end
   - `authorization_type`（デフォルト: `'NONE'`）、`authorizer_id`、`api_key_required`（デフォルト: `false`）を指定可能。
 - **`stage_name` / `stage`**: デプロイメントステージ名（デフォルト: `'prod'`）。`AWS::ApiGateway::Deployment`（全 `Method` への `DependsOn` 付き）および `AWS::ApiGateway::Stage` を生成します。
 
+## Lambda Function URL と CORS・認証設定 (Lambda Function URL & CORS / AuthType)
+
+API Gateway を介さず、低レイテンシかつシンプルに Webhook やマイクロサービスエンドポイントを公開する場合、`function` または `defaults` ブロックで `function_url` を定義することで、`AWS::Lambda::Url`、パブリックアクセス用の `AWS::Lambda::Permission`（`auth_type: :none` 時）、およびデプロイ出力（`Outputs`）の URL エンドポイントを自動構成できます。
+
+```ruby
+Veltrunode.application "function-url-app" do
+  # 1. function キーワード引数での指定（パブリック Webhook + CORS）
+  function :webhook, function_url: {
+    auth_type: :none,
+    cors: {
+      allow_origins: ["https://example.com"],
+      allow_methods: ["POST", "OPTIONS"],
+      allow_headers: ["Content-Type", "X-Signature"],
+      max_age: 86400
+    }
+  } do
+    handler "webhook.handler"
+    runtime "ruby3.3"
+  end
+
+  # 2. function ブロック内での指定（IAM 認証 + レスポンスストリーミング）
+  function :internal_rpc do
+    handler "rpc.handler"
+    runtime "ruby3.3"
+    function_url do
+      auth_type :aws_iam
+      invoke_mode :response_stream
+      cors do
+        origins "https://internal.example.com"
+        methods "GET", "POST"
+        allow_credentials true
+      end
+    end
+  end
+end
+```
+
+### パラメータ仕様
+
+- **`auth_type` / `auth`**: 認証種別。`:none`（`'NONE'`: パブリックアクセス、デフォルト）または `:aws_iam` / `:iam`（`'AWS_IAM'`: AWS IAM 署名付きリクエストのみ許可）を指定します。
+  - `:none` 指定時は、`Principal: '*'`、`Action: 'lambda:InvokeFunctionUrl'`、`FunctionUrlAuthType: 'NONE'` の `AWS::Lambda::Permission` が自動付与されます。
+  - `:aws_iam` 指定時は、パブリックアクセス用の `AWS::Lambda::Permission` は生成されません。
+- **`cors`**: `true`（全許可）、またはハッシュ/ブロック形式で `allow_origins`（`origins`）、`allow_methods`（`methods`）、`allow_headers`（`headers`）、`expose_headers`、`max_age`、`allow_credentials`（`credentials`）を指定します。
+- **`invoke_mode`**: 呼び出しモード（`:buffered` -> `'BUFFERED'` または `:response_stream` -> `'RESPONSE_STREAM'`）。
+- **デプロイ出力 (`Outputs`)**: `#{FunctionLogicalId}Url`（例: `WebhookFunctionUrl`）として `{ 'Fn::GetAtt' => ['WebhookFunctionUrl', 'FunctionUrl'] }` が `Outputs` に出力されます。
+
 ## CloudWatch メトリクスダッシュボード (CloudWatch Dashboard)
 
 Application レベルで `dashboard` を宣言することで、デプロイされた全 Lambda 関数の稼働状態を一目で把握できる `AWS::CloudWatch::Dashboard` リソースを自動生成できます。

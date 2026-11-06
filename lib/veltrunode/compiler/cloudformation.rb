@@ -15,6 +15,7 @@ require_relative 'cloudformation/s3_notification_compiler'
 require_relative 'cloudformation/event_rule_compiler'
 require_relative 'cloudformation/http_api_compiler'
 require_relative 'cloudformation/rest_api_compiler'
+require_relative 'cloudformation/function_url_compiler'
 require_relative 'cloudformation/template_compiler'
 
 module Veltrunode

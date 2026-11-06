@@ -196,6 +196,10 @@ module Veltrunode
           for_rest_api_stage(name)
         when :rest_api_permission
           for_rest_api_permission(name)
+        when :function_url
+          for_function_url(name)
+        when :function_url_permission
+          for_function_url_permission(name)
         else
           suffix = pascalize(type)
           base = pascalize(name)
@@ -569,6 +573,30 @@ module Veltrunode
         fn_id = for_function(function_name)
         api_id = for_rest_api(api_name)
         "#{fn_id}#{api_id}Permission"
+      end
+
+      # Lambda Function URL (AWS::Lambda::Url) の論理IDを生成します（サフィックス: Url）
+      #
+      # @param function_name [String, Symbol] 関数シンボリック名 (例: :webhook)
+      # @return [String] 論理ID (例: "WebhookFunctionUrl")
+      def for_function_url(function_name)
+        base = pascalize(function_name)
+        return base if base.end_with?('FunctionUrl')
+
+        fn_id = for_function(function_name)
+        "#{fn_id}Url"
+      end
+
+      # Lambda Function URL パブリック呼び出し権限 (AWS::Lambda::Permission) の論理IDを生成します（サフィックス: UrlPermission）
+      #
+      # @param function_name [String, Symbol] 関数シンボリック名 (例: :webhook)
+      # @return [String] 論理ID (例: "WebhookFunctionUrlPermission")
+      def for_function_url_permission(function_name)
+        base = pascalize(function_name)
+        return base if base.end_with?('FunctionUrlPermission')
+
+        fn_id = for_function(function_name)
+        "#{fn_id}UrlPermission"
       end
     end
   end
