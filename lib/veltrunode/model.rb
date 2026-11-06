@@ -28,6 +28,7 @@ require_relative 'model/dashboard'
 require_relative 'model/event_source'
 require_relative 'model/http_api'
 require_relative 'model/rest_api'
+require_relative 'model/function_url'
 
 module Veltrunode
   module Model
@@ -51,4 +52,5 @@ module Veltrunode
   HttpCors = Model::HttpCors
   RestApi = Model::RestApi
   RestMethod = Model::RestMethod
+  FunctionUrl = Model::FunctionUrl
 end
