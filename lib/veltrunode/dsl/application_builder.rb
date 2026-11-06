@@ -78,6 +78,7 @@ module Veltrunode
         @runtime_defaults[:insights] = defaults_builder.insights_config if defaults_builder.insights_config
         @runtime_defaults[:async_invoke] = defaults_builder.async_invoke_config if defaults_builder.async_invoke_config
         @runtime_defaults[:alarms] = defaults_builder.alarms_config if defaults_builder.alarms_config
+        @runtime_defaults[:function_url] = defaults_builder.function_url_config if defaults_builder.function_url_config
         if defaults_builder.event_sources_config
           @runtime_defaults[:event_sources] = defaults_builder.event_sources_config
         end
@@ -121,8 +122,9 @@ module Veltrunode
       alias efs_security_group security_group_helper
 
       def function(name, tracing: nil, insights: nil, async_invoke: nil, alarms: nil,
-                   event_source: nil, event_sources: nil, rule: nil, rules: nil, **, &)
+                   event_source: nil, event_sources: nil, rule: nil, rules: nil, function_url: nil, **, &)
         alarms_cfg = alarms.nil? ? @runtime_defaults[:alarms] : alarms
+        fn_url_cfg = function_url.nil? ? @runtime_defaults[:function_url] : function_url
         es_cfg = combine_event_source_defaults(
           event_source || event_sources || @runtime_defaults[:event_sources],
           rule || rules
@@ -135,7 +137,8 @@ module Veltrunode
           insights_default: insights || @runtime_defaults[:insights],
           async_invoke_default: async_invoke || @runtime_defaults[:async_invoke],
           alarms_default: alarms_cfg,
-          event_sources_default: es_cfg
+          event_sources_default: es_cfg,
+          function_url_default: fn_url_cfg
         )
         builder.instance_eval(&) if block_given?
         @function_builders << builder
@@ -380,7 +383,7 @@ module Veltrunode
 
     class DefaultsBuilder < BaseBuilder
       attr_reader :logs_config, :tags_config, :tracing_config, :insights_config, :async_invoke_config, :alarms_config,
-                  :event_sources_config
+                  :event_sources_config, :function_url_config
 
       def initialize
         super
@@ -391,6 +394,7 @@ module Veltrunode
         @async_invoke_config = nil
         @alarms_config = nil
         @event_sources_config = nil
+        @function_url_config = nil
       end
 
       def alarms(arg = nil, **kwargs, &block)
@@ -442,6 +446,26 @@ module Veltrunode
                                  opts_or_arg
                                else
                                  kwargs.merge(enabled: opts_or_arg)
+                               end
+      end
+
+      def function_url(opts_or_arg = nil, **kwargs, &)
+        init_opts = if opts_or_arg.is_a?(Hash)
+                      opts_or_arg.merge(kwargs)
+                    elsif opts_or_arg.is_a?(Symbol) || opts_or_arg.is_a?(String)
+                      kwargs.merge(auth_type: opts_or_arg)
+                    else
+                      kwargs
+                    end
+
+        @function_url_config = if block_given?
+                                 builder = FunctionUrlBuilder.new(**init_opts)
+                                 builder.instance_eval(&)
+                                 builder.build
+                               elsif init_opts.empty?
+                                 Model::FunctionUrl.from(opts_or_arg.nil? || opts_or_arg)
+                               else
+                                 Model::FunctionUrl.from(init_opts)
                                end
       end
 

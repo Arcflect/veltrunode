@@ -13,6 +13,7 @@ require_relative 'dsl/schedule_builder'
 require_relative 'dsl/event_source_builder'
 require_relative 'dsl/http_api_builder'
 require_relative 'dsl/rest_api_builder'
+require_relative 'dsl/function_url_builder'
 require_relative 'dsl/cache_builder'
 require_relative 'dsl/application_builder'
 
