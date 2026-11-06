@@ -97,6 +97,15 @@ Lambda 関数で Lambda Insights 拡張モニタリング（`insights: true` ま
 - **権限内容**:
   Lambda Insights 拡張レイヤーが詳細なシステムメトリクス（CPU、メモリ使用率、ネットワークトラフィック等）を CloudWatch Logs（`/aws/lambda-insights` ロググループ）へ書き込むための権限（`logs:CreateLogGroup`, `logs:CreateLogStream`, `logs:PutLogEvents` 等）が付与されます。
 
+## Lambda Function URL の認証とリソースベースポリシー (Lambda Function URL Authentication & Resource Policy)
+
+Lambda Function URL（`function_url`）を構成する際、認証種別（`auth_type`）に応じてリソースベースポリシー（`AWS::Lambda::Permission`）の付与を厳密に制御します。
+
+- **`AuthType: NONE`（`auth_type: :none`）**:
+  - Webhook 等のパブリックエンドポイント向けに、`Action: 'lambda:InvokeFunctionUrl'`、`FunctionUrlAuthType: 'NONE'`、`Principal: '*'` を持つ `AWS::Lambda::Permission`（`#{FunctionLogicalId}UrlPermission`）を自動付与します。
+- **`AuthType: AWS_IAM`（`auth_type: :aws_iam`）**:
+  - IAM 認証を必須とする内部マイクロサービス向けに、`AWS::Lambda::Url` の `AuthType` を `'AWS_IAM'` に設定し、パブリックアクセスを許可する `AWS::Lambda::Permission` は一切生成しません。呼び出し元には SigV4 署名と適切な `lambda:InvokeFunctionUrl` IAM 権限が必要となります。
+
 ## 認証情報 (Credentials)
 
 Veltrunode は、標準の AWS SDK 資格情報チェーン（Credential Chain）を使用します。ツール自体が認証情報を収集したり、プロキシしたりすることはありません。リソースの変更操作（`deploy` 等）を行う前に、呼び出し元の AWS アカウントおよびリージョンが正しいかを事前検証（`AccountRegionGuard`）します。
