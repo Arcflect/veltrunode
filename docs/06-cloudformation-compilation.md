@@ -234,6 +234,34 @@ Lambda 関数で `event_source dynamodb_stream: ...`（または `defaults` ブ�
 - **ストリーム ARN のパラメータ化**:
   ストリームに `ref(:stream_arn)` やシンボルが指定された場合、CloudFormation テンプレートの `Parameters`（例: `AuditStreamArn: { Type: String, Description: "DynamoDB stream ARN for AuditStreamArn" }`）に自動登録されます。
 
+## Kinesis Data Streams イベントソースマッピングと IAM 権限の自動付与 (Kinesis Data Streams Event Source Mapping Compilation)
+
+Lambda 関数で `event_source kinesis_stream: ...`（または `kinesis_stream: { ... }` / `defaults` ブロックでの指定）を設定した場合、`Veltrunode::Compiler::CloudFormation::EventSourceMappingCompiler` および `RoleCompiler` により `AWS::Lambda::EventSourceMapping` リソースおよび Kinesis ストリーム読み取りに必要な IAM 実行権限が自動構成されます。
+
+- **論理ID**: `#{FunctionName}#{StreamIdentifier}EventSourceMapping`（例: ストリーム `clickstream-events` の ARN 指定時は `StreamProcessorFunctionClickstreamEventsEventSourceMapping`、`ref(:kinesis_stream_arn)` 指定時は `StreamProcessorFunctionKinesisStreamArnEventSourceMapping`）。
+- **`AWS::Lambda::EventSourceMapping` プロパティ (`Properties`)**:
+  - `EventSourceArn`: 対象 Kinesis Data Streams の ARN。リテラル ARN 指定時はその文字列、`ref(:stream_arn)` やシンボル指定時は `{ 'Ref' => StreamParamKey }`。
+  - `FunctionName`: `{ 'Fn::GetAtt' => [FunctionLogicalId, 'Arn'] }`。
+  - `StartingPosition`: `'LATEST'`（`:latest` 指定時またはデフォルト）または `'TRIM_HORIZON'`（`:trim_horizon` 指定時）。
+  - `BatchSize`: 1 バッチあたりのレコード件数（指定時のみ設定、1〜10,000）。
+  - `ParallelizationFactor`: 各シャードから同時並行で処理するバッチ数（並列化係数、指定時のみ設定、1〜10）。
+  - `BisectBatchOnFunctionError`: 関数がエラーを返した際にバッチを 2 分割してリトライする設定（指定時のみ設定、`true` / `false`）。
+  - `MaximumBatchingWindowInSeconds`: バッチ待機ウィンドウ秒数（指定時のみ設定、0〜300秒）。
+  - `FunctionResponseTypes`: `report_batch_item_failures: true` 指定時に `['ReportBatchItemFailures']` を設定。
+  - `Enabled`: マッピングの有効状態（デフォルト `true`）。
+- **Kinesis 読み取り IAM 権限の自動付与**:
+  `kinesis_stream` が定義された関数では、Lambda 実行ロール（`AWS::IAM::Role`）のインラインポリシーに以下のステートメントが自動的に追加されます。
+  - **Action**:
+    - `kinesis:GetRecords`
+    - `kinesis:GetShardIterator`
+    - `kinesis:DescribeStream`
+    - `kinesis:DescribeStreamSummary`
+    - `kinesis:ListShards`
+    - `kinesis:ListStreams`
+  - **Resource**: 対象 Kinesis Data Streams の ARN（または `{ 'Ref' => StreamParamKey }`）。
+- **ストリーム ARN のパラメータ化**:
+  ストリームに `ref(:kinesis_stream_arn)` やシンボルが指定された場合、CloudFormation テンプレートの `Parameters`（例: `KinesisStreamArn: { Type: String, Description: "Kinesis stream ARN for KinesisStreamArn" }`）に自動登録されます。
+
 ## EventBridge ルールとカスタムイベントバストリガーのコンパイル (EventBridge Rule Compilation)
 
 Lambda 関数で `rule: { bus: ..., pattern: { ... }, state: ... }`（または `event_source rule:`）を設定した場合、`Veltrunode::Compiler::CloudFormation::EventRuleCompiler` により `AWS::Events::Rule` および `AWS::Lambda::Permission` リソースが自動構成されます。
