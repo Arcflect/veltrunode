@@ -58,7 +58,7 @@ RSpec.describe Veltrunode::Model::EventSource do
     end
 
     it 'raises ArgumentError if type is unsupported' do
-      expect { described_class.new(type: :kinesis, queue: 'stream') }
+      expect { described_class.new(type: :kafka, queue: 'stream') }
         .to raise_error(ArgumentError, /Unsupported event source type/)
     end
 
@@ -248,6 +248,44 @@ RSpec.describe Veltrunode::Model::EventSource do
         .to raise_error(ArgumentError, /Invalid starting_position/)
     end
 
+    it 'creates a Kinesis Data Stream event source with parallelization_factor and bisect_batch_on_function_error' do
+      stream_arn = 'arn:aws:kinesis:ap-northeast-1:123456789012:stream/clickstream-events'
+      source = described_class.new(
+        kinesis_stream: stream_arn,
+        starting_position: :latest,
+        batch_size: 500,
+        maximum_batching_window_in_seconds: 10,
+        parallelization_factor: 5,
+        bisect_batch_on_function_error: true,
+        report_batch_item_failures: true
+      )
+
+      expect(source.kinesis_stream?).to be true
+      expect(source.kinesis?).to be true
+      expect(source.dynamodb_stream?).to be false
+      expect(source.type).to eq(:kinesis_stream)
+      expect(source.stream).to eq(stream_arn)
+      expect(source.kinesis_stream).to eq(stream_arn)
+      expect(source.stream_identifier).to eq('clickstream-events')
+      expect(source.source_identifier).to eq('clickstream-events')
+      expect(source.starting_position).to eq('LATEST')
+      expect(source.batch_size).to eq(500)
+      expect(source.maximum_batching_window_in_seconds).to eq(10)
+      expect(source.parallelization_factor).to eq(5)
+      expect(source.bisect_batch_on_function_error).to be true
+      expect(source.bisect_batch_on_function_error?).to be true
+      expect(source.report_batch_item_failures?).to be true
+    end
+
+    it 'raises ArgumentError if kinesis_stream is missing or parallelization_factor is out of range' do
+      expect { described_class.new(type: :kinesis_stream, stream: nil) }
+        .to raise_error(ArgumentError, /Stream must be specified for Kinesis Stream event source/)
+      expect { described_class.new(kinesis_stream: :clickstream, parallelization_factor: 0) }
+        .to raise_error(ArgumentError, /Parallelization factor must be between 1 and 10/)
+      expect { described_class.new(kinesis_stream: :clickstream, parallelization_factor: 11) }
+        .to raise_error(ArgumentError, /Parallelization factor must be between 1 and 10/)
+    end
+
     it 'creates an EventBridge rule event source with bus, pattern, and default enabled state' do
       source = described_class.new(
         rule: {
@@ -415,6 +453,25 @@ RSpec.describe Veltrunode::Model::EventSource do
       expect(hash['starting_position']).to eq('TRIM_HORIZON')
       expect(hash['batch_size']).to eq(25)
       expect(hash['report_batch_item_failures']).to be true
+      expect(hash['enabled']).to be true
+    end
+
+    it 'serializes Kinesis Stream event source attributes' do
+      source = described_class.new(
+        kinesis_stream: 'arn:aws:kinesis:ap-northeast-1:123456789012:stream/clickstream',
+        starting_position: :trim_horizon,
+        batch_size: 200,
+        parallelization_factor: 4,
+        bisect_batch_on_function_error: true
+      )
+
+      hash = source.to_h
+      expect(hash['type']).to eq('kinesis_stream')
+      expect(hash['stream']).to eq('arn:aws:kinesis:ap-northeast-1:123456789012:stream/clickstream')
+      expect(hash['starting_position']).to eq('TRIM_HORIZON')
+      expect(hash['batch_size']).to eq(200)
+      expect(hash['parallelization_factor']).to eq(4)
+      expect(hash['bisect_batch_on_function_error']).to be true
       expect(hash['enabled']).to be true
     end
 
