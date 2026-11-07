@@ -658,4 +658,76 @@ RSpec.describe 'DSL event_source support' do
       expect(none_fn.rules).to be_empty
     end
   end
+
+  describe 'Kinesis Data Stream event source DSL' do
+    let(:stream_arn) { 'arn:aws:kinesis:ap-northeast-1:123456789012:stream/clickstream-events' }
+
+    it 'supports event_source kinesis_stream with batch_size, parallelization_factor, and bisect_batch' do
+      arn = stream_arn
+      app = Veltrunode.application 'kinesis-app' do
+        function :stream_worker do
+          handler 'worker.handler'
+          runtime 'ruby3.3'
+          event_source kinesis_stream: arn,
+                       starting_position: :latest,
+                       batch_size: 500,
+                       maximum_batching_window_in_seconds: 10,
+                       parallelization_factor: 5,
+                       bisect_batch_on_function_error: true,
+                       report_batch_item_failures: true
+        end
+      end
+
+      es = app.functions.first.event_sources.first
+      expect(es.kinesis_stream?).to be true
+      expect(es.stream).to eq(stream_arn)
+      expect(es.stream_identifier).to eq('clickstream-events')
+      expect(es.starting_position).to eq('LATEST')
+      expect(es.batch_size).to eq(500)
+      expect(es.maximum_batching_window_in_seconds).to eq(10)
+      expect(es.parallelization_factor).to eq(5)
+      expect(es.bisect_batch_on_function_error?).to be true
+      expect(es.report_batch_item_failures?).to be true
+    end
+
+    it 'supports block-based event_source :kinesis_stream and function keyword argument kinesis_stream:' do
+      app = Veltrunode.application 'kinesis-block-app' do
+        function :consumer_a, kinesis_stream: {
+          stream: ref(:telemetry_stream_arn),
+          batch_size: 200,
+          parallelization_factor: 4,
+          bisect_batch_on_function_error: true
+        } do
+          handler 'a.handler'
+          runtime 'ruby3.3'
+        end
+
+        function :consumer_b do
+          handler 'b.handler'
+          runtime 'ruby3.3'
+          event_source :kinesis_stream do
+            stream 'arn:aws:kinesis:ap-northeast-1:123456789012:stream/metrics-stream'
+            starting_position :trim_horizon
+            batch_size 100
+            parallelization_factor 2
+            bisect_batch_on_function_error true
+          end
+        end
+      end
+
+      es_a = app.functions['consumer_a'].event_sources.first
+      expect(es_a.kinesis_stream?).to be true
+      expect(es_a.stream.name).to eq(:telemetry_stream_arn)
+      expect(es_a.batch_size).to eq(200)
+      expect(es_a.parallelization_factor).to eq(4)
+      expect(es_a.bisect_batch_on_function_error?).to be true
+
+      es_b = app.functions['consumer_b'].event_sources.first
+      expect(es_b.kinesis_stream?).to be true
+      expect(es_b.stream_identifier).to eq('metrics-stream')
+      expect(es_b.starting_position).to eq('TRIM_HORIZON')
+      expect(es_b.parallelization_factor).to eq(2)
+      expect(es_b.bisect_batch_on_function_error?).to be true
+    end
+  end
 end

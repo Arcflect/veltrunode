@@ -122,12 +122,14 @@ module Veltrunode
       alias efs_security_group security_group_helper
 
       def function(name, tracing: nil, insights: nil, async_invoke: nil, alarms: nil,
-                   event_source: nil, event_sources: nil, rule: nil, rules: nil, function_url: nil, **, &)
+                   event_source: nil, event_sources: nil, rule: nil, rules: nil,
+                   kinesis_stream: nil, function_url: nil, **, &)
         alarms_cfg = alarms.nil? ? @runtime_defaults[:alarms] : alarms
         fn_url_cfg = function_url.nil? ? @runtime_defaults[:function_url] : function_url
         es_cfg = combine_event_source_defaults(
           event_source || event_sources || @runtime_defaults[:event_sources],
-          rule || rules
+          rule || rules,
+          kinesis_stream
         )
         builder = FunctionBuilder.new(
           name,
@@ -282,21 +284,28 @@ module Veltrunode
 
       private
 
-      def combine_event_source_defaults(es_cfg, rule_cfg)
-        return es_cfg if rule_cfg.nil?
+      def combine_event_source_defaults(es_cfg, rule_cfg, kinesis_cfg = nil)
+        extras = []
+        if rule_cfg
+          extras.concat(
+            if rule_cfg.is_a?(Array)
+              rule_cfg.map { |r| r.is_a?(Model::EventSource) ? r : { rule: r } }
+            elsif rule_cfg.is_a?(Model::EventSource)
+              [rule_cfg]
+            else
+              [{ rule: rule_cfg }]
+            end
+          )
+        end
+        if kinesis_cfg
+          extras << (kinesis_cfg.is_a?(Model::EventSource) ? kinesis_cfg : { kinesis_stream: kinesis_cfg })
+        end
 
-        wrapped_rules = if rule_cfg.is_a?(Array)
-                          rule_cfg.map { |r| r.is_a?(Model::EventSource) ? r : { rule: r } }
-                        elsif rule_cfg.is_a?(Model::EventSource)
-                          [rule_cfg]
-                        else
-                          [{ rule: rule_cfg }]
-                        end
-
-        return wrapped_rules if es_cfg.nil?
+        return es_cfg if extras.empty?
+        return extras if es_cfg.nil?
 
         es_list = es_cfg.is_a?(Array) ? es_cfg : [es_cfg]
-        es_list + wrapped_rules
+        es_list + extras
       end
 
       def apply_positional_runtime(str)
@@ -499,6 +508,13 @@ module Veltrunode
           ddb_val = opts.delete(:dynamodb_stream)
           ddb_opts = ddb_val.is_a?(Hash) ? ddb_val.merge(opts) : opts.merge(stream: ddb_val)
           builder = EventSourceBuilder.new(:dynamodb_stream, **ddb_opts)
+          builder.instance_eval(&) if block_given?
+          @event_sources_config << builder.build
+          return
+        elsif opts.key?(:kinesis_stream) || opts.key?(:kinesis)
+          kin_val = opts.delete(:kinesis_stream) || opts.delete(:kinesis)
+          kin_opts = kin_val.is_a?(Hash) ? kin_val.merge(opts) : opts.merge(stream: kin_val)
+          builder = EventSourceBuilder.new(:kinesis_stream, **kin_opts)
           builder.instance_eval(&) if block_given?
           @event_sources_config << builder.build
           return

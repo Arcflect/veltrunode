@@ -9,6 +9,7 @@ module Veltrunode
       def initialize(type = :sqs, queue: nil, topic: nil, topic_arn: nil, bucket: nil,
                      events: nil, event: nil, filter: nil, prefix: nil, suffix: nil,
                      stream: nil, stream_arn: nil, arn: nil, starting_position: nil,
+                     parallelization_factor: nil, bisect_batch_on_function_error: nil, bisect_batch: nil,
                      name: nil, bus: nil, event_bus: nil, event_bus_name: nil,
                      pattern: nil, event_pattern: nil, state: nil, description: nil,
                      input: nil, target: nil, target_function: nil,
@@ -25,6 +26,12 @@ module Veltrunode
         @suffix = suffix
         @stream = stream || stream_arn || arn
         @starting_position = starting_position
+        @parallelization_factor = parallelization_factor
+        @bisect_batch_on_function_error = if bisect_batch_on_function_error.nil?
+                                            bisect_batch
+                                          else
+                                            bisect_batch_on_function_error
+                                          end
         @name = name
         @bus = bus || event_bus || event_bus_name
         @pattern = pattern || event_pattern
@@ -81,10 +88,20 @@ module Veltrunode
       end
       alias stream_arn stream
       alias dynamodb_stream stream
+      alias kinesis_stream stream
 
       def starting_position(pos)
         @starting_position = pos
       end
+
+      def parallelization_factor(factor)
+        @parallelization_factor = factor
+      end
+
+      def bisect_batch_on_function_error(flag = true) # rubocop:disable Style/OptionalBooleanParameter
+        @bisect_batch_on_function_error = flag
+      end
+      alias bisect_batch bisect_batch_on_function_error
 
       def name(n)
         @name = n
@@ -174,6 +191,8 @@ module Veltrunode
           suffix: @suffix,
           stream: @stream,
           starting_position: @starting_position,
+          parallelization_factor: @parallelization_factor,
+          bisect_batch_on_function_error: @bisect_batch_on_function_error,
           name: @name,
           bus: @bus,
           pattern: @pattern,
