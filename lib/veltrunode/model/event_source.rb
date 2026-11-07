@@ -2,9 +2,9 @@
 
 module Veltrunode
   module Model
-    # Lambda 関数のイベントソース（SQS / DynamoDB Streams / SNS / S3 / EventBridge Rule）を表す値オブジェクト
+    # Lambda 関数のイベントソース（SQS / DynamoDB Streams / Kinesis Data Streams / SNS / S3 / EventBridge Rule）を表す値オブジェクト
     class EventSource
-      SUPPORTED_TYPES = %i[sqs sns s3 dynamodb_stream rule].freeze
+      SUPPORTED_TYPES = %i[sqs sns s3 dynamodb_stream kinesis_stream rule].freeze
       VALID_FILTER_POLICY_SCOPES = %w[MessageAttributes MessageBody].freeze
       DEFAULT_S3_EVENTS = ['s3:ObjectCreated:*'].freeze
       VALID_S3_FILTER_KEYS = %w[prefix suffix].freeze
@@ -14,10 +14,11 @@ module Veltrunode
 
       attr_reader :type, :queue, :batch_size, :maximum_batching_window_in_seconds, :report_batch_item_failures,
                   :topic, :filter_policy, :filter_policy_scope, :bucket, :events, :filter,
-                  :stream, :starting_position,
+                  :stream, :starting_position, :parallelization_factor, :bisect_batch_on_function_error,
                   :name, :bus, :pattern, :state, :description, :input, :target_function
 
       alias dynamodb_stream stream
+      alias kinesis_stream stream
       alias stream_arn stream
       alias event_bus bus
       alias event_bus_name bus
@@ -74,7 +75,12 @@ module Veltrunode
         stream: nil,
         stream_arn: nil,
         dynamodb_stream: nil,
+        kinesis_stream: nil,
+        kinesis: nil,
         starting_position: nil,
+        parallelization_factor: nil,
+        bisect_batch_on_function_error: nil,
+        bisect_batch: nil,
         rule: nil,
         name: nil,
         bus: nil,
@@ -97,7 +103,10 @@ module Veltrunode
           type: type, queue: queue, sqs: sqs, topic: topic, topic_arn: topic_arn, sns: sns,
           bucket: bucket, s3: s3, events: events, event: event, filter: filter, prefix: prefix, suffix: suffix,
           stream: stream, stream_arn: stream_arn, dynamodb_stream: dynamodb_stream,
+          kinesis_stream: kinesis_stream || kinesis,
           starting_position: starting_position,
+          parallelization_factor: parallelization_factor,
+          bisect_batch_on_function_error: bisect_batch_on_function_error.nil? ? bisect_batch : bisect_batch_on_function_error, # rubocop:disable Layout/LineLength
           rule: rule, name: name, bus: bus, event_bus: event_bus, pattern: pattern, event_pattern: event_pattern,
           state: state, description: description, input: input, target: target, target_function: target_function,
           batch_size: batch_size, maximum_batching_window_in_seconds: maximum_batching_window_in_seconds,
@@ -114,8 +123,8 @@ module Veltrunode
           init_sns_attributes(resolved)
         when :s3
           init_s3_attributes(resolved)
-        when :dynamodb_stream
-          init_dynamodb_stream_attributes(resolved)
+        when :dynamodb_stream, :kinesis_stream
+          init_stream_attributes(resolved)
         when :rule
           init_rule_attributes(resolved)
         end
@@ -142,6 +151,11 @@ module Veltrunode
         @type == :dynamodb_stream
       end
 
+      def kinesis_stream?
+        @type == :kinesis_stream
+      end
+      alias kinesis? kinesis_stream?
+
       def rule?
         @type == :rule
       end
@@ -150,6 +164,10 @@ module Veltrunode
 
       def report_batch_item_failures?
         @report_batch_item_failures
+      end
+
+      def bisect_batch_on_function_error?
+        @bisect_batch_on_function_error == true
       end
 
       def enabled?
@@ -269,7 +287,7 @@ module Veltrunode
         end
 
         s_str = @stream.to_s
-        if s_str =~ %r{:table/([^/]+)}
+        if s_str =~ %r{:(?:table|stream)/([^/]+)}
           Regexp.last_match(1)
         elsif s_str.start_with?('arn:')
           s_str.split(':').last
@@ -315,7 +333,7 @@ module Veltrunode
         when :sqs then queue_identifier
         when :sns then topic_identifier
         when :s3 then bucket_identifier
-        when :dynamodb_stream then stream_identifier
+        when :dynamodb_stream, :kinesis_stream then stream_identifier
         when :rule then rule_identifier
         end
       end
@@ -340,7 +358,7 @@ module Veltrunode
             'filter' => @filter,
             'enabled' => @enabled
           }.compact
-        when :dynamodb_stream
+        when :dynamodb_stream, :kinesis_stream
           stream_val = !@stream.is_a?(Symbol) && @stream.respond_to?(:name) ? @stream.name.to_s : @stream
           {
             'type' => @type.to_s,
@@ -348,6 +366,8 @@ module Veltrunode
             'starting_position' => @starting_position,
             'batch_size' => @batch_size,
             'maximum_batching_window_in_seconds' => @maximum_batching_window_in_seconds,
+            'parallelization_factor' => @parallelization_factor,
+            'bisect_batch_on_function_error' => @bisect_batch_on_function_error,
             'report_batch_item_failures' => @report_batch_item_failures,
             'enabled' => @enabled
           }.compact
@@ -391,6 +411,8 @@ module Veltrunode
         @filter = nil
         @stream = nil
         @starting_position = nil
+        @parallelization_factor = nil
+        @bisect_batch_on_function_error = nil
         @name = nil
         @bus = nil
         @pattern = nil
@@ -405,26 +427,43 @@ module Veltrunode
         sqs_val = opts[:sqs]
         s3_val = opts[:s3]
         ddb_val = opts[:dynamodb_stream]
+        kin_val = opts[:kinesis_stream]
         rule_val = opts[:rule]
         sns_hash = sns_val.is_a?(Hash) && !cfn_intrinsic_hash?(sns_val) ? symbolize_keys(sns_val) : nil
         sqs_hash = sqs_val.is_a?(Hash) && !cfn_intrinsic_hash?(sqs_val) ? symbolize_keys(sqs_val) : nil
         s3_hash = s3_val.is_a?(Hash) && !cfn_intrinsic_hash?(s3_val) ? symbolize_keys(s3_val) : nil
         ddb_hash = ddb_val.is_a?(Hash) && !cfn_intrinsic_hash?(ddb_val) ? symbolize_keys(ddb_val) : nil
+        kin_hash = kin_val.is_a?(Hash) && !cfn_intrinsic_hash?(kin_val) ? symbolize_keys(kin_val) : nil
         rule_hash = rule_val.is_a?(Hash) && !cfn_intrinsic_hash?(rule_val) ? symbolize_keys(rule_val) : nil
+        stream_hash = kin_hash || ddb_hash
 
-        inferred_type = infer_type(opts, sns_val: sns_val, s3_val: s3_val, ddb_val: ddb_val, rule_val: rule_val)
+        inferred_type = infer_type(
+          opts,
+          sns_val: sns_val, s3_val: s3_val, ddb_val: ddb_val, kin_val: kin_val, rule_val: rule_val
+        )
 
         resolved_topic = opts[:topic] || opts[:topic_arn] ||
                          (sns_hash ? (sns_hash[:topic] || sns_hash[:topic_arn]) : sns_val)
         resolved_queue = opts[:queue] || (sqs_hash ? sqs_hash[:queue] : sqs_val)
         resolved_bucket = opts[:bucket] || (s3_hash ? s3_hash[:bucket] : s3_val)
         resolved_stream = opts[:stream] || opts[:stream_arn] ||
-                          (ddb_hash ? (ddb_hash[:stream] || ddb_hash[:stream_arn] || ddb_hash[:arn]) : ddb_val)
+                          (if stream_hash
+                             stream_hash[:stream] || stream_hash[:stream_arn] || stream_hash[:arn]
+                           else
+                             kin_val || ddb_val
+                           end)
         resolved_bus = opts[:bus] || opts[:event_bus] ||
                        (rule_hash && (rule_hash[:bus] || rule_hash[:event_bus] || rule_hash[:event_bus_name]))
         resolved_pattern = opts[:pattern] || opts[:event_pattern] ||
                            (rule_hash && (rule_hash[:pattern] || rule_hash[:event_pattern]))
         resolved_name = opts[:name] || (rule_hash ? rule_hash[:name] : rule_val)
+        resolved_bisect = if !opts[:bisect_batch_on_function_error].nil?
+                            opts[:bisect_batch_on_function_error]
+                          elsif stream_hash && !stream_hash[:bisect_batch_on_function_error].nil?
+                            stream_hash[:bisect_batch_on_function_error]
+                          elsif stream_hash && !stream_hash[:bisect_batch].nil?
+                            stream_hash[:bisect_batch]
+                          end
 
         {
           type: inferred_type,
@@ -434,7 +473,10 @@ module Veltrunode
           events: resolve_s3_events_option(opts, s3_hash),
           filter: resolve_s3_filter_option(opts, s3_hash),
           stream: resolved_stream,
-          starting_position: opts[:starting_position] || (ddb_hash && ddb_hash[:starting_position]),
+          starting_position: opts[:starting_position] || (stream_hash && stream_hash[:starting_position]),
+          parallelization_factor: opts[:parallelization_factor] ||
+            (stream_hash && stream_hash[:parallelization_factor]),
+          bisect_batch_on_function_error: resolved_bisect,
           name: resolved_name,
           bus: resolved_bus,
           pattern: resolved_pattern,
@@ -443,25 +485,27 @@ module Veltrunode
           input: opts[:input] || (rule_hash && rule_hash[:input]),
           target_function: opts[:target] || opts[:target_function] ||
             (rule_hash && (rule_hash[:target] || rule_hash[:target_function])),
-          batch_size: opts[:batch_size] || (sqs_hash && sqs_hash[:batch_size]) || (ddb_hash && ddb_hash[:batch_size]),
+          batch_size: opts[:batch_size] || (sqs_hash && sqs_hash[:batch_size]) ||
+            (stream_hash && stream_hash[:batch_size]),
           maximum_batching_window_in_seconds: opts[:maximum_batching_window_in_seconds] ||
             (sqs_hash && (sqs_hash[:maximum_batching_window_in_seconds] || sqs_hash[:batch_window])) ||
-            (ddb_hash && (ddb_hash[:maximum_batching_window_in_seconds] || ddb_hash[:batch_window])),
+            (stream_hash && (stream_hash[:maximum_batching_window_in_seconds] || stream_hash[:batch_window])),
           report_batch_item_failures: opts[:report_batch_item_failures] ||
             (sqs_hash && sqs_hash[:report_batch_item_failures]) ||
-            (ddb_hash && ddb_hash[:report_batch_item_failures]) || false,
+            (stream_hash && stream_hash[:report_batch_item_failures]) || false,
           filter_policy: opts[:filter_policy] || (sns_hash && sns_hash[:filter_policy]),
           filter_policy_scope: opts[:filter_policy_scope] || (sns_hash && sns_hash[:filter_policy_scope]),
-          enabled: resolve_enabled_option(opts[:enabled], sns_hash, sqs_hash, s3_hash, ddb_hash, rule_hash)
+          enabled: resolve_enabled_option(opts[:enabled], sns_hash, sqs_hash, s3_hash, ddb_hash, kin_hash, rule_hash)
         }
       end
 
-      def infer_type(opts, sns_val:, s3_val:, ddb_val: nil, rule_val: nil)
+      def infer_type(opts, sns_val:, s3_val:, ddb_val: nil, kin_val: nil, rule_val: nil)
         return opts[:type] if opts[:type]
         if !rule_val.nil? || !opts[:pattern].nil? || !opts[:event_pattern].nil? ||
            !opts[:bus].nil? || !opts[:event_bus].nil?
           return :rule
         end
+        return :kinesis_stream unless kin_val.nil?
         return :dynamodb_stream if !ddb_val.nil? || !opts[:stream].nil? || !opts[:stream_arn].nil?
         return :s3 if !s3_val.nil? || !opts[:bucket].nil?
         return :sns if !sns_val.nil? || !opts[:topic].nil? || !opts[:topic_arn].nil?
@@ -528,11 +572,13 @@ module Veltrunode
         @filter = normalize_s3_filter(resolved[:filter])
       end
 
-      def init_dynamodb_stream_attributes(resolved)
+      def init_stream_attributes(resolved)
         @stream = normalize_stream(resolved[:stream])
         @starting_position = normalize_starting_position(resolved[:starting_position])
         @batch_size = normalize_batch_size(resolved[:batch_size])
         @maximum_batching_window_in_seconds = normalize_batching_window(resolved[:maximum_batching_window_in_seconds])
+        @parallelization_factor = normalize_parallelization_factor(resolved[:parallelization_factor])
+        @bisect_batch_on_function_error = normalize_boolean(resolved[:bisect_batch_on_function_error])
         @report_batch_item_failures = resolved[:report_batch_item_failures] ? true : false
       end
 
@@ -557,6 +603,7 @@ module Veltrunode
       def normalize_type(type_val)
         sym = type_val.to_s.downcase.to_sym
         sym = :dynamodb_stream if %i[dynamodb_streams dynamodb].include?(sym)
+        sym = :kinesis_stream if %i[kinesis kinesis_streams kinesis_data_stream kinesis_data_streams].include?(sym)
         sym = :rule if %i[eventbridge event_bridge events event_rule].include?(sym)
         unless SUPPORTED_TYPES.include?(sym)
           raise ArgumentError,
@@ -676,7 +723,8 @@ module Veltrunode
         if stream_val.nil? ||
            (stream_val.is_a?(Hash) && stream_val.empty?) ||
            (!stream_val.is_a?(Hash) && stream_val.to_s.strip.empty?)
-          raise ArgumentError, 'Stream must be specified for DynamoDB Stream event source.'
+          stream_label = @type == :kinesis_stream ? 'Kinesis' : 'DynamoDB'
+          raise ArgumentError, "Stream must be specified for #{stream_label} Stream event source."
         end
 
         if stream_val.is_a?(Symbol) || stream_val.respond_to?(:name)
@@ -776,6 +824,23 @@ module Veltrunode
         end
 
         int_val
+      end
+
+      def normalize_parallelization_factor(factor)
+        return nil if factor.nil?
+
+        int_val = factor.to_i
+        unless (1..10).cover?(int_val)
+          raise ArgumentError, "Parallelization factor must be between 1 and 10, got #{factor}."
+        end
+
+        int_val
+      end
+
+      def normalize_boolean(val)
+        return nil if val.nil?
+
+        val ? true : false
       end
     end
   end

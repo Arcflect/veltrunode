@@ -61,6 +61,13 @@ module Veltrunode
           if event_source.maximum_batching_window_in_seconds
             props['MaximumBatchingWindowInSeconds'] = event_source.maximum_batching_window_in_seconds.to_i
           end
+          if event_source.respond_to?(:parallelization_factor) && event_source.parallelization_factor
+            props['ParallelizationFactor'] = event_source.parallelization_factor.to_i
+          end
+          if event_source.respond_to?(:bisect_batch_on_function_error) &&
+             !event_source.bisect_batch_on_function_error.nil?
+            props['BisectBatchOnFunctionError'] = event_source.bisect_batch_on_function_error
+          end
 
           props['FunctionResponseTypes'] = ['ReportBatchItemFailures'] if event_source.report_batch_item_failures?
 
@@ -99,7 +106,8 @@ module Veltrunode
         end
 
         def resolve_event_source_arn
-          if event_source.respond_to?(:dynamodb_stream?) && event_source.dynamodb_stream?
+          if (event_source.respond_to?(:dynamodb_stream?) && event_source.dynamodb_stream?) ||
+             (event_source.respond_to?(:kinesis_stream?) && event_source.kinesis_stream?)
             resolve_stream_arn(event_source.stream)
           else
             resolve_queue_arn(event_source.queue)

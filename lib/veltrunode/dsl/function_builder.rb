@@ -281,6 +281,12 @@ module Veltrunode
         elsif opts.key?(:dynamodb_stream)
           @event_sources << build_keyed_event_source(:dynamodb_stream, opts.delete(:dynamodb_stream), opts, :stream, &)
           return
+        elsif opts.key?(:kinesis_stream)
+          @event_sources << build_keyed_event_source(:kinesis_stream, opts.delete(:kinesis_stream), opts, :stream, &)
+          return
+        elsif opts.key?(:kinesis)
+          @event_sources << build_keyed_event_source(:kinesis_stream, opts.delete(:kinesis), opts, :stream, &)
+          return
         elsif opts.key?(:rule)
           @event_sources << build_keyed_event_source(:rule, opts.delete(:rule), opts, :name, &)
           return
@@ -319,6 +325,15 @@ module Veltrunode
         @event_sources << builder.build
       end
       alias rules rule
+
+      def kinesis_stream(stream_or_opts = nil, **, &)
+        if stream_or_opts == false
+          @event_sources.reject!(&:kinesis_stream?)
+          return
+        end
+
+        event_source(:kinesis_stream, kinesis_stream: stream_or_opts, **, &)
+      end
 
       def build
         apply_alarms_default(@alarms_default) if !@alarms_disabled && @alarms_builder.nil? && @alarms_default

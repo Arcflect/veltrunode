@@ -165,6 +165,12 @@ module Veltrunode
             statements.concat(ddb_statements)
           end
 
+          # Kinesis Data Streams イベントソースマッピング (EventSourceMapping) 権限を自動付与
+          if target.respond_to?(:event_sources) && target.event_sources&.any?(&:kinesis_stream?)
+            kinesis_statements = build_kinesis_stream_event_source_statements(target.event_sources)
+            statements.concat(kinesis_statements)
+          end
+
           policy = {
             'PolicyName' => "#{logical_id}Policy",
             'PolicyDocument' => {
@@ -327,6 +333,27 @@ module Veltrunode
                 'dynamodb:GetShardIterator',
                 'dynamodb:DescribeStream',
                 'dynamodb:ListStreams'
+              ],
+              'Resource' => stream_arns
+            }
+          ]
+        end
+
+        def build_kinesis_stream_event_source_statements(event_sources)
+          kin_sources = event_sources.select(&:kinesis_stream?)
+          stream_arns = kin_sources.map { |src| resolve_dynamodb_stream_arn(src.stream) }.compact.uniq
+          return [] if stream_arns.empty?
+
+          [
+            {
+              'Effect' => 'Allow',
+              'Action' => [
+                'kinesis:GetRecords',
+                'kinesis:GetShardIterator',
+                'kinesis:DescribeStream',
+                'kinesis:DescribeStreamSummary',
+                'kinesis:ListShards',
+                'kinesis:ListStreams'
               ],
               'Resource' => stream_arns
             }

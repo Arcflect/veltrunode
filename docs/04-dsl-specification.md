@@ -372,6 +372,52 @@ end
 - **`enabled`**: イベントソースマッピングの有効/無効フラグ（デフォルト: `true`）。
 - **自動 IAM 権限付与**: `dynamodb_stream` が定義された関数には、ストリーム読み取りに必要な IAM 権限（`dynamodb:GetRecords`, `dynamodb:GetShardIterator`, `dynamodb:DescribeStream`, `dynamodb:ListStreams`）が Lambda 実行ロールに自動付与されます。
 
+## Kinesis Data Streams イベントソースマッピング (Kinesis Data Streams Event Source Mapping)
+
+リアルタイムストリーミングデータの高速バッチ処理を行う Lambda パイプラインを構築する場合、`event_source kinesis_stream: ...`（または `kinesis_stream: { ... }`）で Kinesis Data Streams の ARN（または `ref(:stream_arn)`）、バッチサイズ、並列化係数（`parallelization_factor`）、エラー時バッチ二分割（`bisect_batch_on_function_error`）を指定することで、`AWS::Lambda::EventSourceMapping` および Kinesis 読み取り IAM ポリシーを自動構成できます。
+
+```ruby
+Veltrunode.application "kinesis-stream-app" do
+  # 1. ハッシュ形式・トップレベル kinesis_stream メソッドでの指定
+  function :clickstream_processor do
+    handler "processor.handler"
+    runtime "ruby3.3"
+    kinesis_stream stream: "arn:aws:kinesis:ap-northeast-1:123456789012:stream/clickstream-events",
+                   starting_position: :trim_horizon,
+                   batch_size: 500,
+                   parallelization_factor: 5,
+                   bisect_batch_on_function_error: true,
+                   maximum_batching_window_in_seconds: 10,
+                   report_batch_item_failures: true
+  end
+
+  # 2. パラメータ参照とブロック構文での指定
+  function :metrics_ingestor do
+    handler "ingestor.handler"
+    runtime "ruby3.3"
+    event_source :kinesis_stream do
+      stream ref(:metrics_stream_arn)
+      starting_position :latest
+      batch_size 200
+      parallelization_factor 4
+      bisect_batch_on_function_error true
+    end
+  end
+end
+```
+
+### パラメータ仕様
+
+- **`stream` / `stream_arn` / `kinesis_stream`**: 対象の Kinesis Data Streams ARN（`arn:aws:kinesis:...:stream/<StreamName>`）または `ref(:stream_arn)` / シンボル（CloudFormation パラメータ参照）。
+- **`starting_position`**: ストリームの読み取り開始位置。`:latest`（`'LATEST'`: 最新レコードから読み取り、省略時のデフォルト）または `:trim_horizon`（`'TRIM_HORIZON'`: シャード内の最古のレコードから読み取り）を指定します。
+- **`batch_size`**: 1 回の呼び出しで関数に渡される最大レコード数（1〜10,000）。
+- **`parallelization_factor`**: 1 シャードあたり同時並行で処理するバッチ数（並列化係数 `ParallelizationFactor`、1〜10 の整数）。
+- **`bisect_batch_on_function_error`**: 関数がエラーを返した際にバッチを 2 分割してリトライするかどうか（`BisectBatchOnFunctionError`、`true` / `false`）。
+- **`maximum_batching_window_in_seconds` / `batch_window`**: レコードをバッチに蓄積するために待機する最大秒数（0〜300秒）。
+- **`report_batch_item_failures`**: 部分バッチ応答を有効化（`true` の場合、`FunctionResponseTypes: ['ReportBatchItemFailures']` を設定）。
+- **`enabled`**: イベントソースマッピングの有効/無効フラグ（デフォルト: `true`）。
+- **自動 IAM 権限付与**: `kinesis_stream` が定義された関数には、Kinesis Data Streams の読み取りに必要な IAM 権限（`kinesis:GetRecords`, `kinesis:GetShardIterator`, `kinesis:DescribeStream`, `kinesis:DescribeStreamSummary`, `kinesis:ListShards`, `kinesis:ListStreams`）が Lambda 実行ロールに自動付与されます。
+
 ## EventBridge カスタムイベントバストリガーとルールパターン (EventBridge Rule & Custom Event Bus)
 
 定期実行の Scheduler だけでなく、カスタムイベントバス（またはデフォルトイベントバス）に送信されるドメインイベントを受信して起動する関数を構築する場合、`rule: { bus: ..., pattern: { source: [...], 'detail-type': [...] } }` で EventBridge ルールとイベントパターン（JSON マッチング）を記述し、`AWS::Events::Rule` および `AWS::Lambda::Permission` を自動生成できます。
