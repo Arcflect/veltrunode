@@ -261,6 +261,40 @@ RSpec.describe Veltrunode::Compiler::CloudFormation::RoleCompiler do
         { 'Ref' => 'UsersStreamArn' }
       )
     end
+
+    it 'grants Kinesis Data Streams read permissions when kinesis_stream event_sources are configured' do
+      stream_arn = 'arn:aws:kinesis:ap-northeast-1:123456789012:stream/clickstream-events'
+      kin_function = Veltrunode::Model::Function.new(
+        logical_name: 'kinesis_worker',
+        handler: 'worker.handler',
+        runtime: 'ruby3.3',
+        event_sources: [
+          { kinesis_stream: stream_arn, starting_position: :latest },
+          { kinesis_stream: Veltrunode::DSL::Reference.new(:telemetry_stream_arn), starting_position: :trim_horizon }
+        ]
+      )
+
+      result = described_class.compile_lambda_role(kin_function)
+      policy_stmts = result['KinesisWorkerFunctionRole']['Properties']['Policies'].first['PolicyDocument']['Statement']
+
+      kin_stmt = policy_stmts.find do |s|
+        s['Action'] == %w[
+          kinesis:GetRecords
+          kinesis:GetShardIterator
+          kinesis:DescribeStream
+          kinesis:DescribeStreamSummary
+          kinesis:ListShards
+          kinesis:ListStreams
+        ]
+      end
+
+      expect(kin_stmt).not_to be_nil
+      expect(kin_stmt['Effect']).to eq('Allow')
+      expect(kin_stmt['Resource']).to contain_exactly(
+        stream_arn,
+        { 'Ref' => 'TelemetryStreamArn' }
+      )
+    end
   end
 
   describe '#to_h and properties for Scheduler Invocation Role' do

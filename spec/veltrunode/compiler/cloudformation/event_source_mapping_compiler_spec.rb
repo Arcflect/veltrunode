@@ -125,6 +125,38 @@ RSpec.describe Veltrunode::Compiler::CloudFormation::EventSourceMappingCompiler 
         }
       )
     end
+
+    it 'compiles Kinesis Data Stream event source mapping with ParallelizationFactor and BisectBatchOnFunctionError' do
+      stream_arn = 'arn:aws:kinesis:ap-northeast-1:123456789012:stream/clickstream-events'
+      source = Veltrunode::Model::EventSource.new(
+        kinesis_stream: stream_arn,
+        starting_position: :latest,
+        batch_size: 500,
+        maximum_batching_window_in_seconds: 10,
+        parallelization_factor: 5,
+        bisect_batch_on_function_error: true,
+        report_batch_item_failures: true
+      )
+
+      res = described_class.compile(function, source)
+
+      expect(res).to eq(
+        'WorkerFunctionClickstreamEventsEventSourceMapping' => {
+          'Type' => 'AWS::Lambda::EventSourceMapping',
+          'Properties' => {
+            'BatchSize' => 500,
+            'BisectBatchOnFunctionError' => true,
+            'Enabled' => true,
+            'EventSourceArn' => stream_arn,
+            'FunctionName' => { 'Fn::GetAtt' => %w[WorkerFunction Arn] },
+            'FunctionResponseTypes' => ['ReportBatchItemFailures'],
+            'MaximumBatchingWindowInSeconds' => 10,
+            'ParallelizationFactor' => 5,
+            'StartingPosition' => 'LATEST'
+          }
+        }
+      )
+    end
   end
 
   describe '.to_yaml' do

@@ -175,6 +175,14 @@ module Veltrunode
                       'Type' => 'String'
                     }
                   end
+                elsif source.respond_to?(:kinesis_stream?) && source.kinesis_stream?
+                  param_key = resolve_sns_topic_param_key(source.stream)
+                  if param_key && !params.key?(param_key)
+                    params[param_key] = {
+                      'Description' => "Kinesis stream ARN for #{param_key}",
+                      'Type' => 'String'
+                    }
+                  end
                 elsif source.respond_to?(:rule?) && source.rule?
                   param_key = resolve_s3_bucket_param_key(source.bus)
                   if param_key && !params.key?(param_key)

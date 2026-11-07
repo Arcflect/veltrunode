@@ -1527,5 +1527,85 @@ RSpec.describe Veltrunode::Compiler::CloudFormation::TemplateCompiler do
         'Value' => { 'Fn::GetAtt' => %w[InternalRpcFunctionUrl FunctionUrl] }
       )
     end
+
+    it 'compiles AWS::Lambda::EventSourceMapping and Kinesis IAM permissions for kinesis_stream event sources' do
+      clickstream_arn = 'arn:aws:kinesis:ap-northeast-1:123456789012:stream/clickstream-events'
+      code = <<~RUBY
+        Veltrunode.application "kinesis-pipeline-app" do
+          aws region: "ap-northeast-1"
+
+          function :stream_ingestor do
+            handler "ingestor.handler"
+            runtime "ruby3.3"
+            event_source kinesis_stream: "#{clickstream_arn}",
+                         starting_position: :latest,
+                         batch_size: 500,
+                         maximum_batching_window_in_seconds: 10,
+                         parallelization_factor: 4,
+                         bisect_batch_on_function_error: true,
+                         report_batch_item_failures: true
+            event_source kinesis_stream: ref(:telemetry_stream_arn),
+                         starting_position: :trim_horizon,
+                         parallelization_factor: 2
+          end
+        end
+      RUBY
+
+      app = Veltrunode.parse(code)
+      yaml_output = described_class.to_yaml(app)
+      parsed = YAML.safe_load(yaml_output)
+
+      params = parsed['Parameters']
+      resources = parsed['Resources']
+
+      # 1. ref(:telemetry_stream_arn) の Parameters 自動登録
+      expect(params['TelemetryStreamArn']).to eq(
+        'Description' => 'Kinesis stream ARN for TelemetryStreamArn',
+        'Type' => 'String'
+      )
+
+      # 2. AWS::Lambda::EventSourceMapping (ParallelizationFactor + BisectBatchOnFunctionError)
+      esm1 = resources['StreamIngestorFunctionClickstreamEventsEventSourceMapping']
+      expect(esm1).not_to be_nil
+      expect(esm1['Type']).to eq('AWS::Lambda::EventSourceMapping')
+      expect(esm1['Properties']).to eq(
+        'BatchSize' => 500,
+        'BisectBatchOnFunctionError' => true,
+        'Enabled' => true,
+        'EventSourceArn' => clickstream_arn,
+        'FunctionName' => { 'Fn::GetAtt' => %w[StreamIngestorFunction Arn] },
+        'FunctionResponseTypes' => ['ReportBatchItemFailures'],
+        'MaximumBatchingWindowInSeconds' => 10,
+        'ParallelizationFactor' => 4,
+        'StartingPosition' => 'LATEST'
+      )
+
+      esm2 = resources['StreamIngestorFunctionTelemetryStreamArnEventSourceMapping']
+      expect(esm2).not_to be_nil
+      expect(esm2['Properties']).to eq(
+        'Enabled' => true,
+        'EventSourceArn' => { 'Ref' => 'TelemetryStreamArn' },
+        'FunctionName' => { 'Fn::GetAtt' => %w[StreamIngestorFunction Arn] },
+        'ParallelizationFactor' => 2,
+        'StartingPosition' => 'TRIM_HORIZON'
+      )
+
+      # 3. Kinesis 読み取り IAM ポリシーの検証
+      role = resources['StreamIngestorFunctionRole']
+      stmts = role['Properties']['Policies'].first['PolicyDocument']['Statement']
+      kin_stmt = stmts.find do |s|
+        s['Action'] == %w[
+          kinesis:GetRecords
+          kinesis:GetShardIterator
+          kinesis:DescribeStream
+          kinesis:DescribeStreamSummary
+          kinesis:ListShards
+          kinesis:ListStreams
+        ]
+      end
+      expect(kin_stmt).not_to be_nil
+      expect(kin_stmt['Effect']).to eq('Allow')
+      expect(kin_stmt['Resource']).to eq([clickstream_arn, { 'Ref' => 'TelemetryStreamArn' }])
+    end
   end
 end
