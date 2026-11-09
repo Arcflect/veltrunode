@@ -262,6 +262,33 @@ Lambda 関数で `event_source kinesis_stream: ...`（または `kinesis_stream:
 - **ストリーム ARN のパラメータ化**:
   ストリームに `ref(:kinesis_stream_arn)` やシンボルが指定された場合、CloudFormation テンプレートの `Parameters`（例: `KinesisStreamArn: { Type: String, Description: "Kinesis stream ARN for KinesisStreamArn" }`）に自動登録されます。
 
+## Amazon MSK / Amazon MQ イベントソースマッピングと VPC・認証連携のコンパイル (MSK & MQ Event Source Mapping Compilation)
+
+Lambda 関数で `event_source msk: ...`（または `kafka:`）および `event_source mq: ...`（または `amazon_mq:` / `activemq:` / `rabbitmq:`）を設定した場合、`Veltrunode::Compiler::CloudFormation::EventSourceMappingCompiler` および `RoleCompiler` により `AWS::Lambda::EventSourceMapping` リソース、Secrets Manager 認証連携、および VPC 内ブローカー接続に必要な IAM 権限が自動構成されます。
+
+- **論理ID**: `#{FunctionName}#{BrokerOrClusterIdentifier}EventSourceMapping`（例: MSK クラスタ `orders-cluster` 指定時は `MskOrderConsumerFunctionOrdersClusterEventSourceMapping`、MQ ブローカー `orders-mq` 指定時は `MqConsumerFunctionOrdersMqEventSourceMapping`）。
+- **`AWS::Lambda::EventSourceMapping` プロパティ (`Properties`)**:
+  - `EventSourceArn`: 対象 MSK クラスタ ARN または Amazon MQ ブローカー ARN（`ref(:param)` 指定時は `{ 'Ref' => ParamKey }`）。
+  - `FunctionName`: `{ 'Fn::GetAtt' => [FunctionLogicalId, 'Arn'] }`。
+  - `Topics`（MSK 指定時）: 購読対象の Kafka トピック名配列（例: `['orders.created', 'orders.paid']`）。
+  - `Queues`（MQ 指定時）: 購読対象の ActiveMQ / RabbitMQ キュー（またはトピック）名配列（例: `['orders.fulfillment']`）。
+  - `StartingPosition`: MSK では `'LATEST'`（デフォルト）または `'TRIM_HORIZON'`。MQ でも明示指定時に設定されます。
+  - `AmazonManagedKafkaEventSourceConfig`: MSK で `consumer_group_id` 指定時に `{ 'ConsumerGroupId' => consumer_group_id }` を設定。
+  - `SourceAccessConfigurations`:
+    - **Secrets Manager 認証 (`secret`)**:
+      - MSK のデフォルト `Type`: `'SASL_SCRAM_512_AUTH'`（`auth_type` で `'SASL_SCRAM_256_AUTH'`, `'CLIENT_CERTIFICATE_TLS_AUTH'`, `'BASIC_AUTH'` 等に変更可能）
+      - MQ のデフォルト `Type`: `'BASIC_AUTH'`
+      - `URI`: シークレット ARN または `{ 'Ref' => SecretParamKey }`
+    - **RabbitMQ 仮想ホスト (`virtual_host`)**: `{ 'Type' => 'VIRTUAL_HOST', 'URI' => virtual_host }`
+    - **VPC サブネット / セキュリティグループ (`subnet_ids` / `security_group_ids`)**: イベントソースに直接指定された場合、`VPC_SUBNET`（`subnet:<id>`）および `VPC_SECURITY_GROUP`（`security_group:<id>`）エントリを展開します。
+- **ブローカー・Secrets Manager・VPC IAM 権限の自動付与**:
+  - **MSK 権限**: `kafka:DescribeCluster`, `kafka:DescribeClusterV2`, `kafka:GetBootstrapBrokers`, `kafka-cluster:Connect`, `kafka-cluster:DescribeCluster`, `kafka-cluster:DescribeTopic`, `kafka-cluster:ReadData`, `kafka-cluster:DescribeGroup`, `kafka-cluster:AlterGroup`（対象クラスタ ARN にスコープ限定）
+  - **MQ 権限**: `mq:DescribeBroker`（対象ブローカー ARN にスコープ限定）
+  - **Secrets Manager 権限**: `secretsmanager:GetSecretValue`（指定された認証シークレット ARN にスコープ限定）
+  - **VPC ネットワークインターフェース (ENI) 権限**: `ec2:CreateNetworkInterface`, `ec2:DescribeNetworkInterfaces`, `ec2:DescribeVpcs`, `ec2:DeleteNetworkInterface`, `ec2:DescribeSubnets`, `ec2:DescribeSecurityGroups`
+- **CloudFormation `Parameters` の自動登録**:
+  `cluster`、`broker`、および `secret` に `ref(:param)` やシンボルが指定された場合、それぞれテンプレートの `Parameters` に自動登録されます。
+
 ## EventBridge ルールとカスタムイベントバストリガーのコンパイル (EventBridge Rule Compilation)
 
 Lambda 関数で `rule: { bus: ..., pattern: { ... }, state: ... }`（または `event_source rule:`）を設定した場合、`Veltrunode::Compiler::CloudFormation::EventRuleCompiler` により `AWS::Events::Rule` および `AWS::Lambda::Permission` リソースが自動構成されます。

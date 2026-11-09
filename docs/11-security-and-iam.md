@@ -106,6 +106,20 @@ Lambda Function URL（`function_url`）を構成する際、認証種別（`auth
 - **`AuthType: AWS_IAM`（`auth_type: :aws_iam`）**:
   - IAM 認証を必須とする内部マイクロサービス向けに、`AWS::Lambda::Url` の `AuthType` を `'AWS_IAM'` に設定し、パブリックアクセスを許可する `AWS::Lambda::Permission` は一切生成しません。呼び出し元には SigV4 署名と適切な `lambda:InvokeFunctionUrl` IAM 権限が必要となります。
 
+## Amazon MSK / Amazon MQ ブローカー連携の VPC・セキュリティグループおよび IAM 権限検証 (Broker VPC, Security Group & IAM Validation)
+
+エンタープライズのメッセージブローカー（Amazon MSK / Kafka、Amazon MQ / ActiveMQ / RabbitMQ）をイベントソースとする場合、認証シークレット（Secrets Manager）および VPC 内ブローカー接続のセキュリティ要件をコンパイル時およびバリデーション時（`Veltrunode::Validation::Engine` / `Function#validate_invariants`）に検証します。
+
+1. **Secrets Manager 認証シークレットの検証 (`VLT-IAM-003`)**:
+   - Amazon MQ（`:mq`）ではブローカー認証が必須であるため、`secret`（または `SourceAccessConfigurations` 内の認証設定）が未指定の場合はエラー Diagnostic `VLT-IAM-003` を出力します。
+   - `secret` にリテラル ARN が指定された場合、有効な Secrets Manager ARN（`arn:aws:secretsmanager:...`）であるかを検証し、不正な ARN の場合は `VLT-IAM-003` を出力します。
+   - 付与される `secretsmanager:GetSecretValue` 権限は、指定されたシークレット ARN（またはパラメータ参照）のみに最小特権でスコープされます。
+2. **VPC 内ブローカー接続用サブネット・セキュリティグループの整合性検証 (`VLT-DSL-VPC-001` / `VLT-REF-001`)**:
+   - ブローカーイベントソースを持つ関数に `vpc_reference` が設定されている場合、またはイベントソース自体にネットワーク設定が指定されている場合、`subnet_ids` と `security_group_ids` の双方が揃っているかを検証します。片方のみの設定など不完全な VPC 構成はエラー Diagnostic `VLT-DSL-VPC-001` として検出されます。
+   - シンボルで参照されたセキュリティグループヘルパーがアプリケーション内に定義されていない場合は、`VLT-REF-001` エラーを出力します。
+3. **VPC ENI 管理権限とクラスタ/ブローカー読み取り権限の自動構成**:
+   - Lambda が VPC 内の MSK クラスタまたは MQ ブローカーへポーリング接続するために必要な EC2 ネットワークインターフェース操作権限（`ec2:CreateNetworkInterface`, `ec2:DescribeNetworkInterfaces`, `ec2:DescribeVpcs`, `ec2:DeleteNetworkInterface`, `ec2:DescribeSubnets`, `ec2:DescribeSecurityGroups`）および最小限のブローカー読み取り権限（`kafka-cluster:ReadData` 等 / `mq:DescribeBroker`）を自動付与します。ワイルドカードアクション（`kafka:*` や `ec2:*`）は一切使用しないため、本番ポリシーパックの `deny_wildcard_actions` にも完全準拠します。
+
 ## 認証情報 (Credentials)
 
 Veltrunode は、標準の AWS SDK 資格情報チェーン（Credential Chain）を使用します。ツール自体が認証情報を収集したり、プロキシしたりすることはありません。リソースの変更操作（`deploy` 等）を行う前に、呼び出し元の AWS アカウントおよびリージョンが正しいかを事前検証（`AccountRegionGuard`）します。
