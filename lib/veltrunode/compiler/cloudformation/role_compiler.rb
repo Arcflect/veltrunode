@@ -171,6 +171,24 @@ module Veltrunode
             statements.concat(kinesis_statements)
           end
 
+          # Amazon MSK イベントソースマッピング (EventSourceMapping) 権限を自動付与
+          if target.respond_to?(:event_sources) &&
+             target.event_sources&.any? { |s| s.respond_to?(:msk?) && s.msk? }
+            statements.concat(build_msk_event_source_statements(target.event_sources))
+          end
+
+          # Amazon MQ イベントソースマッピング (EventSourceMapping) 権限を自動付与
+          if target.respond_to?(:event_sources) &&
+             target.event_sources&.any? { |s| s.respond_to?(:mq?) && s.mq? }
+            statements.concat(build_mq_event_source_statements(target.event_sources))
+          end
+
+          # MSK / MQ ブローカー用の Secrets Manager 認証および VPC ネットワーク権限を自動付与
+          if target.respond_to?(:event_sources) &&
+             target.event_sources&.any? { |s| s.respond_to?(:broker?) && s.broker? }
+            statements.concat(build_broker_vpc_and_secret_statements(target.event_sources))
+          end
+
           policy = {
             'PolicyName' => "#{logical_id}Policy",
             'PolicyDocument' => {
@@ -358,6 +376,81 @@ module Veltrunode
               'Resource' => stream_arns
             }
           ]
+        end
+
+        def build_msk_event_source_statements(event_sources)
+          msk_sources = event_sources.select { |s| s.respond_to?(:msk?) && s.msk? }
+          cluster_arns = msk_sources.map { |src| resolve_dynamodb_stream_arn(src.cluster) }.compact.uniq
+          return [] if cluster_arns.empty?
+
+          [
+            {
+              'Effect' => 'Allow',
+              'Action' => [
+                'kafka:DescribeCluster',
+                'kafka:DescribeClusterV2',
+                'kafka:GetBootstrapBrokers',
+                'kafka-cluster:Connect',
+                'kafka-cluster:DescribeCluster',
+                'kafka-cluster:DescribeTopic',
+                'kafka-cluster:ReadData',
+                'kafka-cluster:DescribeGroup',
+                'kafka-cluster:AlterGroup'
+              ],
+              'Resource' => cluster_arns
+            }
+          ]
+        end
+
+        def build_mq_event_source_statements(event_sources)
+          mq_sources = event_sources.select { |s| s.respond_to?(:mq?) && s.mq? }
+          broker_arns = mq_sources.map { |src| resolve_dynamodb_stream_arn(src.broker) }.compact.uniq
+          return [] if broker_arns.empty?
+
+          [
+            {
+              'Effect' => 'Allow',
+              'Action' => [
+                'mq:DescribeBroker'
+              ],
+              'Resource' => broker_arns
+            }
+          ]
+        end
+
+        def build_broker_vpc_and_secret_statements(event_sources)
+          broker_sources = event_sources.select { |s| s.respond_to?(:broker?) && s.broker? }
+          return [] if broker_sources.empty?
+
+          stmts = []
+          secret_arns = broker_sources.filter_map do |src|
+            resolve_dynamodb_stream_arn(src.secret) if src.respond_to?(:secret) && src.secret
+          end.uniq
+
+          unless secret_arns.empty?
+            stmts << {
+              'Effect' => 'Allow',
+              'Action' => [
+                'secretsmanager:GetSecretValue'
+              ],
+              'Resource' => secret_arns
+            }
+          end
+
+          stmts << {
+            'Effect' => 'Allow',
+            'Action' => [
+              'ec2:CreateNetworkInterface',
+              'ec2:DescribeNetworkInterfaces',
+              'ec2:DescribeVpcs',
+              'ec2:DeleteNetworkInterface',
+              'ec2:DescribeSubnets',
+              'ec2:DescribeSecurityGroups'
+            ],
+            'Resource' => ['*']
+          }
+
+          stmts
         end
 
         def resolve_dynamodb_stream_arn(stream)

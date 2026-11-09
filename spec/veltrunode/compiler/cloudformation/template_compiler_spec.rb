@@ -1607,5 +1607,106 @@ RSpec.describe Veltrunode::Compiler::CloudFormation::TemplateCompiler do
       expect(kin_stmt['Effect']).to eq('Allow')
       expect(kin_stmt['Resource']).to eq([clickstream_arn, { 'Ref' => 'TelemetryStreamArn' }])
     end
+
+    it 'compiles MSK and MQ EventSourceMappings, Secrets Manager parameters, VPC config, and IAM permissions' do
+      cluster_arn = 'arn:aws:kafka:ap-northeast-1:123456789012:cluster/orders-cluster/12345678-1234'
+      code = <<~RUBY
+        Veltrunode.application "enterprise-broker-app" do
+          aws region: "ap-northeast-1"
+
+          function :msk_order_consumer do
+            handler "msk_consumer.handler"
+            runtime "ruby3.3"
+            vpc_reference subnet_ids: ["subnet-11111111", "subnet-22222222"],
+                          security_group_ids: ["sg-0123456789abcdef0"]
+            event_source msk: {
+              cluster: "#{cluster_arn}",
+              topics: ["orders.created", "orders.paid"],
+              starting_position: :trim_horizon,
+              secret: ref(:msk_scram_secret_arn),
+              auth_type: :sasl_scram_512_auth,
+              consumer_group_id: "orders-cg",
+              batch_size: 200
+            }
+          end
+
+          function :mq_fulfillment_consumer do
+            handler "mq_consumer.handler"
+            runtime "ruby3.3"
+            event_source mq: {
+              broker: ref(:mq_broker_arn),
+              queues: ["orders.fulfillment"],
+              secret: ref(:mq_basic_auth_secret_arn),
+              virtual_host: "/prod",
+              batch_size: 50
+            }
+          end
+        end
+      RUBY
+
+      app = Veltrunode.parse(code)
+      diags = Veltrunode::Validation::Engine.run(app)
+      expect(diags.select { |d| d.severity == :error }).to be_empty
+
+      yaml_output = described_class.to_yaml(app)
+      parsed = YAML.safe_load(yaml_output)
+
+      params = parsed['Parameters']
+      resources = parsed['Resources']
+
+      # 1. Parameters registration
+      expect(params['MskScramSecretArn']).to eq(
+        'Description' => 'Secrets Manager secret ARN for MskScramSecretArn',
+        'Type' => 'String'
+      )
+      expect(params['MqBrokerArn']).to eq(
+        'Description' => 'Amazon MQ broker ARN for MqBrokerArn',
+        'Type' => 'String'
+      )
+      expect(params['MqBasicAuthSecretArn']).to eq(
+        'Description' => 'Secrets Manager secret ARN for MqBasicAuthSecretArn',
+        'Type' => 'String'
+      )
+
+      # 2. MSK EventSourceMapping
+      msk_esm = resources['MskOrderConsumerFunctionOrdersClusterEventSourceMapping']
+      expect(msk_esm).not_to be_nil
+      expect(msk_esm['Properties']).to eq(
+        'AmazonManagedKafkaEventSourceConfig' => { 'ConsumerGroupId' => 'orders-cg' },
+        'BatchSize' => 200,
+        'Enabled' => true,
+        'EventSourceArn' => cluster_arn,
+        'FunctionName' => { 'Fn::GetAtt' => %w[MskOrderConsumerFunction Arn] },
+        'SourceAccessConfigurations' => [
+          {
+            'Type' => 'SASL_SCRAM_512_AUTH',
+            'URI' => { 'Ref' => 'MskScramSecretArn' }
+          }
+        ],
+        'StartingPosition' => 'TRIM_HORIZON',
+        'Topics' => %w[orders.created orders.paid]
+      )
+
+      # 3. MQ EventSourceMapping
+      mq_esm = resources['MqFulfillmentConsumerFunctionMqBrokerArnEventSourceMapping']
+      expect(mq_esm).not_to be_nil
+      expect(mq_esm['Properties']).to eq(
+        'BatchSize' => 50,
+        'Enabled' => true,
+        'EventSourceArn' => { 'Ref' => 'MqBrokerArn' },
+        'FunctionName' => { 'Fn::GetAtt' => %w[MqFulfillmentConsumerFunction Arn] },
+        'Queues' => ['orders.fulfillment'],
+        'SourceAccessConfigurations' => [
+          {
+            'Type' => 'BASIC_AUTH',
+            'URI' => { 'Ref' => 'MqBasicAuthSecretArn' }
+          },
+          {
+            'Type' => 'VIRTUAL_HOST',
+            'URI' => '/prod'
+          }
+        ]
+      )
+    end
   end
 end
