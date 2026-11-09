@@ -2,24 +2,46 @@
 
 module Veltrunode
   module Model
-    # Lambda 関数のイベントソース（SQS / DynamoDB Streams / Kinesis Data Streams / SNS / S3 / EventBridge Rule）を表す値オブジェクト
+    # Lambda 関数のイベントソース（SQS / DynamoDB / Kinesis / MSK / MQ / SNS / S3 / EventBridge Rule）を表す値オブジェクト
     class EventSource
-      SUPPORTED_TYPES = %i[sqs sns s3 dynamodb_stream kinesis_stream rule].freeze
+      SUPPORTED_TYPES = %i[sqs sns s3 dynamodb_stream kinesis_stream msk mq rule].freeze
       VALID_FILTER_POLICY_SCOPES = %w[MessageAttributes MessageBody].freeze
       DEFAULT_S3_EVENTS = ['s3:ObjectCreated:*'].freeze
       VALID_S3_FILTER_KEYS = %w[prefix suffix].freeze
       VALID_STARTING_POSITIONS = %w[LATEST TRIM_HORIZON].freeze
       DEFAULT_STARTING_POSITION = 'LATEST'
       VALID_RULE_STATES = %i[enabled disabled].freeze
+      VALID_BROKER_AUTH_TYPES = %w[
+        BASIC_AUTH
+        SASL_SCRAM_512_AUTH
+        SASL_SCRAM_256_AUTH
+        CLIENT_CERTIFICATE_TLS_AUTH
+        SERVER_ROOT_CA_CERTIFICATE
+      ].freeze
+      DEFAULT_MSK_AUTH_TYPE = 'SASL_SCRAM_512_AUTH'
+      DEFAULT_MQ_AUTH_TYPE = 'BASIC_AUTH'
 
       attr_reader :type, :queue, :batch_size, :maximum_batching_window_in_seconds, :report_batch_item_failures,
                   :topic, :filter_policy, :filter_policy_scope, :bucket, :events, :filter,
                   :stream, :starting_position, :parallelization_factor, :bisect_batch_on_function_error,
+                  :cluster, :broker, :topics, :queues, :secret, :auth_type, :virtual_host, :consumer_group_id,
+                  :security_group_ids, :subnet_ids, :source_access_configurations,
                   :name, :bus, :pattern, :state, :description, :input, :target_function
 
       alias dynamodb_stream stream
       alias kinesis_stream stream
       alias stream_arn stream
+      alias cluster_arn cluster
+      alias msk cluster
+      alias broker_arn broker
+      alias mq broker
+      alias secret_arn secret
+      alias auth_secret secret
+      alias credentials secret
+      alias authentication_type auth_type
+      alias consumer_group consumer_group_id
+      alias security_groups security_group_ids
+      alias subnets subnet_ids
       alias event_bus bus
       alias event_bus_name bus
       alias event_pattern pattern
@@ -77,6 +99,34 @@ module Veltrunode
         dynamodb_stream: nil,
         kinesis_stream: nil,
         kinesis: nil,
+        msk: nil,
+        kafka: nil,
+        cluster: nil,
+        cluster_arn: nil,
+        mq: nil,
+        amazon_mq: nil,
+        activemq: nil,
+        rabbitmq: nil,
+        broker: nil,
+        broker_arn: nil,
+        topics: nil,
+        queues: nil,
+        secret: nil,
+        secret_arn: nil,
+        auth_secret: nil,
+        credentials: nil,
+        auth_type: nil,
+        authentication_type: nil,
+        virtual_host: nil,
+        consumer_group_id: nil,
+        consumer_group: nil,
+        security_group_ids: nil,
+        security_groups: nil,
+        security_group: nil,
+        subnet_ids: nil,
+        subnets: nil,
+        subnet: nil,
+        source_access_configurations: nil,
         starting_position: nil,
         parallelization_factor: nil,
         bisect_batch_on_function_error: nil,
@@ -104,6 +154,19 @@ module Veltrunode
           bucket: bucket, s3: s3, events: events, event: event, filter: filter, prefix: prefix, suffix: suffix,
           stream: stream, stream_arn: stream_arn, dynamodb_stream: dynamodb_stream,
           kinesis_stream: kinesis_stream || kinesis,
+          msk: msk || kafka,
+          cluster: cluster || cluster_arn,
+          mq: mq || amazon_mq || activemq || rabbitmq,
+          broker: broker || broker_arn,
+          topics: topics,
+          queues: queues,
+          secret: secret || secret_arn || auth_secret || credentials,
+          auth_type: auth_type || authentication_type,
+          virtual_host: virtual_host,
+          consumer_group_id: consumer_group_id || consumer_group,
+          security_group_ids: security_group_ids || security_groups || security_group,
+          subnet_ids: subnet_ids || subnets || subnet,
+          source_access_configurations: source_access_configurations,
           starting_position: starting_position,
           parallelization_factor: parallelization_factor,
           bisect_batch_on_function_error: bisect_batch_on_function_error.nil? ? bisect_batch : bisect_batch_on_function_error, # rubocop:disable Layout/LineLength
@@ -125,6 +188,10 @@ module Veltrunode
           init_s3_attributes(resolved)
         when :dynamodb_stream, :kinesis_stream
           init_stream_attributes(resolved)
+        when :msk
+          init_msk_attributes(resolved)
+        when :mq
+          init_mq_attributes(resolved)
         when :rule
           init_rule_attributes(resolved)
         end
@@ -155,6 +222,20 @@ module Veltrunode
         @type == :kinesis_stream
       end
       alias kinesis? kinesis_stream?
+
+      def msk?
+        @type == :msk
+      end
+      alias kafka? msk?
+
+      def mq?
+        @type == :mq
+      end
+      alias amazon_mq? mq?
+
+      def broker?
+        msk? || mq?
+      end
 
       def rule?
         @type == :rule
@@ -328,12 +409,64 @@ module Veltrunode
         bus_id
       end
 
+      def cluster_identifier
+        return nil if @cluster.nil?
+        return @cluster.to_s if @cluster.is_a?(Symbol)
+        return @cluster.name.to_s if @cluster.respond_to?(:name)
+
+        if @cluster.is_a?(Hash)
+          ref_val = @cluster['Ref'] || @cluster[:Ref] || @cluster[:ref] || @cluster['ref']
+          return ref_val.to_s if ref_val
+
+          get_att = @cluster['Fn::GetAtt'] || @cluster[:'Fn::GetAtt']
+          return Array(get_att).first.to_s if get_att
+
+          return nil
+        end
+
+        c_str = @cluster.to_s
+        if c_str =~ %r{:cluster/([^/]+)}
+          Regexp.last_match(1)
+        elsif c_str.start_with?('arn:')
+          c_str.split(':').last
+        else
+          c_str
+        end
+      end
+
+      def broker_identifier
+        return nil if @broker.nil?
+        return @broker.to_s if @broker.is_a?(Symbol)
+        return @broker.name.to_s if @broker.respond_to?(:name)
+
+        if @broker.is_a?(Hash)
+          ref_val = @broker['Ref'] || @broker[:Ref] || @broker[:ref] || @broker['ref']
+          return ref_val.to_s if ref_val
+
+          get_att = @broker['Fn::GetAtt'] || @broker[:'Fn::GetAtt']
+          return Array(get_att).first.to_s if get_att
+
+          return nil
+        end
+
+        b_str = @broker.to_s
+        if b_str =~ %r{:broker[:/]([^:/]+)}
+          Regexp.last_match(1)
+        elsif b_str.start_with?('arn:')
+          b_str.split(':').last
+        else
+          b_str
+        end
+      end
+
       def source_identifier
         case @type
         when :sqs then queue_identifier
         when :sns then topic_identifier
         when :s3 then bucket_identifier
         when :dynamodb_stream, :kinesis_stream then stream_identifier
+        when :msk then cluster_identifier
+        when :mq then broker_identifier
         when :rule then rule_identifier
         end
       end
@@ -368,6 +501,45 @@ module Veltrunode
             'maximum_batching_window_in_seconds' => @maximum_batching_window_in_seconds,
             'parallelization_factor' => @parallelization_factor,
             'bisect_batch_on_function_error' => @bisect_batch_on_function_error,
+            'report_batch_item_failures' => @report_batch_item_failures,
+            'enabled' => @enabled
+          }.compact
+        when :msk
+          cluster_val = !@cluster.is_a?(Symbol) && @cluster.respond_to?(:name) ? @cluster.name.to_s : @cluster
+          secret_val = !@secret.is_a?(Symbol) && @secret.respond_to?(:name) ? @secret.name.to_s : @secret
+          {
+            'type' => @type.to_s,
+            'cluster' => cluster_val,
+            'topics' => @topics,
+            'starting_position' => @starting_position,
+            'secret' => secret_val,
+            'auth_type' => @auth_type,
+            'consumer_group_id' => @consumer_group_id,
+            'security_group_ids' => @security_group_ids,
+            'subnet_ids' => @subnet_ids,
+            'source_access_configurations' => @source_access_configurations,
+            'batch_size' => @batch_size,
+            'maximum_batching_window_in_seconds' => @maximum_batching_window_in_seconds,
+            'report_batch_item_failures' => @report_batch_item_failures,
+            'enabled' => @enabled
+          }.compact
+        when :mq
+          broker_val = !@broker.is_a?(Symbol) && @broker.respond_to?(:name) ? @broker.name.to_s : @broker
+          secret_val = !@secret.is_a?(Symbol) && @secret.respond_to?(:name) ? @secret.name.to_s : @secret
+          {
+            'type' => @type.to_s,
+            'broker' => broker_val,
+            'queues' => @queues,
+            'topics' => @topics,
+            'starting_position' => @starting_position,
+            'secret' => secret_val,
+            'auth_type' => @auth_type,
+            'virtual_host' => @virtual_host,
+            'security_group_ids' => @security_group_ids,
+            'subnet_ids' => @subnet_ids,
+            'source_access_configurations' => @source_access_configurations,
+            'batch_size' => @batch_size,
+            'maximum_batching_window_in_seconds' => @maximum_batching_window_in_seconds,
             'report_batch_item_failures' => @report_batch_item_failures,
             'enabled' => @enabled
           }.compact
@@ -413,6 +585,17 @@ module Veltrunode
         @starting_position = nil
         @parallelization_factor = nil
         @bisect_batch_on_function_error = nil
+        @cluster = nil
+        @broker = nil
+        @topics = nil
+        @queues = nil
+        @secret = nil
+        @auth_type = nil
+        @virtual_host = nil
+        @consumer_group_id = nil
+        @security_group_ids = nil
+        @subnet_ids = nil
+        @source_access_configurations = nil
         @name = nil
         @bus = nil
         @pattern = nil
@@ -428,18 +611,24 @@ module Veltrunode
         s3_val = opts[:s3]
         ddb_val = opts[:dynamodb_stream]
         kin_val = opts[:kinesis_stream]
+        msk_val = opts[:msk]
+        mq_val = opts[:mq]
         rule_val = opts[:rule]
         sns_hash = sns_val.is_a?(Hash) && !cfn_intrinsic_hash?(sns_val) ? symbolize_keys(sns_val) : nil
         sqs_hash = sqs_val.is_a?(Hash) && !cfn_intrinsic_hash?(sqs_val) ? symbolize_keys(sqs_val) : nil
         s3_hash = s3_val.is_a?(Hash) && !cfn_intrinsic_hash?(s3_val) ? symbolize_keys(s3_val) : nil
         ddb_hash = ddb_val.is_a?(Hash) && !cfn_intrinsic_hash?(ddb_val) ? symbolize_keys(ddb_val) : nil
         kin_hash = kin_val.is_a?(Hash) && !cfn_intrinsic_hash?(kin_val) ? symbolize_keys(kin_val) : nil
+        msk_hash = msk_val.is_a?(Hash) && !cfn_intrinsic_hash?(msk_val) ? symbolize_keys(msk_val) : nil
+        mq_hash = mq_val.is_a?(Hash) && !cfn_intrinsic_hash?(mq_val) ? symbolize_keys(mq_val) : nil
         rule_hash = rule_val.is_a?(Hash) && !cfn_intrinsic_hash?(rule_val) ? symbolize_keys(rule_val) : nil
         stream_hash = kin_hash || ddb_hash
+        broker_hash = msk_hash || mq_hash
 
         inferred_type = infer_type(
           opts,
-          sns_val: sns_val, s3_val: s3_val, ddb_val: ddb_val, kin_val: kin_val, rule_val: rule_val
+          sns_val: sns_val, s3_val: s3_val, ddb_val: ddb_val, kin_val: kin_val,
+          msk_val: msk_val, mq_val: mq_val, rule_val: rule_val
         )
 
         resolved_topic = opts[:topic] || opts[:topic_arn] ||
@@ -452,6 +641,39 @@ module Veltrunode
                            else
                              kin_val || ddb_val
                            end)
+        resolved_cluster = opts[:cluster] ||
+                           (if msk_hash
+                              msk_hash[:cluster] || msk_hash[:cluster_arn] || msk_hash[:msk] || msk_hash[:arn]
+                            else
+                              msk_val
+                            end)
+        resolved_broker = opts[:broker] ||
+                          (if mq_hash
+                             mq_hash[:broker] || mq_hash[:broker_arn] || mq_hash[:mq] || mq_hash[:arn]
+                           else
+                             mq_val
+                           end)
+        resolved_topics = opts[:topics] || opts[:topic] ||
+                          (broker_hash && (broker_hash[:topics] || broker_hash[:topic]))
+        resolved_queues = opts[:queues] || opts[:queue] ||
+                          (broker_hash && (broker_hash[:queues] || broker_hash[:queue]))
+        resolved_secret = opts[:secret] ||
+                          (broker_hash && (broker_hash[:secret] || broker_hash[:secret_arn] ||
+                                           broker_hash[:auth_secret] || broker_hash[:credentials]))
+        resolved_auth_type = opts[:auth_type] ||
+                             (broker_hash && (broker_hash[:auth_type] || broker_hash[:authentication_type]))
+        resolved_virtual_host = opts[:virtual_host] ||
+                                (broker_hash && (broker_hash[:virtual_host] || broker_hash[:vhost]))
+        resolved_consumer_group = opts[:consumer_group_id] ||
+                                  (broker_hash && (broker_hash[:consumer_group_id] || broker_hash[:consumer_group]))
+        resolved_sg_ids = opts[:security_group_ids] ||
+                          (broker_hash && (broker_hash[:security_group_ids] || broker_hash[:security_groups] ||
+                                           broker_hash[:security_group]))
+        resolved_subnet_ids = opts[:subnet_ids] ||
+                              (broker_hash && (broker_hash[:subnet_ids] || broker_hash[:subnets] ||
+                                               broker_hash[:subnet]))
+        resolved_sac = opts[:source_access_configurations] ||
+                       (broker_hash && broker_hash[:source_access_configurations])
         resolved_bus = opts[:bus] || opts[:event_bus] ||
                        (rule_hash && (rule_hash[:bus] || rule_hash[:event_bus] || rule_hash[:event_bus_name]))
         resolved_pattern = opts[:pattern] || opts[:event_pattern] ||
@@ -473,7 +695,19 @@ module Veltrunode
           events: resolve_s3_events_option(opts, s3_hash),
           filter: resolve_s3_filter_option(opts, s3_hash),
           stream: resolved_stream,
-          starting_position: opts[:starting_position] || (stream_hash && stream_hash[:starting_position]),
+          cluster: resolved_cluster,
+          broker: resolved_broker,
+          topics: resolved_topics,
+          queues: resolved_queues,
+          secret: resolved_secret,
+          auth_type: resolved_auth_type,
+          virtual_host: resolved_virtual_host,
+          consumer_group_id: resolved_consumer_group,
+          security_group_ids: resolved_sg_ids,
+          subnet_ids: resolved_subnet_ids,
+          source_access_configurations: resolved_sac,
+          starting_position: opts[:starting_position] || (stream_hash && stream_hash[:starting_position]) ||
+            (broker_hash && broker_hash[:starting_position]),
           parallelization_factor: opts[:parallelization_factor] ||
             (stream_hash && stream_hash[:parallelization_factor]),
           bisect_batch_on_function_error: resolved_bisect,
@@ -486,25 +720,31 @@ module Veltrunode
           target_function: opts[:target] || opts[:target_function] ||
             (rule_hash && (rule_hash[:target] || rule_hash[:target_function])),
           batch_size: opts[:batch_size] || (sqs_hash && sqs_hash[:batch_size]) ||
-            (stream_hash && stream_hash[:batch_size]),
+            (stream_hash && stream_hash[:batch_size]) || (broker_hash && broker_hash[:batch_size]),
           maximum_batching_window_in_seconds: opts[:maximum_batching_window_in_seconds] ||
             (sqs_hash && (sqs_hash[:maximum_batching_window_in_seconds] || sqs_hash[:batch_window])) ||
-            (stream_hash && (stream_hash[:maximum_batching_window_in_seconds] || stream_hash[:batch_window])),
+            (stream_hash && (stream_hash[:maximum_batching_window_in_seconds] || stream_hash[:batch_window])) ||
+            (broker_hash && (broker_hash[:maximum_batching_window_in_seconds] || broker_hash[:batch_window])),
           report_batch_item_failures: opts[:report_batch_item_failures] ||
             (sqs_hash && sqs_hash[:report_batch_item_failures]) ||
-            (stream_hash && stream_hash[:report_batch_item_failures]) || false,
+            (stream_hash && stream_hash[:report_batch_item_failures]) ||
+            (broker_hash && broker_hash[:report_batch_item_failures]) || false,
           filter_policy: opts[:filter_policy] || (sns_hash && sns_hash[:filter_policy]),
           filter_policy_scope: opts[:filter_policy_scope] || (sns_hash && sns_hash[:filter_policy_scope]),
-          enabled: resolve_enabled_option(opts[:enabled], sns_hash, sqs_hash, s3_hash, ddb_hash, kin_hash, rule_hash)
+          enabled: resolve_enabled_option(
+            opts[:enabled], sns_hash, sqs_hash, s3_hash, ddb_hash, kin_hash, msk_hash, mq_hash, rule_hash
+          )
         }
       end
 
-      def infer_type(opts, sns_val:, s3_val:, ddb_val: nil, kin_val: nil, rule_val: nil)
+      def infer_type(opts, sns_val:, s3_val:, ddb_val: nil, kin_val: nil, msk_val: nil, mq_val: nil, rule_val: nil)
         return opts[:type] if opts[:type]
         if !rule_val.nil? || !opts[:pattern].nil? || !opts[:event_pattern].nil? ||
            !opts[:bus].nil? || !opts[:event_bus].nil?
           return :rule
         end
+        return :msk if !msk_val.nil? || !opts[:cluster].nil?
+        return :mq if !mq_val.nil? || !opts[:broker].nil?
         return :kinesis_stream unless kin_val.nil?
         return :dynamodb_stream if !ddb_val.nil? || !opts[:stream].nil? || !opts[:stream_arn].nil?
         return :s3 if !s3_val.nil? || !opts[:bucket].nil?
@@ -582,6 +822,40 @@ module Veltrunode
         @report_batch_item_failures = resolved[:report_batch_item_failures] ? true : false
       end
 
+      def init_msk_attributes(resolved)
+        @cluster = normalize_cluster(resolved[:cluster])
+        @topics = normalize_msk_topics(resolved[:topics])
+        @topic = @topics.first
+        @starting_position = normalize_starting_position(resolved[:starting_position])
+        @secret = normalize_optional_arn_or_ref(resolved[:secret])
+        @auth_type = normalize_broker_auth_type(resolved[:auth_type], default: @secret ? DEFAULT_MSK_AUTH_TYPE : nil)
+        @consumer_group_id = normalize_optional_string(resolved[:consumer_group_id])
+        @security_group_ids = normalize_string_or_ref_list(resolved[:security_group_ids])
+        @subnet_ids = normalize_string_or_ref_list(resolved[:subnet_ids])
+        @source_access_configurations = normalize_source_access_configurations(resolved[:source_access_configurations])
+        @batch_size = normalize_batch_size(resolved[:batch_size])
+        @maximum_batching_window_in_seconds = normalize_batching_window(resolved[:maximum_batching_window_in_seconds])
+        @report_batch_item_failures = resolved[:report_batch_item_failures] ? true : false
+      end
+
+      def init_mq_attributes(resolved)
+        @broker = normalize_broker(resolved[:broker])
+        @queues = normalize_mq_destinations(resolved[:queues] || resolved[:topics])
+        @topics = @queues
+        @queue = @queues.first
+        @topic = @queues.first
+        @starting_position = resolved[:starting_position] ? normalize_starting_position(resolved[:starting_position]) : nil # rubocop:disable Layout/LineLength
+        @secret = normalize_optional_arn_or_ref(resolved[:secret])
+        @auth_type = normalize_broker_auth_type(resolved[:auth_type], default: @secret ? DEFAULT_MQ_AUTH_TYPE : nil)
+        @virtual_host = normalize_optional_string(resolved[:virtual_host])
+        @security_group_ids = normalize_string_or_ref_list(resolved[:security_group_ids])
+        @subnet_ids = normalize_string_or_ref_list(resolved[:subnet_ids])
+        @source_access_configurations = normalize_source_access_configurations(resolved[:source_access_configurations])
+        @batch_size = normalize_batch_size(resolved[:batch_size])
+        @maximum_batching_window_in_seconds = normalize_batching_window(resolved[:maximum_batching_window_in_seconds])
+        @report_batch_item_failures = resolved[:report_batch_item_failures] ? true : false
+      end
+
       def init_rule_attributes(resolved)
         @name = normalize_optional_string(resolved[:name])
         @bus = normalize_rule_bus(resolved[:bus])
@@ -604,6 +878,8 @@ module Veltrunode
         sym = type_val.to_s.downcase.to_sym
         sym = :dynamodb_stream if %i[dynamodb_streams dynamodb].include?(sym)
         sym = :kinesis_stream if %i[kinesis kinesis_streams kinesis_data_stream kinesis_data_streams].include?(sym)
+        sym = :msk if %i[kafka amazon_msk msk_stream].include?(sym)
+        sym = :mq if %i[amazon_mq activemq rabbitmq active_mq rabbit_mq].include?(sym)
         sym = :rule if %i[eventbridge event_bridge events event_rule].include?(sym)
         unless SUPPORTED_TYPES.include?(sym)
           raise ArgumentError,
@@ -841,6 +1117,135 @@ module Veltrunode
         return nil if val.nil?
 
         val ? true : false
+      end
+
+      def normalize_cluster(cluster_val)
+        if cluster_val.nil? ||
+           (cluster_val.is_a?(Hash) && cluster_val.empty?) ||
+           (!cluster_val.is_a?(Hash) && cluster_val.to_s.strip.empty?)
+          raise ArgumentError, 'Cluster must be specified for MSK event source.'
+        end
+
+        if cluster_val.is_a?(Symbol) || cluster_val.respond_to?(:name)
+          cluster_val
+        elsif cluster_val.is_a?(Hash)
+          deep_stringify_and_freeze(cluster_val)
+        else
+          cluster_val.to_s.strip.freeze
+        end
+      end
+
+      def normalize_broker(broker_val)
+        if broker_val.nil? ||
+           (broker_val.is_a?(Hash) && broker_val.empty?) ||
+           (!broker_val.is_a?(Hash) && broker_val.to_s.strip.empty?)
+          raise ArgumentError, 'Broker must be specified for MQ event source.'
+        end
+
+        if broker_val.is_a?(Symbol) || broker_val.respond_to?(:name)
+          broker_val
+        elsif broker_val.is_a?(Hash)
+          deep_stringify_and_freeze(broker_val)
+        else
+          broker_val.to_s.strip.freeze
+        end
+      end
+
+      def normalize_msk_topics(topics_val)
+        list = Array(topics_val).flatten.map { |t| t.to_s.strip }.reject(&:empty?)
+        raise ArgumentError, 'Topics must be specified for MSK event source.' if list.empty?
+
+        list.map(&:freeze).freeze
+      end
+
+      def normalize_mq_destinations(dest_val)
+        list = Array(dest_val).flatten.map { |d| d.to_s.strip }.reject(&:empty?)
+        raise ArgumentError, 'Topics or queues must be specified for MQ event source.' if list.empty?
+
+        list.map(&:freeze).freeze
+      end
+
+      def normalize_optional_arn_or_ref(val)
+        return nil if val.nil?
+
+        return nil if (val.is_a?(Hash) && val.empty?) || (!val.is_a?(Hash) && val.to_s.strip.empty?)
+
+        if val.is_a?(Symbol) || val.respond_to?(:name)
+          val
+        elsif val.is_a?(Hash)
+          deep_stringify_and_freeze(val)
+        else
+          val.to_s.strip.freeze
+        end
+      end
+
+      def normalize_broker_auth_type(auth_val, default: nil)
+        return default&.freeze if auth_val.nil? || auth_val.to_s.strip.empty?
+
+        normalized = case auth_val.to_s.strip.upcase.tr('-', '_')
+                     when 'BASIC_AUTH', 'BASIC'
+                       'BASIC_AUTH'
+                     when 'SASL_SCRAM_512_AUTH', 'SASL_SCRAM_512', 'SCRAM_512'
+                       'SASL_SCRAM_512_AUTH'
+                     when 'SASL_SCRAM_256_AUTH', 'SASL_SCRAM_256', 'SCRAM_256'
+                       'SASL_SCRAM_256_AUTH'
+                     when 'CLIENT_CERTIFICATE_TLS_AUTH', 'CLIENT_CERTIFICATE_TLS', 'MTLS', 'TLS'
+                       'CLIENT_CERTIFICATE_TLS_AUTH'
+                     when 'SERVER_ROOT_CA_CERTIFICATE', 'CA_CERT'
+                       'SERVER_ROOT_CA_CERTIFICATE'
+                     else
+                       raise ArgumentError,
+                             "Invalid broker auth_type '#{auth_val}'. " \
+                             "Valid auth_types: #{VALID_BROKER_AUTH_TYPES.join(', ')}"
+                     end
+        normalized.freeze
+      end
+
+      def normalize_string_or_ref_list(val)
+        return nil if val.nil?
+
+        list = Array(val).flatten.map do |item|
+          if item.is_a?(Symbol) || item.respond_to?(:name)
+            item
+          elsif item.is_a?(Hash)
+            deep_stringify_and_freeze(item)
+          else
+            s = item.to_s.strip
+            s.empty? ? nil : s.freeze
+          end
+        end.compact
+        list.empty? ? nil : list.freeze
+      end
+
+      def normalize_source_access_configurations(val)
+        return nil if val.nil?
+        raise ArgumentError, 'source_access_configurations must be an Array.' unless val.is_a?(Array)
+        return nil if val.empty?
+
+        list = val.map do |entry|
+          unless entry.is_a?(Hash)
+            raise ArgumentError, "Each source_access_configuration must be a Hash, got #{entry.class}."
+          end
+
+          type_val = entry[:type] || entry['type'] || entry[:Type] || entry['Type']
+          uri_val = entry[:uri] || entry['uri'] || entry[:URI] || entry['URI']
+          if type_val.nil? || type_val.to_s.strip.empty? || uri_val.nil?
+            raise ArgumentError, 'Each source_access_configuration must specify Type and URI.'
+          end
+
+          normalized_uri = if uri_val.is_a?(Symbol) || uri_val.respond_to?(:name)
+                             uri_val
+                           elsif uri_val.is_a?(Hash)
+                             deep_stringify_and_freeze(uri_val)
+                           else
+                             uri_val.to_s.strip.freeze
+                           end
+          {
+            'Type' => type_val.to_s.strip.upcase.tr('-', '_').freeze,
+            'URI' => normalized_uri
+          }.freeze
+        end
+        list.freeze
       end
     end
   end

@@ -133,6 +133,22 @@ module Veltrunode
         !rules.empty?
       end
 
+      def msk_event_sources
+        @event_sources.select { |s| s.respond_to?(:msk?) && s.msk? }
+      end
+
+      def mq_event_sources
+        @event_sources.select { |s| s.respond_to?(:mq?) && s.mq? }
+      end
+
+      def broker_event_sources
+        @event_sources.select { |s| s.respond_to?(:broker?) && s.broker? }
+      end
+
+      def broker_event_sources?
+        !broker_event_sources.empty?
+      end
+
       def function_url?
         !@function_url.nil?
       end
@@ -149,6 +165,7 @@ module Veltrunode
         validate_alarms(diagnostics)
         validate_subscription_filters(diagnostics)
         validate_tracing(diagnostics)
+        validate_broker_event_sources(context, diagnostics)
 
         diagnostics.freeze
       end
@@ -572,6 +589,120 @@ module Veltrunode
         FunctionUrl.from(val)
       rescue ArgumentError => e
         raise ValidationError, e.message
+      end
+
+      def validate_broker_event_sources(context, diagnostics)
+        brokers = broker_event_sources
+        return if brokers.empty?
+
+        brokers.each do |src|
+          validate_broker_secret(src, diagnostics)
+          validate_broker_source_vpc(src, diagnostics)
+        end
+
+        validate_function_broker_vpc(context, diagnostics) if @vpc_reference
+      end
+
+      def validate_broker_secret(src, diagnostics)
+        has_sac_auth = Array(src.source_access_configurations).any? do |c|
+          %w[BASIC_AUTH SASL_SCRAM_512_AUTH SASL_SCRAM_256_AUTH CLIENT_CERTIFICATE_TLS_AUTH].include?(c['Type'])
+        end
+
+        if src.mq? && src.secret.nil? && !has_sac_auth
+          diagnostics << Diagnostics::Diagnostic.new(
+            code: 'VLT-IAM-003',
+            severity: :error,
+            summary: "Function '#{logical_name}' has an Amazon MQ event source without a Secrets Manager " \
+                     'authentication secret configured.',
+            suggested_action: "Specify 'secret' (Secrets Manager ARN or ref) on the MQ event source.",
+            evidence: { 'function' => logical_name, 'event_source_type' => 'mq' }
+          )
+        end
+
+        return unless src.secret.is_a?(String) && src.secret.start_with?('arn:')
+        return if src.secret.match?(/\Aarn:aws[a-z-]*:secretsmanager:/)
+
+        diagnostics << Diagnostics::Diagnostic.new(
+          code: 'VLT-IAM-003',
+          severity: :error,
+          summary: "Function '#{logical_name}' broker event source (#{src.type}) specifies an invalid " \
+                   "Secrets Manager secret ARN '#{src.secret}'.",
+          suggested_action: 'Provide a valid Secrets Manager ARN (arn:aws:secretsmanager:...) or parameter reference.',
+          evidence: { 'function' => logical_name, 'secret' => src.secret }
+        )
+      end
+
+      def validate_broker_source_vpc(src, diagnostics)
+        has_sg = src.security_group_ids && !src.security_group_ids.empty?
+        has_sub = src.subnet_ids && !src.subnet_ids.empty?
+        return if (has_sg && has_sub) || (!has_sg && !has_sub)
+
+        diagnostics << Diagnostics::Diagnostic.new(
+          code: 'VLT-DSL-VPC-001',
+          severity: :error,
+          summary: "Function '#{logical_name}' broker event source (#{src.type}) specifies partial VPC network " \
+                   'configuration: both subnet_ids and security_group_ids must be provided together.',
+          suggested_action: 'Specify both subnet_ids and security_group_ids for the broker event source.',
+          evidence: {
+            'function' => logical_name,
+            'event_source_type' => src.type.to_s,
+            'has_security_group_ids' => !has_sg.nil? && has_sg,
+            'has_subnet_ids' => !has_sub.nil? && has_sub
+          }
+        )
+      end
+
+      def validate_function_broker_vpc(context, diagnostics)
+        unless @vpc_reference.is_a?(Hash)
+          diagnostics << Diagnostics::Diagnostic.new(
+            code: 'VLT-DSL-VPC-001',
+            severity: :error,
+            summary: "Function '#{logical_name}' has a broker event source with invalid vpc_reference: " \
+                     'both subnet_ids and security_group_ids are required for VPC broker connectivity.',
+            suggested_action: 'Configure vpc_reference with subnet_ids and security_group_ids.',
+            evidence: { 'function' => logical_name }
+          )
+          return
+        end
+
+        sub_ids = @vpc_reference['subnet_ids'] || @vpc_reference['subnets'] || @vpc_reference['SubnetIds']
+        sg_ids = @vpc_reference['security_group_ids'] || @vpc_reference['security_groups'] ||
+                 @vpc_reference['security_group'] || @vpc_reference['SecurityGroupIds']
+        available_sgs = fetch_known_names(
+          context, :available_security_group_names, :available_security_groups, :security_groups
+        )
+
+        has_subs = sub_ids.is_a?(Hash) || !Array(sub_ids).compact.empty?
+        has_sgs = sg_ids.is_a?(Hash) || !Array(sg_ids).compact.empty? || (available_sgs && !available_sgs.empty?)
+
+        unless has_subs && has_sgs
+          diagnostics << Diagnostics::Diagnostic.new(
+            code: 'VLT-DSL-VPC-001',
+            severity: :error,
+            summary: "Function '#{logical_name}' has a broker event source with incomplete VPC configuration: " \
+                     'both subnet_ids and security_group_ids are required for VPC broker connectivity.',
+            suggested_action: 'Configure both subnet_ids and security_group_ids in vpc_reference.',
+            evidence: { 'function' => logical_name }
+          )
+        end
+
+        return unless available_sgs && sg_ids && !sg_ids.is_a?(Hash)
+
+        Array(sg_ids).each do |sg_ref|
+          next if sg_ref.is_a?(Hash) || (!sg_ref.is_a?(Symbol) && sg_ref.respond_to?(:name))
+
+          sg_str = sg_ref.to_s.strip
+          next if sg_str.start_with?('sg-') || sg_str.end_with?('SecurityGroup')
+          next if available_sgs.include?(sg_str)
+
+          diagnostics << Diagnostics::Diagnostic.new(
+            code: 'VLT-REF-001',
+            severity: :error,
+            summary: "Referenced security group '#{sg_str}' in function '#{logical_name}' does not exist.",
+            suggested_action: 'Ensure the referenced security group helper is defined in the application.',
+            evidence: { 'function' => logical_name, 'missing_security_group' => sg_str }
+          )
+        end
       end
     end
   end
