@@ -10,6 +10,13 @@ module Veltrunode
                      events: nil, event: nil, filter: nil, prefix: nil, suffix: nil,
                      stream: nil, stream_arn: nil, arn: nil, starting_position: nil,
                      parallelization_factor: nil, bisect_batch_on_function_error: nil, bisect_batch: nil,
+                     cluster: nil, cluster_arn: nil, msk: nil, kafka: nil,
+                     broker: nil, broker_arn: nil, mq: nil, amazon_mq: nil,
+                     topics: nil, queues: nil, secret: nil, secret_arn: nil, auth_secret: nil, credentials: nil,
+                     auth_type: nil, authentication_type: nil, virtual_host: nil, vhost: nil,
+                     consumer_group_id: nil, consumer_group: nil,
+                     security_group_ids: nil, security_groups: nil, security_group: nil,
+                     subnet_ids: nil, subnets: nil, subnet: nil, source_access_configurations: nil,
                      name: nil, bus: nil, event_bus: nil, event_bus_name: nil,
                      pattern: nil, event_pattern: nil, state: nil, description: nil,
                      input: nil, target: nil, target_function: nil,
@@ -32,6 +39,17 @@ module Veltrunode
                                           else
                                             bisect_batch_on_function_error
                                           end
+        @cluster = cluster || cluster_arn || msk || kafka || arn
+        @broker = broker || broker_arn || mq || amazon_mq || arn
+        @topics = topics
+        @queues = queues
+        @secret = secret || secret_arn || auth_secret || credentials
+        @auth_type = auth_type || authentication_type
+        @virtual_host = virtual_host || vhost
+        @consumer_group_id = consumer_group_id || consumer_group
+        @security_group_ids = security_group_ids || security_groups || security_group
+        @subnet_ids = subnet_ids || subnets || subnet
+        @source_access_configurations = source_access_configurations
         @name = name
         @bus = bus || event_bus || event_bus_name
         @pattern = pattern || event_pattern
@@ -102,6 +120,66 @@ module Veltrunode
         @bisect_batch_on_function_error = flag
       end
       alias bisect_batch bisect_batch_on_function_error
+
+      def cluster(c)
+        @cluster = c
+      end
+      alias cluster_arn cluster
+      alias msk cluster
+      alias kafka cluster
+
+      def broker(b)
+        @broker = b
+      end
+      alias broker_arn broker
+      alias mq broker
+      alias amazon_mq broker
+
+      def topics(*t)
+        @topics = t.flatten
+      end
+
+      def queues(*q)
+        @queues = q.flatten
+      end
+
+      def secret(s)
+        @secret = s
+      end
+      alias secret_arn secret
+      alias auth_secret secret
+      alias credentials secret
+
+      def auth_type(t)
+        @auth_type = t
+      end
+      alias authentication_type auth_type
+
+      def virtual_host(vh)
+        @virtual_host = vh
+      end
+      alias vhost virtual_host
+
+      def consumer_group_id(cg)
+        @consumer_group_id = cg
+      end
+      alias consumer_group consumer_group_id
+
+      def security_group_ids(*sgs)
+        @security_group_ids = sgs.flatten
+      end
+      alias security_groups security_group_ids
+      alias security_group security_group_ids
+
+      def subnet_ids(*subs)
+        @subnet_ids = subs.flatten
+      end
+      alias subnets subnet_ids
+      alias subnet subnet_ids
+
+      def source_access_configurations(cfgs)
+        @source_access_configurations = cfgs
+      end
 
       def name(n)
         @name = n
@@ -193,6 +271,17 @@ module Veltrunode
           starting_position: @starting_position,
           parallelization_factor: @parallelization_factor,
           bisect_batch_on_function_error: @bisect_batch_on_function_error,
+          cluster: @cluster,
+          broker: @broker,
+          topics: @topics,
+          queues: @queues,
+          secret: @secret,
+          auth_type: @auth_type,
+          virtual_host: @virtual_host,
+          consumer_group_id: @consumer_group_id,
+          security_group_ids: @security_group_ids,
+          subnet_ids: @subnet_ids,
+          source_access_configurations: @source_access_configurations,
           name: @name,
           bus: @bus,
           pattern: @pattern,

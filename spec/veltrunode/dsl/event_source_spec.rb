@@ -730,4 +730,106 @@ RSpec.describe 'DSL event_source support' do
       expect(es_b.bisect_batch_on_function_error?).to be true
     end
   end
+
+  describe 'Amazon MSK and Amazon MQ event source DSL' do
+    let(:cluster_arn) { 'arn:aws:kafka:ap-northeast-1:123456789012:cluster/orders-cluster/12345678-1234' }
+    let(:broker_arn) { 'arn:aws:mq:ap-northeast-1:123456789012:broker:orders-mq:b-12345678' }
+    let(:secret_arn) { 'arn:aws:secretsmanager:ap-northeast-1:123456789012:secret:broker-auth-AbCdEf' }
+
+    it 'supports event_source msk: and mq: hash DSL with topics, secret, starting_position, and VPC config' do
+      c_arn = cluster_arn
+      b_arn = broker_arn
+      s_arn = secret_arn
+
+      app = Veltrunode.application 'broker-app' do
+        function :msk_consumer do
+          handler 'msk.handler'
+          runtime 'ruby3.3'
+          vpc_reference subnet_ids: %w[subnet-1111 subnet-2222],
+                        security_group_ids: ['sg-1111']
+          event_source msk: {
+            cluster: c_arn,
+            topics: %w[orders.created orders.paid],
+            starting_position: :trim_horizon,
+            secret: s_arn,
+            auth_type: :sasl_scram_512_auth,
+            consumer_group_id: 'orders-cg',
+            batch_size: 250
+          }
+        end
+
+        function :mq_consumer do
+          handler 'mq.handler'
+          runtime 'ruby3.3'
+          event_source mq: {
+            broker: b_arn,
+            queues: ['orders.fulfillment'],
+            secret: ref(:mq_secret_arn),
+            virtual_host: '/prod',
+            batch_size: 100
+          }
+        end
+      end
+
+      msk_es = app.functions['msk_consumer'].event_sources.first
+      expect(msk_es.msk?).to be true
+      expect(msk_es.cluster).to eq(cluster_arn)
+      expect(msk_es.cluster_identifier).to eq('orders-cluster')
+      expect(msk_es.topics).to eq(%w[orders.created orders.paid])
+      expect(msk_es.starting_position).to eq('TRIM_HORIZON')
+      expect(msk_es.secret).to eq(secret_arn)
+      expect(msk_es.auth_type).to eq('SASL_SCRAM_512_AUTH')
+      expect(msk_es.consumer_group_id).to eq('orders-cg')
+      expect(msk_es.batch_size).to eq(250)
+
+      mq_es = app.functions['mq_consumer'].event_sources.first
+      expect(mq_es.mq?).to be true
+      expect(mq_es.broker).to eq(broker_arn)
+      expect(mq_es.broker_identifier).to eq('orders-mq')
+      expect(mq_es.queues).to eq(['orders.fulfillment'])
+      expect(mq_es.secret.name).to eq(:mq_secret_arn)
+      expect(mq_es.auth_type).to eq('BASIC_AUTH')
+      expect(mq_es.virtual_host).to eq('/prod')
+      expect(mq_es.batch_size).to eq(100)
+    end
+
+    it 'supports block-based msk and mq DSL methods and function keyword arguments' do
+      app = Veltrunode.application 'broker-block-app' do
+        function :kafka_worker do
+          handler 'kafka.handler'
+          runtime 'ruby3.3'
+          msk do
+            cluster ref(:msk_cluster_arn)
+            topics 'events.user', 'events.order'
+            starting_position :latest
+            secret ref(:kafka_scram_secret)
+            consumer_group_id 'user-order-cg'
+          end
+        end
+
+        function :rabbit_worker, mq: {
+          broker: ref(:rabbit_broker_arn),
+          topic: 'notifications.email',
+          secret: ref(:rabbit_secret_arn)
+        } do
+          handler 'rabbit.handler'
+          runtime 'ruby3.3'
+        end
+      end
+
+      kafka_es = app.functions['kafka_worker'].event_sources.first
+      expect(kafka_es.msk?).to be true
+      expect(kafka_es.cluster.name).to eq(:msk_cluster_arn)
+      expect(kafka_es.topics).to eq(%w[events.user events.order])
+      expect(kafka_es.starting_position).to eq('LATEST')
+      expect(kafka_es.secret.name).to eq(:kafka_scram_secret)
+      expect(kafka_es.consumer_group_id).to eq('user-order-cg')
+
+      rabbit_es = app.functions['rabbit_worker'].event_sources.first
+      expect(rabbit_es.mq?).to be true
+      expect(rabbit_es.broker.name).to eq(:rabbit_broker_arn)
+      expect(rabbit_es.queues).to eq(['notifications.email'])
+      expect(rabbit_es.secret.name).to eq(:rabbit_secret_arn)
+    end
+  end
 end
