@@ -295,6 +295,53 @@ RSpec.describe Veltrunode::Compiler::CloudFormation::RoleCompiler do
         { 'Ref' => 'TelemetryStreamArn' }
       )
     end
+
+    it 'grants MSK, MQ, Secrets Manager, and VPC ENI permissions when msk or mq event_sources are configured' do
+      cluster_arn = 'arn:aws:kafka:ap-northeast-1:123456789012:cluster/orders-cluster/12345678-1234'
+      broker_arn = 'arn:aws:mq:ap-northeast-1:123456789012:broker:orders-mq:b-12345678'
+      secret_arn = 'arn:aws:secretsmanager:ap-northeast-1:123456789012:secret:broker-auth-AbCdEf'
+
+      broker_function = Veltrunode::Model::Function.new(
+        logical_name: 'broker_worker',
+        handler: 'worker.handler',
+        runtime: 'ruby3.3',
+        event_sources: [
+          {
+            msk: {
+              cluster: cluster_arn,
+              topics: ['orders.created'],
+              secret: secret_arn
+            }
+          },
+          {
+            mq: {
+              broker: broker_arn,
+              queues: ['orders.fulfillment'],
+              secret: Veltrunode::DSL::Reference.new(:mq_secret_arn)
+            }
+          }
+        ]
+      )
+
+      result = described_class.compile_lambda_role(broker_function)
+      policy_stmts = result['BrokerWorkerFunctionRole']['Properties']['Policies'].first['PolicyDocument']['Statement']
+
+      msk_stmt = policy_stmts.find { |s| Array(s['Action']).include?('kafka-cluster:ReadData') }
+      expect(msk_stmt).not_to be_nil
+      expect(msk_stmt['Resource']).to eq([cluster_arn])
+
+      mq_stmt = policy_stmts.find { |s| s['Action'] == ['mq:DescribeBroker'] }
+      expect(mq_stmt).not_to be_nil
+      expect(mq_stmt['Resource']).to eq([broker_arn])
+
+      secret_stmt = policy_stmts.find { |s| s['Action'] == ['secretsmanager:GetSecretValue'] }
+      expect(secret_stmt).not_to be_nil
+      expect(secret_stmt['Resource']).to contain_exactly(secret_arn, { 'Ref' => 'MqSecretArn' })
+
+      vpc_stmt = policy_stmts.find { |s| Array(s['Action']).include?('ec2:CreateNetworkInterface') }
+      expect(vpc_stmt).not_to be_nil
+      expect(vpc_stmt['Resource']).to eq(['*'])
+    end
   end
 
   describe '#to_h and properties for Scheduler Invocation Role' do

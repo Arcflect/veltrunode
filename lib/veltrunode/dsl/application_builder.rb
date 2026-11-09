@@ -123,13 +123,15 @@ module Veltrunode
 
       def function(name, tracing: nil, insights: nil, async_invoke: nil, alarms: nil,
                    event_source: nil, event_sources: nil, rule: nil, rules: nil,
-                   kinesis_stream: nil, function_url: nil, **, &)
+                   kinesis_stream: nil, msk: nil, mq: nil, function_url: nil, **, &)
         alarms_cfg = alarms.nil? ? @runtime_defaults[:alarms] : alarms
         fn_url_cfg = function_url.nil? ? @runtime_defaults[:function_url] : function_url
         es_cfg = combine_event_source_defaults(
           event_source || event_sources || @runtime_defaults[:event_sources],
           rule || rules,
-          kinesis_stream
+          kinesis_stream,
+          msk: msk,
+          mq: mq
         )
         builder = FunctionBuilder.new(
           name,
@@ -284,7 +286,7 @@ module Veltrunode
 
       private
 
-      def combine_event_source_defaults(es_cfg, rule_cfg, kinesis_cfg = nil)
+      def combine_event_source_defaults(es_cfg, rule_cfg, kinesis_cfg = nil, msk: nil, mq: nil)
         extras = []
         if rule_cfg
           extras.concat(
@@ -300,6 +302,8 @@ module Veltrunode
         if kinesis_cfg
           extras << (kinesis_cfg.is_a?(Model::EventSource) ? kinesis_cfg : { kinesis_stream: kinesis_cfg })
         end
+        extras << (msk.is_a?(Model::EventSource) ? msk : { msk: msk }) if msk
+        extras << (mq.is_a?(Model::EventSource) ? mq : { mq: mq }) if mq
 
         return es_cfg if extras.empty?
         return extras if es_cfg.nil?
@@ -515,6 +519,20 @@ module Veltrunode
           kin_val = opts.delete(:kinesis_stream) || opts.delete(:kinesis)
           kin_opts = kin_val.is_a?(Hash) ? kin_val.merge(opts) : opts.merge(stream: kin_val)
           builder = EventSourceBuilder.new(:kinesis_stream, **kin_opts)
+          builder.instance_eval(&) if block_given?
+          @event_sources_config << builder.build
+          return
+        elsif opts.key?(:msk) || opts.key?(:kafka)
+          msk_val = opts.delete(:msk) || opts.delete(:kafka)
+          msk_opts = msk_val.is_a?(Hash) ? msk_val.merge(opts) : opts.merge(cluster: msk_val)
+          builder = EventSourceBuilder.new(:msk, **msk_opts)
+          builder.instance_eval(&) if block_given?
+          @event_sources_config << builder.build
+          return
+        elsif opts.key?(:mq) || opts.key?(:amazon_mq)
+          mq_val = opts.delete(:mq) || opts.delete(:amazon_mq)
+          mq_opts = mq_val.is_a?(Hash) ? mq_val.merge(opts) : opts.merge(broker: mq_val)
+          builder = EventSourceBuilder.new(:mq, **mq_opts)
           builder.instance_eval(&) if block_given?
           @event_sources_config << builder.build
           return

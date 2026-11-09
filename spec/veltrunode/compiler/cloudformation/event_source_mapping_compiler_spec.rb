@@ -157,6 +157,81 @@ RSpec.describe Veltrunode::Compiler::CloudFormation::EventSourceMappingCompiler 
         }
       )
     end
+
+    it 'compiles Amazon MSK and Amazon MQ event source mappings with Topics/Queues and SourceAccessConfigurations' do
+      cluster_arn = 'arn:aws:kafka:ap-northeast-1:123456789012:cluster/orders-cluster/12345678-1234'
+      secret_arn = 'arn:aws:secretsmanager:ap-northeast-1:123456789012:secret:msk-auth-AbCdEf'
+      msk_source = Veltrunode::Model::EventSource.new(
+        msk: {
+          cluster: cluster_arn,
+          topics: %w[orders.created orders.paid],
+          starting_position: :trim_horizon,
+          secret: secret_arn,
+          auth_type: :sasl_scram_512_auth,
+          consumer_group_id: 'orders-cg',
+          batch_size: 200
+        }
+      )
+
+      msk_res = described_class.compile(function, msk_source)
+      expect(msk_res).to eq(
+        'WorkerFunctionOrdersClusterEventSourceMapping' => {
+          'Type' => 'AWS::Lambda::EventSourceMapping',
+          'Properties' => {
+            'AmazonManagedKafkaEventSourceConfig' => {
+              'ConsumerGroupId' => 'orders-cg'
+            },
+            'BatchSize' => 200,
+            'Enabled' => true,
+            'EventSourceArn' => cluster_arn,
+            'FunctionName' => { 'Fn::GetAtt' => %w[WorkerFunction Arn] },
+            'SourceAccessConfigurations' => [
+              {
+                'Type' => 'SASL_SCRAM_512_AUTH',
+                'URI' => secret_arn
+              }
+            ],
+            'StartingPosition' => 'TRIM_HORIZON',
+            'Topics' => %w[orders.created orders.paid]
+          }
+        }
+      )
+
+      broker_arn = 'arn:aws:mq:ap-northeast-1:123456789012:broker:orders-mq:b-12345678'
+      mq_source = Veltrunode::Model::EventSource.new(
+        mq: {
+          broker: broker_arn,
+          queues: ['orders.fulfillment'],
+          secret: Veltrunode::DSL::Reference.new(:mq_secret_arn),
+          virtual_host: '/prod',
+          batch_size: 50
+        }
+      )
+
+      mq_res = described_class.compile(function, mq_source)
+      expect(mq_res).to eq(
+        'WorkerFunctionOrdersMqEventSourceMapping' => {
+          'Type' => 'AWS::Lambda::EventSourceMapping',
+          'Properties' => {
+            'BatchSize' => 50,
+            'Enabled' => true,
+            'EventSourceArn' => broker_arn,
+            'FunctionName' => { 'Fn::GetAtt' => %w[WorkerFunction Arn] },
+            'Queues' => ['orders.fulfillment'],
+            'SourceAccessConfigurations' => [
+              {
+                'Type' => 'BASIC_AUTH',
+                'URI' => { 'Ref' => 'MqSecretArn' }
+              },
+              {
+                'Type' => 'VIRTUAL_HOST',
+                'URI' => '/prod'
+              }
+            ]
+          }
+        }
+      )
+    end
   end
 
   describe '.to_yaml' do

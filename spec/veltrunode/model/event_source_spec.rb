@@ -58,7 +58,7 @@ RSpec.describe Veltrunode::Model::EventSource do
     end
 
     it 'raises ArgumentError if type is unsupported' do
-      expect { described_class.new(type: :kafka, queue: 'stream') }
+      expect { described_class.new(type: :unknown_source, queue: 'stream') }
         .to raise_error(ArgumentError, /Unsupported event source type/)
     end
 
@@ -589,6 +589,88 @@ RSpec.describe Veltrunode::Model::EventSource do
       expect(fn.rule.pattern).to eq('source' => ['myapp.orders'], 'detail-type' => ['OrderCreated'])
       expect(fn.rule.state).to eq(:disabled)
       expect(fn.rule.disabled?).to be true
+    end
+
+    it 'creates Amazon MSK and Amazon MQ event sources with topics, secret, starting_position, and VPC config' do
+      cluster_arn = 'arn:aws:kafka:ap-northeast-1:123456789012:cluster/orders-cluster/12345678-1234-1234-1234-12345678'
+      secret_arn = 'arn:aws:secretsmanager:ap-northeast-1:123456789012:secret:AmazonMSK_orders-AbCdEf'
+      msk_source = described_class.new(
+        msk: {
+          cluster: cluster_arn,
+          topics: %w[orders.created orders.updated],
+          starting_position: :trim_horizon,
+          secret: secret_arn,
+          auth_type: :sasl_scram_512_auth,
+          consumer_group_id: 'orders-consumer-group',
+          batch_size: 200,
+          security_group_ids: ['sg-0123456789abcdef0'],
+          subnet_ids: %w[subnet-11111111 subnet-22222222]
+        }
+      )
+
+      expect(msk_source.msk?).to be true
+      expect(msk_source.kafka?).to be true
+      expect(msk_source.broker?).to be true
+      expect(msk_source.cluster).to eq(cluster_arn)
+      expect(msk_source.cluster_identifier).to eq('orders-cluster')
+      expect(msk_source.source_identifier).to eq('orders-cluster')
+      expect(msk_source.topics).to eq(%w[orders.created orders.updated])
+      expect(msk_source.topic).to eq('orders.created')
+      expect(msk_source.starting_position).to eq('TRIM_HORIZON')
+      expect(msk_source.secret).to eq(secret_arn)
+      expect(msk_source.auth_type).to eq('SASL_SCRAM_512_AUTH')
+      expect(msk_source.consumer_group_id).to eq('orders-consumer-group')
+      expect(msk_source.batch_size).to eq(200)
+      expect(msk_source.security_group_ids).to eq(['sg-0123456789abcdef0'])
+      expect(msk_source.subnet_ids).to eq(%w[subnet-11111111 subnet-22222222])
+
+      broker_arn = 'arn:aws:mq:ap-northeast-1:123456789012:broker:orders-mq:b-12345678-1234-1234-1234-123456789012'
+      mq_secret = 'arn:aws:secretsmanager:ap-northeast-1:123456789012:secret:mq/broker-credentials-XyZ123'
+      mq_source = described_class.new(
+        mq: {
+          broker: broker_arn,
+          queues: ['orders.fulfillment'],
+          secret: mq_secret,
+          virtual_host: '/production',
+          batch_size: 50
+        }
+      )
+
+      expect(mq_source.mq?).to be true
+      expect(mq_source.amazon_mq?).to be true
+      expect(mq_source.broker?).to be true
+      expect(mq_source.broker).to eq(broker_arn)
+      expect(mq_source.broker_identifier).to eq('orders-mq')
+      expect(mq_source.source_identifier).to eq('orders-mq')
+      expect(mq_source.queues).to eq(['orders.fulfillment'])
+      expect(mq_source.topics).to eq(['orders.fulfillment'])
+      expect(mq_source.secret).to eq(mq_secret)
+      expect(mq_source.auth_type).to eq('BASIC_AUTH')
+      expect(mq_source.virtual_host).to eq('/production')
+      expect(mq_source.batch_size).to eq(50)
+    end
+
+    it 'validates broker secret and VPC security_group_ids/subnet_ids in Function#validate_invariants' do
+      broker_arn = 'arn:aws:mq:ap-northeast-1:123456789012:broker:orders-mq:b-12345678'
+      fn_missing_secret = Veltrunode::Model::Function.new(
+        'mq_worker',
+        handler: 'worker.handler',
+        runtime: 'ruby3.3',
+        event_sources: [{ mq: { broker: broker_arn, queues: ['orders.queue'] } }]
+      )
+      diags = fn_missing_secret.validate_invariants
+      expect(diags.map(&:code)).to include('VLT-IAM-003')
+
+      cluster_arn = 'arn:aws:kafka:ap-northeast-1:123456789012:cluster/orders-cluster/uuid-1'
+      fn_incomplete_vpc = Veltrunode::Model::Function.new(
+        'msk_worker',
+        handler: 'worker.handler',
+        runtime: 'ruby3.3',
+        vpc_reference: { subnet_ids: ['subnet-11111111'] },
+        event_sources: [{ msk: { cluster: cluster_arn, topics: ['orders.events'] } }]
+      )
+      vpc_diags = fn_incomplete_vpc.validate_invariants
+      expect(vpc_diags.map(&:code)).to include('VLT-DSL-VPC-001')
     end
   end
 end

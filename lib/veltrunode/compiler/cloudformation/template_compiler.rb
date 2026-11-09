@@ -183,6 +183,36 @@ module Veltrunode
                       'Type' => 'String'
                     }
                   end
+                elsif source.respond_to?(:msk?) && source.msk?
+                  cluster_param = resolve_sns_topic_param_key(source.cluster)
+                  if cluster_param && !params.key?(cluster_param)
+                    params[cluster_param] = {
+                      'Description' => "MSK cluster ARN for #{cluster_param}",
+                      'Type' => 'String'
+                    }
+                  end
+                  secret_param = resolve_sns_topic_param_key(source.secret)
+                  if secret_param && !params.key?(secret_param)
+                    params[secret_param] = {
+                      'Description' => "Secrets Manager secret ARN for #{secret_param}",
+                      'Type' => 'String'
+                    }
+                  end
+                elsif source.respond_to?(:mq?) && source.mq?
+                  broker_param = resolve_sns_topic_param_key(source.broker)
+                  if broker_param && !params.key?(broker_param)
+                    params[broker_param] = {
+                      'Description' => "Amazon MQ broker ARN for #{broker_param}",
+                      'Type' => 'String'
+                    }
+                  end
+                  secret_param = resolve_sns_topic_param_key(source.secret)
+                  if secret_param && !params.key?(secret_param)
+                    params[secret_param] = {
+                      'Description' => "Secrets Manager secret ARN for #{secret_param}",
+                      'Type' => 'String'
+                    }
+                  end
                 elsif source.respond_to?(:rule?) && source.rule?
                   param_key = resolve_s3_bucket_param_key(source.bus)
                   if param_key && !params.key?(param_key)

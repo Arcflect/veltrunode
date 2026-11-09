@@ -287,6 +287,24 @@ module Veltrunode
         elsif opts.key?(:kinesis)
           @event_sources << build_keyed_event_source(:kinesis_stream, opts.delete(:kinesis), opts, :stream, &)
           return
+        elsif opts.key?(:msk)
+          @event_sources << build_keyed_event_source(:msk, opts.delete(:msk), opts, :cluster, &)
+          return
+        elsif opts.key?(:kafka)
+          @event_sources << build_keyed_event_source(:msk, opts.delete(:kafka), opts, :cluster, &)
+          return
+        elsif opts.key?(:mq)
+          @event_sources << build_keyed_event_source(:mq, opts.delete(:mq), opts, :broker, &)
+          return
+        elsif opts.key?(:amazon_mq)
+          @event_sources << build_keyed_event_source(:mq, opts.delete(:amazon_mq), opts, :broker, &)
+          return
+        elsif opts.key?(:activemq)
+          @event_sources << build_keyed_event_source(:mq, opts.delete(:activemq), opts, :broker, &)
+          return
+        elsif opts.key?(:rabbitmq)
+          @event_sources << build_keyed_event_source(:mq, opts.delete(:rabbitmq), opts, :broker, &)
+          return
         elsif opts.key?(:rule)
           @event_sources << build_keyed_event_source(:rule, opts.delete(:rule), opts, :name, &)
           return
@@ -334,6 +352,34 @@ module Veltrunode
 
         event_source(:kinesis_stream, kinesis_stream: stream_or_opts, **, &)
       end
+
+      def msk(cluster_or_opts = nil, **, &)
+        if cluster_or_opts == false
+          @event_sources.reject!(&:msk?)
+          return
+        end
+
+        if cluster_or_opts.nil?
+          event_source(:msk, **, &)
+        else
+          event_source(:msk, msk: cluster_or_opts, **, &)
+        end
+      end
+      alias kafka msk
+
+      def mq(broker_or_opts = nil, **, &)
+        if broker_or_opts == false
+          @event_sources.reject!(&:mq?)
+          return
+        end
+
+        if broker_or_opts.nil?
+          event_source(:mq, **, &)
+        else
+          event_source(:mq, mq: broker_or_opts, **, &)
+        end
+      end
+      alias amazon_mq mq
 
       def build
         apply_alarms_default(@alarms_default) if !@alarms_disabled && @alarms_builder.nil? && @alarms_default
@@ -391,6 +437,8 @@ module Veltrunode
       def resolve_event_source_type(type_or_opts, opts)
         return type_or_opts if type_or_opts.is_a?(Symbol) || type_or_opts.is_a?(String)
         return :rule if opts.key?(:pattern) || opts.key?(:event_pattern) || opts.key?(:bus) || opts.key?(:event_bus)
+        return :msk if opts.key?(:cluster) || opts.key?(:cluster_arn)
+        return :mq if opts.key?(:broker) || opts.key?(:broker_arn)
         return :sns if opts.key?(:topic) || opts.key?(:topic_arn)
         return :s3 if opts.key?(:bucket)
         return :dynamodb_stream if opts.key?(:stream) || opts.key?(:stream_arn)

@@ -418,6 +418,57 @@ end
 - **`enabled`**: イベントソースマッピングの有効/無効フラグ（デフォルト: `true`）。
 - **自動 IAM 権限付与**: `kinesis_stream` が定義された関数には、Kinesis Data Streams の読み取りに必要な IAM 権限（`kinesis:GetRecords`, `kinesis:GetShardIterator`, `kinesis:DescribeStream`, `kinesis:DescribeStreamSummary`, `kinesis:ListShards`, `kinesis:ListStreams`）が Lambda 実行ロールに自動付与されます。
 
+## Amazon MSK (Kafka) / Amazon MQ (ActiveMQ / RabbitMQ) イベントソースマッピング (MSK & MQ Event Source Mapping)
+
+エンタープライズのメッセージブローカー（Amazon MSK / Apache Kafka、Amazon MQ / ActiveMQ / RabbitMQ）からのイベント駆動処理を構築する場合、`event_source msk: ...`（または `msk do ... end`）および `event_source mq: ...`（または `mq do ... end`）を使用して、トピック/キュー名、Secrets Manager 認証シークレット、読み取り開始位置、および VPC 接続設定を宣言的に定義できます。
+
+```ruby
+Veltrunode.application "enterprise-broker-app" do
+  # 1. Amazon MSK (Kafka) トリガーの定義
+  function :msk_order_consumer do
+    handler "msk_consumer.handler"
+    runtime "ruby3.3"
+    vpc_reference subnet_ids: ["subnet-11111111", "subnet-22222222"],
+                  security_group_ids: ["sg-0123456789abcdef0"]
+    event_source msk: {
+      cluster: ref(:msk_cluster_arn),
+      topics: ["orders.created", "orders.paid"],
+      starting_position: :trim_horizon,
+      secret: ref(:msk_scram_secret_arn),
+      auth_type: :sasl_scram_512_auth,
+      consumer_group_id: "orders-cg",
+      batch_size: 200
+    }
+  end
+
+  # 2. Amazon MQ (ActiveMQ / RabbitMQ) トリガーの定義
+  function :mq_fulfillment_consumer do
+    handler "mq_consumer.handler"
+    runtime "ruby3.3"
+    mq do
+      broker ref(:mq_broker_arn)
+      queues "orders.fulfillment"
+      secret ref(:mq_basic_auth_secret_arn)
+      virtual_host "/prod"
+      batch_size 50
+    end
+  end
+end
+```
+
+### パラメータ仕様
+
+- **`cluster` / `cluster_arn` / `msk` / `kafka`**: 対象の Amazon MSK クラスタ ARN または `ref(:cluster_arn)`。
+- **`broker` / `broker_arn` / `mq` / `amazon_mq`**: 対象の Amazon MQ ブローカー ARN または `ref(:broker_arn)`。
+- **`topics` / `topic`**: 購読するトピック名（文字列または配列）。MSK では `Topics` プロパティに設定されます。
+- **`queues` / `queue`**: 購読するキュー名（文字列または配列）。MQ では `Queues` プロパティに設定されます（MQ で `topic` / `topics` を指定した場合も宛先キューとして正規化されます）。
+- **`secret` / `secret_arn` / `auth_secret` / `credentials`**: 認証に使用する AWS Secrets Manager シークレットの ARN または `ref(:secret_arn)`。`SourceAccessConfigurations` に展開され、Lambda 実行ロールに `secretsmanager:GetSecretValue` 権限が自動付与されます。
+- **`auth_type` / `authentication_type`**: `SourceAccessConfigurations` の認証タイプ。MSK のデフォルトは `'SASL_SCRAM_512_AUTH'`（`:sasl_scram_256_auth`, `:client_certificate_tls_auth`, `:basic_auth` 等も指定可）、MQ のデフォルトは `'BASIC_AUTH'` です。
+- **`starting_position`**: 読み取り開始位置（`:latest` または `:trim_horizon`、MSK のデフォルトは `'LATEST'`）。
+- **`consumer_group_id` / `consumer_group`**: MSK コンシューマーグループ ID（`AmazonManagedKafkaEventSourceConfig.ConsumerGroupId`）。
+- **`virtual_host` / `vhost`**: RabbitMQ ブローカーの仮想ホスト名（`SourceAccessConfigurations` の `VIRTUAL_HOST`）。
+- **`subnet_ids` / `security_group_ids`**: VPC サブネットおよびセキュリティグループ ID（関数側の `vpc_reference` またはイベントソース側で設定可能。片方のみの不完全な設定は `VLT-DSL-VPC-001` として検証されます）。
+
 ## EventBridge カスタムイベントバストリガーとルールパターン (EventBridge Rule & Custom Event Bus)
 
 定期実行の Scheduler だけでなく、カスタムイベントバス（またはデフォルトイベントバス）に送信されるドメインイベントを受信して起動する関数を構築する場合、`rule: { bus: ..., pattern: { source: [...], 'detail-type': [...] } }` で EventBridge ルールとイベントパターン（JSON マッチング）を記述し、`AWS::Events::Rule` および `AWS::Lambda::Permission` を自動生成できます。
