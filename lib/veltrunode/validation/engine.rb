@@ -175,12 +175,13 @@ module Veltrunode
 
       def validate_model_invariants
         diagnostics = []
+        sgs = application.respond_to?(:security_groups) ? Array(application.security_groups) : []
         context = {
           available_layer_names: Array(application.layers).map(&:name),
           available_mount_names: Array(application.mounts).map(&:symbolic_name),
           available_layers: Array(application.layers),
-          available_security_group_names: Array(application.security_groups).map(&:symbolic_name).map(&:to_s),
-          security_groups: Array(application.security_groups)
+          available_security_group_names: sgs.map(&:symbolic_name).map(&:to_s),
+          security_groups: sgs
         }
 
         Array(application.functions).each do |fn|
