@@ -8,13 +8,28 @@ require_relative '../model/efs_mount'
 module Veltrunode
   module DSL
     class EfsMountBuilder < BaseBuilder
-      def initialize(symbolic_name)
+      def initialize(
+        symbolic_name,
+        local_path: nil,
+        lifecycle_policies: nil,
+        lifecycle_policy: nil,
+        transition_to_ia: nil,
+        transition_to_archive: nil,
+        transition_to_primary_storage_class: nil
+      )
         super()
         @symbolic_name = symbolic_name.to_s
         @access_point_source = nil
         @managed_access_point = nil
         @security_group_helper = nil
-        @local_path = nil
+        @local_path = local_path&.to_s
+        @lifecycle_policies = {}
+        merge_lifecycle_policies!(
+          lifecycle_policies || lifecycle_policy,
+          transition_to_ia: transition_to_ia,
+          transition_to_archive: transition_to_archive,
+          transition_to_primary_storage_class: transition_to_primary_storage_class
+        )
         @vpc_expectations = {}
         @posix_expectations = {}
         @diagnostic_policy = {}
@@ -29,6 +44,12 @@ module Veltrunode
         gid: nil,
         secondary_gids: nil,
         creation_info: nil,
+        lifecycle_policies: nil,
+        lifecycle_policy: nil,
+        transition_to_ia: nil,
+        transition_to_archive: nil,
+        transition_to_primary_storage_class: nil,
+        local_path: nil,
         tags: nil,
         &
       )
@@ -41,6 +62,12 @@ module Veltrunode
           gid: gid,
           secondary_gids: secondary_gids,
           creation_info: creation_info,
+          lifecycle_policies: lifecycle_policies || lifecycle_policy ||
+                              (@lifecycle_policies.empty? ? nil : @lifecycle_policies),
+          transition_to_ia: transition_to_ia,
+          transition_to_archive: transition_to_archive,
+          transition_to_primary_storage_class: transition_to_primary_storage_class,
+          local_path: local_path,
           tags: tags
         )
         builder.instance_eval(&) if block_given?
@@ -56,6 +83,35 @@ module Veltrunode
         end
 
         @managed_access_point
+      end
+
+      def lifecycle_policies(
+        policies = nil,
+        transition_to_ia: nil,
+        transition_to_archive: nil,
+        transition_to_primary_storage_class: nil,
+        &
+      )
+        merge_lifecycle_policies!(
+          policies,
+          transition_to_ia: transition_to_ia,
+          transition_to_archive: transition_to_archive,
+          transition_to_primary_storage_class: transition_to_primary_storage_class
+        )
+        instance_eval(&) if block_given?
+      end
+      alias lifecycle_policy lifecycle_policies
+
+      def transition_to_ia(val)
+        @lifecycle_policies[:transition_to_ia] = val
+      end
+
+      def transition_to_archive(val)
+        @lifecycle_policies[:transition_to_archive] = val
+      end
+
+      def transition_to_primary_storage_class(val)
+        @lifecycle_policies[:transition_to_primary_storage_class] = val
       end
 
       def existing_access_point(arn: nil)
@@ -107,16 +163,48 @@ module Veltrunode
       alias efs_security_group security_group_helper
 
       def build
+        lifecycle = @lifecycle_policies.empty? ? nil : @lifecycle_policies
+        resolved_local_path = @local_path || (@managed_access_point || lifecycle ? "/mnt/#{@symbolic_name}" : nil)
         Model::EfsMount.new(
           symbolic_name: @symbolic_name,
           access_point_source: @access_point_source || @symbolic_name,
           managed_access_point: @managed_access_point,
           security_group_helper: @security_group_helper,
-          local_path: @local_path,
+          lifecycle_policies: lifecycle,
+          local_path: resolved_local_path,
           vpc_expectations: @vpc_expectations,
           posix_expectations: @posix_expectations,
           diagnostic_policy: @diagnostic_policy
         )
+      end
+
+      private
+
+      def merge_lifecycle_policies!(
+        policies,
+        transition_to_ia: nil,
+        transition_to_archive: nil,
+        transition_to_primary_storage_class: nil
+      )
+        if policies.is_a?(Array)
+          policies.each { |item| merge_lifecycle_policies!(item) }
+        elsif policies.is_a?(Hash)
+          ia = policies[:transition_to_ia] || policies['transition_to_ia'] ||
+               policies[:TransitionToIA] || policies['TransitionToIA']
+          arch = policies[:transition_to_archive] || policies['transition_to_archive'] ||
+                 policies[:TransitionToArchive] || policies['TransitionToArchive']
+          prim = policies[:transition_to_primary_storage_class] || policies['transition_to_primary_storage_class'] ||
+                 policies[:TransitionToPrimaryStorageClass] || policies['TransitionToPrimaryStorageClass']
+          @lifecycle_policies[:transition_to_ia] = ia if ia
+          @lifecycle_policies[:transition_to_archive] = arch if arch
+          @lifecycle_policies[:transition_to_primary_storage_class] = prim if prim
+        end
+
+        @lifecycle_policies[:transition_to_ia] = transition_to_ia if transition_to_ia
+        @lifecycle_policies[:transition_to_archive] = transition_to_archive if transition_to_archive
+        return unless transition_to_primary_storage_class
+
+        @lifecycle_policies[:transition_to_primary_storage_class] = transition_to_primary_storage_class
       end
     end
   end

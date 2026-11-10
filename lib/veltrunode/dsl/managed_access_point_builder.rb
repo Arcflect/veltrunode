@@ -15,6 +15,12 @@ module Veltrunode
         gid: nil,
         secondary_gids: nil,
         creation_info: nil,
+        lifecycle_policies: nil,
+        lifecycle_policy: nil,
+        transition_to_ia: nil,
+        transition_to_archive: nil,
+        transition_to_primary_storage_class: nil,
+        local_path: nil,
         tags: nil
       )
         super()
@@ -25,8 +31,15 @@ module Veltrunode
         @posix_user[:gid] = gid if gid
         @posix_user[:secondary_gids] = secondary_gids if secondary_gids
         @creation_info = creation_info&.dup
+        @lifecycle_policies = {}
+        merge_lifecycle_policies!(
+          lifecycle_policies || lifecycle_policy,
+          transition_to_ia: transition_to_ia,
+          transition_to_archive: transition_to_archive,
+          transition_to_primary_storage_class: transition_to_primary_storage_class
+        )
         @tags = tags ? tags.dup : {}
-        @local_path_val = nil
+        @local_path_val = local_path&.to_s
       end
 
       attr_reader :local_path_val
@@ -106,15 +119,76 @@ module Veltrunode
         @tags.merge!(hash)
       end
 
+      def lifecycle_policies(
+        policies = nil,
+        transition_to_ia: nil,
+        transition_to_archive: nil,
+        transition_to_primary_storage_class: nil,
+        &
+      )
+        merge_lifecycle_policies!(
+          policies,
+          transition_to_ia: transition_to_ia,
+          transition_to_archive: transition_to_archive,
+          transition_to_primary_storage_class: transition_to_primary_storage_class
+        )
+        instance_eval(&) if block_given?
+      end
+      alias lifecycle_policy lifecycle_policies
+
+      def transition_to_ia(val)
+        @lifecycle_policies[:transition_to_ia] = val
+      end
+
+      def transition_to_archive(val)
+        @lifecycle_policies[:transition_to_archive] = val
+      end
+
+      def transition_to_primary_storage_class(val)
+        @lifecycle_policies[:transition_to_primary_storage_class] = val
+      end
+
       def build
         posix = @posix_user.empty? ? nil : @posix_user
-        Model::ManagedAccessPoint.new(
-          file_system_id: @file_system_id,
+        lifecycle = @lifecycle_policies.empty? ? nil : @lifecycle_policies
+        opts = {
           root_directory_path: @root_directory_path,
           posix_user: posix,
           creation_info: @creation_info,
+          lifecycle_policies: lifecycle,
           tags: @tags.empty? ? nil : @tags
-        )
+        }
+        opts[:file_system_id] = @file_system_id unless @file_system_id.nil? && lifecycle
+        Model::ManagedAccessPoint.new(**opts)
+      end
+
+      private
+
+      def merge_lifecycle_policies!(
+        policies,
+        transition_to_ia: nil,
+        transition_to_archive: nil,
+        transition_to_primary_storage_class: nil
+      )
+        if policies.is_a?(Array)
+          policies.each { |item| merge_lifecycle_policies!(item) }
+        elsif policies.is_a?(Hash)
+          ia = policies[:transition_to_ia] || policies['transition_to_ia'] ||
+               policies[:TransitionToIA] || policies['TransitionToIA']
+          arch = policies[:transition_to_archive] || policies['transition_to_archive'] ||
+                 policies[:TransitionToArchive] || policies['TransitionToArchive']
+          prim = policies[:transition_to_primary_storage_class] || policies['transition_to_primary_storage_class'] ||
+                 policies[:TransitionToPrimaryStorageClass] || policies['TransitionToPrimaryStorageClass']
+          @lifecycle_policies[:transition_to_ia] = ia if ia
+          @lifecycle_policies[:transition_to_archive] = arch if arch
+          @lifecycle_policies[:transition_to_primary_storage_class] = prim if prim
+        end
+
+        @lifecycle_policies[:transition_to_ia] = transition_to_ia if transition_to_ia
+        @lifecycle_policies[:transition_to_archive] = transition_to_archive if transition_to_archive
+        return unless transition_to_primary_storage_class
+
+        @lifecycle_policies[:transition_to_primary_storage_class] = transition_to_primary_storage_class
       end
     end
   end

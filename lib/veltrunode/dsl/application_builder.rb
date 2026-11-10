@@ -91,11 +91,12 @@ module Veltrunode
         @layer_builders << builder
       end
 
-      def efs_mount(name, &)
-        builder = EfsMountBuilder.new(name)
+      def efs_mount(name, **, &)
+        builder = EfsMountBuilder.new(name, **)
         builder.instance_eval(&) if block_given?
         @efs_mount_builders << builder
       end
+      alias efs efs_mount
 
       def managed_access_point(name, file_system_id = nil, **, &)
         builder = EfsMountBuilder.new(name)
