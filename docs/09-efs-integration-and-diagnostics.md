@@ -61,6 +61,35 @@ end
 - Lambda Function の `VpcConfig.SecurityGroupIds` への自動紐付け
 - CloudFormation スタックの Outputs への各セキュリティグループ ID の出力
 
+### EFS ライフサイクルポリシー (Lifecycle Policies: IA / Archive 移行)
+
+長期間アクセスされないログやキャッシュファイルを自動で低コストなストレージクラス（Infrequent Access / Archive）へ移行するため、`managed_access_point` または `efs_mount` 定義内で `lifecycle_policies`（`transition_to_ia`, `transition_to_archive`）を指定できます。
+
+```ruby
+efs_mount :shared_logs do
+  local_path "/mnt/logs"
+  managed_access_point "fs-0123456789abcdef0" do
+    posix_user uid: 1000, gid: 1000
+    lifecycle_policies transition_to_ia: "AFTER_30_DAYS",
+                       transition_to_archive: "AFTER_90_DAYS"
+  end
+end
+
+# ブロック構文またはトップレベル managed_access_point でも指定可能
+managed_access_point :cache_storage, "fs-0123456789abcdef0" do
+  local_path "/mnt/cache"
+  lifecycle_policies do
+    transition_to_ia :after_14_days
+    transition_to_archive :after_60_days
+  end
+end
+```
+
+- **`transition_to_ia`**: Infrequent Access (IA) ストレージクラスへの移行期間（`AFTER_1_DAY`, `AFTER_7_DAYS`, `AFTER_14_DAYS`, `AFTER_30_DAYS`, `AFTER_60_DAYS`, `AFTER_90_DAYS`, `AFTER_180_DAYS`, `AFTER_270_DAYS`, `AFTER_365_DAYS`）。シンボル（`:after_30_days`）や日数指定も正規化されます。
+- **`transition_to_archive`**: Archive ストレージクラスへの移行期間（同上。`transition_to_ia` と併用時は IA 移行期間以上の日数を指定する必要があります）。
+- **CloudFormation `AWS::EFS::FileSystem` への反映**:
+  `lifecycle_policies` が設定されたマウントでは、`Veltrunode::Compiler::CloudFormation::FileSystemCompiler` により `AWS::EFS::FileSystem`（論理ID: `#{MountName}FileSystem`）の `Properties.LifecyclePolicies`（`TransitionToIA`, `TransitionToArchive`）が生成されます。
+
 ## 静的チェック項目 (Static Checks)
 
 - ローカルのマウントパスが `/mnt/` で始まっていること。
