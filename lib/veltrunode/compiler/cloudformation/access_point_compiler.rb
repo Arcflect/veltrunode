@@ -2,6 +2,7 @@
 
 require 'yaml'
 require_relative '../logical_id'
+require_relative 'file_system_compiler'
 
 module Veltrunode
   module Compiler
@@ -23,6 +24,10 @@ module Veltrunode
             LogicalId.for_access_point(name)
           end
 
+          def file_system_logical_id_for(name)
+            LogicalId.for_file_system(name)
+          end
+
           def pascalize(str)
             LogicalId.pascalize(str)
           end
@@ -38,17 +43,24 @@ module Veltrunode
           self.class.logical_id_for(mount_name)
         end
 
+        def file_system_logical_id
+          self.class.file_system_logical_id_for(mount_name)
+        end
+
         def resource_type
           'AWS::EFS::AccessPoint'
         end
 
         def to_h
-          deep_sort_keys({
-                           logical_id => {
-                             'Type' => resource_type,
-                             'Properties' => properties
-                           }
-                         })
+          resources = {
+            logical_id => {
+              'Type' => resource_type,
+              'Properties' => properties
+            }
+          }
+          resources.merge!(FileSystemCompiler.compile(mount, context: context)) if lifecycle_policies?
+
+          deep_sort_keys(resources)
         end
 
         def to_yaml
@@ -58,7 +70,7 @@ module Veltrunode
         def properties
           map = managed_access_point_data
           props = {
-            'FileSystemId' => map.file_system_id
+            'FileSystemId' => resolve_file_system_id(map)
           }
 
           posix = format_posix_user(map.posix_user)
@@ -97,6 +109,27 @@ module Veltrunode
           return data if data
 
           raise ValidationError, "Mount '#{mount_name}' does not have managed_access_point configuration"
+        end
+
+        def resolve_file_system_id(map)
+          fs_id = if map.respond_to?(:file_system_id)
+                    map.file_system_id
+                  else
+                    map[:file_system_id] || map['file_system_id']
+                  end
+          return { 'Ref' => file_system_logical_id } if fs_id.nil?
+          return { 'Ref' => LogicalId.pascalize(fs_id.name) } if fs_id.respond_to?(:name)
+
+          fs_id
+        end
+
+        def lifecycle_policies?
+          return true if mount.respond_to?(:lifecycle_policies?) && mount.lifecycle_policies?
+
+          map = managed_access_point_data
+          return true if map.respond_to?(:lifecycle_policies?) && map.lifecycle_policies?
+
+          false
         end
 
         def format_posix_user(posix_user)

@@ -1709,4 +1709,47 @@ RSpec.describe Veltrunode::Compiler::CloudFormation::TemplateCompiler do
       )
     end
   end
+
+  describe 'EFS lifecycle_policies compilation (AWS::EFS::FileSystem)' do
+    it 'compiles AWS::EFS::FileSystem with TransitionToIA and TransitionToArchive from managed_access_point' do
+      dsl_code = <<~RUBY
+        Veltrunode.application "efs-lifecycle-service" do
+          aws region: "ap-northeast-1", account: "123456789012"
+          runtime ruby: "3.3"
+
+          efs_mount :shared_logs do
+            local_path "/mnt/logs"
+            managed_access_point "fs-0123456789abcdef0" do
+              posix_user uid: 1000, gid: 1000
+              lifecycle_policies transition_to_ia: "AFTER_30_DAYS",
+                                 transition_to_archive: "AFTER_90_DAYS"
+            end
+          end
+
+          function :log_archiver do
+            handler "archiver.handler"
+            vpc_reference subnet_ids: ["subnet-11112222"], security_group_ids: ["sg-11112222"]
+            mount :shared_logs
+          end
+        end
+      RUBY
+
+      app = Veltrunode.parse(dsl_code)
+      result = described_class.compile(app)
+      resources = result['Resources']
+
+      expect(resources).to have_key('SharedLogsFileSystem')
+      fs_res = resources['SharedLogsFileSystem']
+      expect(fs_res['Type']).to eq('AWS::EFS::FileSystem')
+      expect(fs_res['Properties']['LifecyclePolicies']).to eq(
+        [
+          { 'TransitionToIA' => 'AFTER_30_DAYS' },
+          { 'TransitionToArchive' => 'AFTER_90_DAYS' }
+        ]
+      )
+
+      expect(resources).to have_key('SharedLogsAccessPoint')
+      expect(resources['SharedLogsAccessPoint']['Type']).to eq('AWS::EFS::AccessPoint')
+    end
+  end
 end
