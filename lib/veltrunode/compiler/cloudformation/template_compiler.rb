@@ -3,6 +3,7 @@
 require 'fileutils'
 require 'yaml'
 require_relative 'access_point_compiler'
+require_relative 'file_system_compiler'
 require_relative 'alarm_compiler'
 require_relative 'function_compiler'
 require_relative 'layer_version_compiler'
@@ -345,6 +346,11 @@ module Veltrunode
           end
 
           mount_nodes.each do |mount|
+            if mount.respond_to?(:lifecycle_policies?) && mount.lifecycle_policies?
+              fs_res = FileSystemCompiler.compile(mount, context: context)
+              resources.merge!(fs_res)
+            end
+
             next unless mount.respond_to?(:managed_access_point?) && mount.managed_access_point?
 
             ap_res = AccessPointCompiler.compile(mount, context: context)

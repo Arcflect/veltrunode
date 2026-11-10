@@ -100,5 +100,73 @@ RSpec.describe Veltrunode::Model::ManagedAccessPoint do
         end.to raise_error(Veltrunode::ValidationError, /creation_info requires owner_uid and owner_gid/)
       end
     end
+
+    context 'lifecycle_policies' do
+      it 'supports transition_to_ia and transition_to_archive via lifecycle_policies hash' do
+        ap = described_class.new(
+          file_system_id: valid_fs_id,
+          lifecycle_policies: {
+            transition_to_ia: 'AFTER_30_DAYS',
+            transition_to_archive: 'AFTER_90_DAYS'
+          }
+        )
+
+        expect(ap.lifecycle_policies?).to be(true)
+        expect(ap.lifecycle_policies).to eq(
+          'transition_to_ia' => 'AFTER_30_DAYS',
+          'transition_to_archive' => 'AFTER_90_DAYS'
+        )
+        expect(ap.transition_to_ia).to eq('AFTER_30_DAYS')
+        expect(ap.transition_to_archive).to eq('AFTER_90_DAYS')
+      end
+
+      it 'normalizes lowercase symbols, integers, and array of hashes for lifecycle_policies' do
+        ap_sym = described_class.new(
+          file_system_id: valid_fs_id,
+          transition_to_ia: :after_14_days,
+          transition_to_archive: 60
+        )
+        expect(ap_sym.transition_to_ia).to eq('AFTER_14_DAYS')
+        expect(ap_sym.transition_to_archive).to eq('AFTER_60_DAYS')
+
+        ap_arr = described_class.new(
+          file_system_id: valid_fs_id,
+          lifecycle_policies: [
+            { 'TransitionToIA' => 'AFTER_7_DAYS' },
+            { 'TransitionToArchive' => 'AFTER_30_DAYS' }
+          ]
+        )
+        expect(ap_arr.transition_to_ia).to eq('AFTER_7_DAYS')
+        expect(ap_arr.transition_to_archive).to eq('AFTER_30_DAYS')
+      end
+
+      it 'raises ValidationError for invalid transition_to_ia or transition_to_archive values' do
+        expect do
+          described_class.new(
+            file_system_id: valid_fs_id,
+            lifecycle_policies: { transition_to_ia: 'AFTER_5_DAYS' }
+          )
+        end.to raise_error(Veltrunode::ValidationError, /Invalid EFS lifecycle transition_to_ia/)
+
+        expect do
+          described_class.new(
+            file_system_id: valid_fs_id,
+            lifecycle_policies: { transition_to_archive: 'INVALID' }
+          )
+        end.to raise_error(Veltrunode::ValidationError, /Invalid EFS lifecycle transition_to_archive/)
+      end
+
+      it 'raises ValidationError when transition_to_archive is shorter than transition_to_ia' do
+        expect do
+          described_class.new(
+            file_system_id: valid_fs_id,
+            lifecycle_policies: {
+              transition_to_ia: 'AFTER_90_DAYS',
+              transition_to_archive: 'AFTER_30_DAYS'
+            }
+          )
+        end.to raise_error(Veltrunode::ValidationError, /must not be shorter than transition_to_ia/)
+      end
+    end
   end
 end

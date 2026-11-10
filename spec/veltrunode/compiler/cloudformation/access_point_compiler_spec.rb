@@ -97,6 +97,34 @@ RSpec.describe Veltrunode::Compiler::CloudFormation::AccessPointCompiler do
         described_class.compile(unmanaged)
       end.to raise_error(Veltrunode::ValidationError, /does not have managed_access_point configuration/)
     end
+
+    it 'compiles AWS::EFS::FileSystem with LifecyclePolicies when lifecycle_policies are configured' do
+      lifecycle_mount = Veltrunode::Model::EfsMount.new(
+        symbolic_name: 'shared_logs',
+        local_path: '/mnt/logs',
+        managed_access_point: {
+          file_system_id: valid_fs_id,
+          lifecycle_policies: {
+            transition_to_ia: 'AFTER_30_DAYS',
+            transition_to_archive: 'AFTER_90_DAYS'
+          }
+        }
+      )
+
+      result = described_class.compile(lifecycle_mount)
+
+      expect(result).to have_key('SharedLogsAccessPoint')
+      expect(result).to have_key('SharedLogsFileSystem')
+
+      fs_res = result['SharedLogsFileSystem']
+      expect(fs_res['Type']).to eq('AWS::EFS::FileSystem')
+      expect(fs_res['Properties']['LifecyclePolicies']).to eq(
+        [
+          { 'TransitionToIA' => 'AFTER_30_DAYS' },
+          { 'TransitionToArchive' => 'AFTER_90_DAYS' }
+        ]
+      )
+    end
   end
 
   describe 'Determinism & Key Sorting' do

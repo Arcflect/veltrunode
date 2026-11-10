@@ -146,6 +146,8 @@ module Veltrunode
           for_scheduler_role(name)
         when :access_point
           for_access_point(name)
+        when :file_system, :efs_file_system
+          for_file_system(name)
         when :lambda_security_group
           for_lambda_security_group(name)
         when :efs_security_group
@@ -217,6 +219,19 @@ module Veltrunode
         base = 'AccessPoint' if base.empty?
         base.end_with?('AccessPoint') ? base : "#{base}AccessPoint"
       end
+
+      # EFS FileSystem (AWS::EFS::FileSystem) の論理IDを生成します（サフィックス: FileSystem）
+      #
+      # @param name [String, Symbol, nil] ファイルシステム名またはシンボリック名 (例: :shared_data)
+      # @return [String] 論理ID (例: "SharedDataFileSystem")
+      def for_file_system(name = nil)
+        base = pascalize(name)
+        return 'FileSystem' if base.empty? || base == 'Default'
+        return base if base.end_with?('FileSystem')
+
+        "#{base}FileSystem"
+      end
+      alias for_efs_file_system for_file_system
 
       # Lambda 側 SecurityGroup の論理IDを生成します
       #

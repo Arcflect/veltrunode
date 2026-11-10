@@ -419,6 +419,44 @@ RSpec.describe Veltrunode::DSL do
       expect(mount.managed_access_point.file_system_id).to eq('fs-0123456789abcdef0')
       expect(mount.managed_access_point.posix_user).to eq('uid' => 1001, 'gid' => 1001)
     end
+
+    it 'supports lifecycle_policies (transition_to_ia, transition_to_archive) in managed_access_point and efs_mount' do
+      code = <<~RUBY
+        Veltrunode.application "efs-lifecycle-app" do
+          efs_mount :shared_logs do
+            local_path "/mnt/logs"
+            managed_access_point "fs-0123456789abcdef0" do
+              posix_user uid: 1000, gid: 1000
+              lifecycle_policies transition_to_ia: "AFTER_30_DAYS",
+                                 transition_to_archive: "AFTER_90_DAYS"
+            end
+          end
+
+          managed_access_point :cache_storage, "fs-fedcba98765432100" do
+            local_path "/mnt/cache"
+            lifecycle_policies do
+              transition_to_ia :after_14_days
+              transition_to_archive :after_60_days
+            end
+          end
+        end
+      RUBY
+
+      app = Veltrunode.parse(code)
+      expect(app.mounts.size).to eq(2)
+
+      logs_mount = app.mounts.find { |m| m.symbolic_name == 'shared_logs' }
+      expect(logs_mount.lifecycle_policies?).to be(true)
+      expect(logs_mount.transition_to_ia).to eq('AFTER_30_DAYS')
+      expect(logs_mount.transition_to_archive).to eq('AFTER_90_DAYS')
+      expect(logs_mount.managed_access_point.transition_to_ia).to eq('AFTER_30_DAYS')
+      expect(logs_mount.managed_access_point.transition_to_archive).to eq('AFTER_90_DAYS')
+
+      cache_mount = app.mounts.find { |m| m.symbolic_name == 'cache_storage' }
+      expect(cache_mount.lifecycle_policies?).to be(true)
+      expect(cache_mount.transition_to_ia).to eq('AFTER_14_DAYS')
+      expect(cache_mount.transition_to_archive).to eq('AFTER_60_DAYS')
+    end
   end
 
   describe 'security_group_helper DSL' do

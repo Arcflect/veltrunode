@@ -146,4 +146,37 @@ RSpec.describe Veltrunode::Model::EfsMount do
         .to raise_error(Veltrunode::ValidationError, /Duplicate local_path/)
     end
   end
+
+  describe 'lifecycle_policies' do
+    it 'supports lifecycle_policies directly on EfsMount or via managed_access_point' do
+      mount_direct = described_class.new(
+        symbolic_name: 'logs_efs',
+        local_path: '/mnt/logs',
+        lifecycle_policies: {
+          transition_to_ia: 'AFTER_30_DAYS',
+          transition_to_archive: 'AFTER_90_DAYS'
+        }
+      )
+
+      expect(mount_direct.lifecycle_policies?).to be(true)
+      expect(mount_direct.transition_to_ia).to eq('AFTER_30_DAYS')
+      expect(mount_direct.transition_to_archive).to eq('AFTER_90_DAYS')
+
+      mount_via_ap = described_class.new(
+        symbolic_name: 'cache_efs',
+        local_path: '/mnt/cache',
+        managed_access_point: {
+          file_system_id: 'fs-0123456789abcdef0',
+          lifecycle_policies: {
+            transition_to_ia: 'AFTER_14_DAYS',
+            transition_to_archive: 'AFTER_60_DAYS'
+          }
+        }
+      )
+
+      expect(mount_via_ap.lifecycle_policies?).to be(true)
+      expect(mount_via_ap.transition_to_ia).to eq('AFTER_14_DAYS')
+      expect(mount_via_ap.transition_to_archive).to eq('AFTER_60_DAYS')
+    end
+  end
 end
