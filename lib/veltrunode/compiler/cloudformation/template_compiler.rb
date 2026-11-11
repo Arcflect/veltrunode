@@ -346,7 +346,9 @@ module Veltrunode
           end
 
           mount_nodes.each do |mount|
-            if mount.respond_to?(:lifecycle_policies?) && mount.lifecycle_policies?
+            has_fs = (mount.respond_to?(:file_system_configuration?) && mount.file_system_configuration?) ||
+                     (mount.respond_to?(:lifecycle_policies?) && mount.lifecycle_policies?)
+            if has_fs
               fs_res = FileSystemCompiler.compile(mount, context: context)
               resources.merge!(fs_res)
             end

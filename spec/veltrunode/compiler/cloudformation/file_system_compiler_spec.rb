@@ -50,5 +50,19 @@ RSpec.describe Veltrunode::Compiler::CloudFormation::FileSystemCompiler do
       expect(loaded).to have_key('SharedLogsFileSystem')
       expect(loaded['SharedLogsFileSystem']['Type']).to eq('AWS::EFS::FileSystem')
     end
+
+    it 'compiles ThroughputMode and ProvisionedThroughputInMibps when configured' do
+      prov_mount = Veltrunode::Model::EfsMount.new(
+        symbolic_name: 'high_throughput_efs',
+        local_path: '/mnt/high',
+        throughput_mode: :provisioned,
+        provisioned_throughput_in_mibps: 500
+      )
+
+      result = described_class.compile(prov_mount)
+      props = result['HighThroughputEfsFileSystem']['Properties']
+      expect(props['ThroughputMode']).to eq('provisioned')
+      expect(props['ProvisionedThroughputInMibps']).to eq(500)
+    end
   end
 end

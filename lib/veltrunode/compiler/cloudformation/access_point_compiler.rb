@@ -58,7 +58,7 @@ module Veltrunode
               'Properties' => properties
             }
           }
-          resources.merge!(FileSystemCompiler.compile(mount, context: context)) if lifecycle_policies?
+          resources.merge!(FileSystemCompiler.compile(mount, context: context)) if file_system_configuration?
 
           deep_sort_keys(resources)
         end
@@ -123,14 +123,17 @@ module Veltrunode
           fs_id
         end
 
-        def lifecycle_policies?
+        def file_system_configuration?
+          return true if mount.respond_to?(:file_system_configuration?) && mount.file_system_configuration?
           return true if mount.respond_to?(:lifecycle_policies?) && mount.lifecycle_policies?
 
           map = managed_access_point_data
+          return true if map.respond_to?(:file_system_configuration?) && map.file_system_configuration?
           return true if map.respond_to?(:lifecycle_policies?) && map.lifecycle_policies?
 
           false
         end
+        alias lifecycle_policies? file_system_configuration?
 
         def format_posix_user(posix_user)
           return nil if posix_user.nil? || !posix_user.is_a?(Hash)
