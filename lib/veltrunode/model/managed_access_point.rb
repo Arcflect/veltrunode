@@ -28,17 +28,45 @@ module Veltrunode
         'AFTER_365_DAYS' => 365
       }.freeze
       VALID_PRIMARY_STORAGE_CLASS_VALUES = %w[AFTER_1_ACCESS].freeze
+      VALID_THROUGHPUT_MODES = %w[bursting provisioned elastic].freeze
 
       attr_reader :file_system_id,
                   :root_directory_path,
                   :posix_user,
                   :creation_info,
                   :lifecycle_policies,
+                  :throughput_mode,
+                  :provisioned_throughput_in_mibps,
                   :tags
 
       alias lifecycle_policy lifecycle_policies
+      alias provisioned_throughput provisioned_throughput_in_mibps
 
       class << self
+        def normalize_throughput_config(
+          throughput_mode: nil,
+          provisioned_throughput_in_mibps: nil,
+          provisioned_throughput: nil
+        )
+          raw_pt = provisioned_throughput_in_mibps.nil? ? provisioned_throughput : provisioned_throughput_in_mibps
+          normalized_pt = raw_pt.nil? ? nil : normalize_provisioned_throughput!(raw_pt)
+          normalized_mode = throughput_mode.nil? ? nil : normalize_throughput_mode!(throughput_mode)
+          normalized_mode ||= 'provisioned' if normalized_pt
+
+          if normalized_mode == 'provisioned' && normalized_pt.nil?
+            raise ValidationError,
+                  "EFS throughput_mode 'provisioned' requires provisioned_throughput_in_mibps"
+          end
+
+          if normalized_mode && normalized_mode != 'provisioned' && !normalized_pt.nil?
+            raise ValidationError,
+                  "EFS provisioned_throughput_in_mibps can only be specified when throughput_mode is 'provisioned' " \
+                  "(got '#{normalized_mode}')"
+          end
+
+          [normalized_mode, normalized_pt]
+        end
+
         def normalize_lifecycle_policies(
           policies = nil,
           transition_to_ia: nil,
@@ -143,6 +171,34 @@ module Veltrunode
                 "Invalid EFS lifecycle transition_to_primary_storage_class '#{val}'. " \
                 "Must be one of: #{VALID_PRIMARY_STORAGE_CLASS_VALUES.join(', ')}"
         end
+
+        def normalize_throughput_mode!(val)
+          candidate = val.to_s.strip.downcase
+          return candidate.freeze if VALID_THROUGHPUT_MODES.include?(candidate)
+
+          raise ValidationError,
+                "Invalid EFS throughput_mode '#{val}'. " \
+                "Must be one of: #{VALID_THROUGHPUT_MODES.join(', ')}"
+        end
+
+        def normalize_provisioned_throughput!(val)
+          num = if val.is_a?(Integer) || val.is_a?(Float)
+                  val
+                elsif val.is_a?(Numeric)
+                  val.to_f
+                elsif val.is_a?(String) && val.strip.match?(/\A-?\d+(\.\d+)?\z/)
+                  str = val.strip
+                  str.include?('.') ? Float(str) : Integer(str, 10)
+                else
+                  raise ValidationError,
+                        "Invalid EFS provisioned_throughput_in_mibps '#{val}'. Must be a positive number"
+                end
+
+          return num if num.positive?
+
+          raise ValidationError,
+                "Invalid EFS provisioned_throughput_in_mibps '#{val}'. Must be a positive number (> 0)"
+        end
       end
 
       def initialize(
@@ -155,6 +211,9 @@ module Veltrunode
         transition_to_ia: nil,
         transition_to_archive: nil,
         transition_to_primary_storage_class: nil,
+        throughput_mode: nil,
+        provisioned_throughput_in_mibps: nil,
+        provisioned_throughput: nil,
         tags: nil
       )
         resolved_lifecycle = self.class.normalize_lifecycle_policies(
@@ -163,7 +222,13 @@ module Veltrunode
           transition_to_archive: transition_to_archive,
           transition_to_primary_storage_class: transition_to_primary_storage_class
         )
-        allow_nil_fs_id = (file_system_id == :__unset__ || file_system_id.nil?) && !resolved_lifecycle.nil?
+        resolved_tp_mode, resolved_prov_tp = self.class.normalize_throughput_config(
+          throughput_mode: throughput_mode,
+          provisioned_throughput_in_mibps: provisioned_throughput_in_mibps,
+          provisioned_throughput: provisioned_throughput
+        )
+        has_fs_config = !resolved_lifecycle.nil? || !resolved_tp_mode.nil? || !resolved_prov_tp.nil?
+        allow_nil_fs_id = (file_system_id == :__unset__ || file_system_id.nil?) && has_fs_config
         resolved_fs_id = file_system_id == :__unset__ ? nil : file_system_id
 
         resolved_root_path = root_directory_path ? root_directory_path.to_s.strip : '/'
@@ -184,6 +249,8 @@ module Veltrunode
         @posix_user = normalize_posix_user(posix_user)
         @creation_info = normalize_creation_info(creation_info)
         @lifecycle_policies = resolved_lifecycle
+        @throughput_mode = resolved_tp_mode
+        @provisioned_throughput_in_mibps = resolved_prov_tp
         @tags = tags ? freeze_hash(tags) : {}.freeze
 
         freeze
@@ -191,6 +258,14 @@ module Veltrunode
 
       def lifecycle_policies?
         !@lifecycle_policies.nil? && !@lifecycle_policies.empty?
+      end
+
+      def throughput_configuration?
+        !@throughput_mode.nil? || !@provisioned_throughput_in_mibps.nil?
+      end
+
+      def file_system_configuration?
+        lifecycle_policies? || throughput_configuration?
       end
 
       def transition_to_ia

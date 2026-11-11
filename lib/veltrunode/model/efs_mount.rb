@@ -15,10 +15,13 @@ module Veltrunode
                   :diagnostic_policy,
                   :managed_access_point,
                   :security_group_helper,
-                  :lifecycle_policies
+                  :lifecycle_policies,
+                  :throughput_mode,
+                  :provisioned_throughput_in_mibps
 
       alias name symbolic_name
       alias lifecycle_policy lifecycle_policies
+      alias provisioned_throughput provisioned_throughput_in_mibps
 
       class << self
         def validate_unique_local_paths!(mounts)
@@ -52,6 +55,9 @@ module Veltrunode
         transition_to_ia: nil,
         transition_to_archive: nil,
         transition_to_primary_storage_class: nil,
+        throughput_mode: nil,
+        provisioned_throughput_in_mibps: nil,
+        provisioned_throughput: nil,
         vpc_expectations: {},
         posix_expectations: {},
         diagnostic_policy: {}
@@ -62,16 +68,29 @@ module Veltrunode
           transition_to_archive: transition_to_archive,
           transition_to_primary_storage_class: transition_to_primary_storage_class
         )
-        normalized_map = normalize_managed_access_point(managed_access_point, explicit_lifecycle)
+        explicit_tp_mode, explicit_prov_tp = ManagedAccessPoint.normalize_throughput_config(
+          throughput_mode: throughput_mode,
+          provisioned_throughput_in_mibps: provisioned_throughput_in_mibps,
+          provisioned_throughput: provisioned_throughput
+        )
+        normalized_map = normalize_managed_access_point(
+          managed_access_point,
+          explicit_lifecycle,
+          explicit_tp_mode,
+          explicit_prov_tp
+        )
         resolved_lifecycle = explicit_lifecycle || normalized_map&.lifecycle_policies
+        resolved_tp_mode = explicit_tp_mode || normalized_map&.throughput_mode
+        resolved_prov_tp = explicit_prov_tp || normalized_map&.provisioned_throughput_in_mibps
+        has_fs_config = !resolved_lifecycle.nil? || !resolved_tp_mode.nil? || !resolved_prov_tp.nil?
         resolved_source = access_point_source ||
-                          (normalized_map || resolved_lifecycle ? symbolic_name : nil)
+                          (normalized_map || has_fs_config ? symbolic_name : nil)
         validate!(
           symbolic_name: symbolic_name,
           access_point_source: resolved_source,
           local_path: local_path,
           managed_access_point: normalized_map,
-          lifecycle_policies: resolved_lifecycle
+          has_fs_config: has_fs_config
         )
 
         @symbolic_name = symbolic_name.to_s.freeze
@@ -80,6 +99,8 @@ module Veltrunode
         @managed_access_point = normalized_map
         @security_group_helper = security_group_helper
         @lifecycle_policies = resolved_lifecycle
+        @throughput_mode = resolved_tp_mode
+        @provisioned_throughput_in_mibps = resolved_prov_tp
         @vpc_expectations = freeze_value(vpc_expectations)
         @posix_expectations = freeze_value(posix_expectations)
         @diagnostic_policy = freeze_value(diagnostic_policy)
@@ -99,6 +120,14 @@ module Veltrunode
         !@lifecycle_policies.nil? && !@lifecycle_policies.empty?
       end
 
+      def throughput_configuration?
+        !@throughput_mode.nil? || !@provisioned_throughput_in_mibps.nil?
+      end
+
+      def file_system_configuration?
+        lifecycle_policies? || throughput_configuration?
+      end
+
       def transition_to_ia
         @lifecycle_policies&.fetch('transition_to_ia', nil)
       end
@@ -114,9 +143,9 @@ module Veltrunode
       private
 
       def validate!(symbolic_name:, access_point_source:, local_path:, managed_access_point: nil,
-                    lifecycle_policies: nil)
+                    has_fs_config: false)
         raise ValidationError, 'EfsMount symbolic_name is required' if blank?(symbolic_name)
-        if blank?(access_point_source) && managed_access_point.nil? && lifecycle_policies.nil?
+        if blank?(access_point_source) && managed_access_point.nil? && !has_fs_config
           raise ValidationError, 'EfsMount access_point_source or managed_access_point is required'
         end
         raise ValidationError, 'EfsMount local_path is required' if blank?(local_path)
@@ -125,13 +154,15 @@ module Veltrunode
         validate_access_point_source!(access_point_source) if access_point_source
       end
 
-      def normalize_managed_access_point(map, explicit_lifecycle = nil)
+      def normalize_managed_access_point(map, explicit_lifecycle = nil, explicit_tp_mode = nil, explicit_prov_tp = nil)
         return nil if map.nil?
         return map if map.is_a?(ManagedAccessPoint)
 
         if map.is_a?(Hash)
           opts = map.dup
           opts[:lifecycle_policies] ||= explicit_lifecycle if explicit_lifecycle
+          opts[:throughput_mode] ||= explicit_tp_mode if explicit_tp_mode
+          opts[:provisioned_throughput_in_mibps] ||= explicit_prov_tp if explicit_prov_tp
           return ManagedAccessPoint.new(**opts)
         end
 

@@ -1751,5 +1751,49 @@ RSpec.describe Veltrunode::Compiler::CloudFormation::TemplateCompiler do
       expect(resources).to have_key('SharedLogsAccessPoint')
       expect(resources['SharedLogsAccessPoint']['Type']).to eq('AWS::EFS::AccessPoint')
     end
+
+    it 'compiles AWS::EFS::FileSystem with ThroughputMode (elastic and provisioned) and ProvisionedThroughputInMibps' do
+      dsl_code = <<~RUBY
+        Veltrunode.application "efs-throughput-service" do
+          aws region: "ap-northeast-1", account: "123456789012"
+          runtime ruby: "3.3"
+
+          efs_mount :elastic_data do
+            local_path "/mnt/elastic"
+            managed_access_point "fs-0123456789abcdef0" do
+              throughput_mode :elastic
+            end
+          end
+
+          managed_access_point :provisioned_data, "fs-fedcba98765432100" do
+            local_path "/mnt/provisioned"
+            throughput_mode :provisioned
+            provisioned_throughput_in_mibps 200
+          end
+
+          function :batch_worker do
+            handler "worker.handler"
+            vpc_reference subnet_ids: ["subnet-11112222"], security_group_ids: ["sg-11112222"]
+            mount :elastic_data
+          end
+        end
+      RUBY
+
+      app = Veltrunode.parse(dsl_code)
+      result = described_class.compile(app)
+      resources = result['Resources']
+
+      elastic_fs = resources['ElasticDataFileSystem']
+      expect(elastic_fs).not_to be_nil
+      expect(elastic_fs['Type']).to eq('AWS::EFS::FileSystem')
+      expect(elastic_fs['Properties']['ThroughputMode']).to eq('elastic')
+      expect(elastic_fs['Properties']).not_to have_key('ProvisionedThroughputInMibps')
+
+      prov_fs = resources['ProvisionedDataFileSystem']
+      expect(prov_fs).not_to be_nil
+      expect(prov_fs['Type']).to eq('AWS::EFS::FileSystem')
+      expect(prov_fs['Properties']['ThroughputMode']).to eq('provisioned')
+      expect(prov_fs['Properties']['ProvisionedThroughputInMibps']).to eq(200)
+    end
   end
 end

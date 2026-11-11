@@ -179,4 +179,30 @@ RSpec.describe Veltrunode::Model::EfsMount do
       expect(mount_via_ap.transition_to_archive).to eq('AFTER_60_DAYS')
     end
   end
+
+  describe 'throughput_mode and provisioned_throughput_in_mibps' do
+    it 'supports throughput_mode and provisioned_throughput_in_mibps on EfsMount and via managed_access_point' do
+      mount_elastic = described_class.new(
+        symbolic_name: 'elastic_efs',
+        local_path: '/mnt/elastic',
+        throughput_mode: :elastic
+      )
+      expect(mount_elastic.throughput_configuration?).to be(true)
+      expect(mount_elastic.file_system_configuration?).to be(true)
+      expect(mount_elastic.throughput_mode).to eq('elastic')
+
+      mount_prov = described_class.new(
+        symbolic_name: 'prov_efs',
+        local_path: '/mnt/prov',
+        managed_access_point: {
+          file_system_id: 'fs-0123456789abcdef0',
+          throughput_mode: :provisioned,
+          provisioned_throughput_in_mibps: 150
+        }
+      )
+      expect(mount_prov.throughput_configuration?).to be(true)
+      expect(mount_prov.throughput_mode).to eq('provisioned')
+      expect(mount_prov.provisioned_throughput_in_mibps).to eq(150)
+    end
+  end
 end

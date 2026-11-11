@@ -60,6 +60,11 @@ module Veltrunode
           props = {}
           policies = format_lifecycle_policies
           props['LifecyclePolicies'] = policies unless policies.empty?
+
+          tp_mode, prov_tp = format_throughput_config
+          props['ThroughputMode'] = tp_mode if tp_mode
+          props['ProvisionedThroughputInMibps'] = prov_tp unless prov_tp.nil?
+
           props
         end
 
@@ -80,6 +85,51 @@ module Veltrunode
         def format_lifecycle_policies
           raw = extract_lifecycle_policies
           Model::ManagedAccessPoint.to_cfn_lifecycle_policies(raw)
+        end
+
+        def format_throughput_config
+          raw_mode = extract_throughput_mode
+          raw_prov = extract_provisioned_throughput
+          return [nil, nil] if raw_mode.nil? && raw_prov.nil?
+
+          Model::ManagedAccessPoint.normalize_throughput_config(
+            throughput_mode: raw_mode,
+            provisioned_throughput_in_mibps: raw_prov
+          )
+        end
+
+        def extract_throughput_mode
+          if mount.respond_to?(:throughput_mode) && mount.throughput_mode
+            mount.throughput_mode
+          elsif mount.respond_to?(:managed_access_point) && mount.managed_access_point&.throughput_mode
+            mount.managed_access_point.throughput_mode
+          elsif mount.is_a?(Hash)
+            mount[:throughput_mode] || mount['throughput_mode'] ||
+              mount[:ThroughputMode] || mount['ThroughputMode'] ||
+              extract_hash_ap_field(mount, :throughput_mode, 'throughput_mode')
+          end
+        end
+
+        def extract_provisioned_throughput
+          if mount.respond_to?(:provisioned_throughput_in_mibps) && !mount.provisioned_throughput_in_mibps.nil?
+            mount.provisioned_throughput_in_mibps
+          elsif mount.respond_to?(:managed_access_point) &&
+                !mount.managed_access_point&.provisioned_throughput_in_mibps.nil?
+            mount.managed_access_point.provisioned_throughput_in_mibps
+          elsif mount.is_a?(Hash)
+            mount[:provisioned_throughput_in_mibps] || mount['provisioned_throughput_in_mibps'] ||
+              mount[:provisioned_throughput] || mount['provisioned_throughput'] ||
+              mount[:ProvisionedThroughputInMibps] || mount['ProvisionedThroughputInMibps'] ||
+              extract_hash_ap_field(mount, :provisioned_throughput_in_mibps, 'provisioned_throughput_in_mibps')
+          end
+        end
+
+        def extract_hash_ap_field(hash, sym_key, str_key)
+          ap = hash[:managed_access_point] || hash['managed_access_point']
+          return ap.public_send(sym_key) if ap.respond_to?(sym_key)
+          return ap[sym_key] || ap[str_key] if ap.is_a?(Hash)
+
+          nil
         end
 
         def extract_lifecycle_policies

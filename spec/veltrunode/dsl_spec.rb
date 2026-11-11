@@ -457,6 +457,38 @@ RSpec.describe Veltrunode::DSL do
       expect(cache_mount.transition_to_ia).to eq('AFTER_14_DAYS')
       expect(cache_mount.transition_to_archive).to eq('AFTER_60_DAYS')
     end
+
+    it 'supports throughput_mode (:elastic / :provisioned) and provisioned_throughput_in_mibps in DSL' do
+      code = <<~RUBY
+        Veltrunode.application "efs-throughput-app" do
+          efs_mount :elastic_storage do
+            local_path "/mnt/elastic"
+            managed_access_point "fs-0123456789abcdef0" do
+              throughput_mode :elastic
+            end
+          end
+
+          managed_access_point :provisioned_storage, "fs-fedcba98765432100" do
+            local_path "/mnt/provisioned"
+            throughput_mode :provisioned
+            provisioned_throughput_in_mibps 250
+          end
+        end
+      RUBY
+
+      app = Veltrunode.parse(code)
+      expect(app.mounts.size).to eq(2)
+
+      elastic_mount = app.mounts.find { |m| m.symbolic_name == 'elastic_storage' }
+      expect(elastic_mount.throughput_configuration?).to be(true)
+      expect(elastic_mount.throughput_mode).to eq('elastic')
+      expect(elastic_mount.provisioned_throughput_in_mibps).to be_nil
+
+      prov_mount = app.mounts.find { |m| m.symbolic_name == 'provisioned_storage' }
+      expect(prov_mount.throughput_configuration?).to be(true)
+      expect(prov_mount.throughput_mode).to eq('provisioned')
+      expect(prov_mount.provisioned_throughput_in_mibps).to eq(250)
+    end
   end
 
   describe 'security_group_helper DSL' do

@@ -15,7 +15,10 @@ module Veltrunode
         lifecycle_policy: nil,
         transition_to_ia: nil,
         transition_to_archive: nil,
-        transition_to_primary_storage_class: nil
+        transition_to_primary_storage_class: nil,
+        throughput_mode: nil,
+        provisioned_throughput_in_mibps: nil,
+        provisioned_throughput: nil
       )
         super()
         @symbolic_name = symbolic_name.to_s
@@ -30,6 +33,12 @@ module Veltrunode
           transition_to_archive: transition_to_archive,
           transition_to_primary_storage_class: transition_to_primary_storage_class
         )
+        @throughput_mode = throughput_mode
+        @provisioned_throughput_in_mibps = if provisioned_throughput_in_mibps.nil?
+                                             provisioned_throughput
+                                           else
+                                             provisioned_throughput_in_mibps
+                                           end
         @vpc_expectations = {}
         @posix_expectations = {}
         @diagnostic_policy = {}
@@ -49,10 +58,20 @@ module Veltrunode
         transition_to_ia: nil,
         transition_to_archive: nil,
         transition_to_primary_storage_class: nil,
+        throughput_mode: nil,
+        provisioned_throughput_in_mibps: nil,
+        provisioned_throughput: nil,
         local_path: nil,
         tags: nil,
         &
       )
+        resolved_pt = if !provisioned_throughput_in_mibps.nil?
+                        provisioned_throughput_in_mibps
+                      elsif !provisioned_throughput.nil?
+                        provisioned_throughput
+                      else
+                        @provisioned_throughput_in_mibps
+                      end
         builder = ManagedAccessPointBuilder.new(
           file_system_id,
           root_directory: root_directory,
@@ -67,6 +86,8 @@ module Veltrunode
           transition_to_ia: transition_to_ia,
           transition_to_archive: transition_to_archive,
           transition_to_primary_storage_class: transition_to_primary_storage_class,
+          throughput_mode: throughput_mode || @throughput_mode,
+          provisioned_throughput_in_mibps: resolved_pt,
           local_path: local_path,
           tags: tags
         )
@@ -113,6 +134,17 @@ module Veltrunode
       def transition_to_primary_storage_class(val)
         @lifecycle_policies[:transition_to_primary_storage_class] = val
       end
+
+      def throughput_mode(mode = nil, provisioned_throughput_in_mibps: nil, provisioned_throughput: nil)
+        @throughput_mode = mode unless mode.nil?
+        pt = provisioned_throughput_in_mibps.nil? ? provisioned_throughput : provisioned_throughput_in_mibps
+        @provisioned_throughput_in_mibps = pt unless pt.nil?
+      end
+
+      def provisioned_throughput_in_mibps(val)
+        @provisioned_throughput_in_mibps = val
+      end
+      alias provisioned_throughput provisioned_throughput_in_mibps
 
       def existing_access_point(arn: nil)
         @access_point_source = arn if arn
@@ -164,13 +196,16 @@ module Veltrunode
 
       def build
         lifecycle = @lifecycle_policies.empty? ? nil : @lifecycle_policies
-        resolved_local_path = @local_path || (@managed_access_point || lifecycle ? "/mnt/#{@symbolic_name}" : nil)
+        has_fs_config = !lifecycle.nil? || !@throughput_mode.nil? || !@provisioned_throughput_in_mibps.nil?
+        resolved_local_path = @local_path || (@managed_access_point || has_fs_config ? "/mnt/#{@symbolic_name}" : nil)
         Model::EfsMount.new(
           symbolic_name: @symbolic_name,
           access_point_source: @access_point_source || @symbolic_name,
           managed_access_point: @managed_access_point,
           security_group_helper: @security_group_helper,
           lifecycle_policies: lifecycle,
+          throughput_mode: @throughput_mode,
+          provisioned_throughput_in_mibps: @provisioned_throughput_in_mibps,
           local_path: resolved_local_path,
           vpc_expectations: @vpc_expectations,
           posix_expectations: @posix_expectations,
