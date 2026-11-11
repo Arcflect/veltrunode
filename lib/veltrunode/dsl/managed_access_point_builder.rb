@@ -20,6 +20,9 @@ module Veltrunode
         transition_to_ia: nil,
         transition_to_archive: nil,
         transition_to_primary_storage_class: nil,
+        throughput_mode: nil,
+        provisioned_throughput_in_mibps: nil,
+        provisioned_throughput: nil,
         local_path: nil,
         tags: nil
       )
@@ -38,6 +41,12 @@ module Veltrunode
           transition_to_archive: transition_to_archive,
           transition_to_primary_storage_class: transition_to_primary_storage_class
         )
+        @throughput_mode = throughput_mode
+        @provisioned_throughput_in_mibps = if provisioned_throughput_in_mibps.nil?
+                                             provisioned_throughput
+                                           else
+                                             provisioned_throughput_in_mibps
+                                           end
         @tags = tags ? tags.dup : {}
         @local_path_val = local_path&.to_s
       end
@@ -148,17 +157,31 @@ module Veltrunode
         @lifecycle_policies[:transition_to_primary_storage_class] = val
       end
 
+      def throughput_mode(mode = nil, provisioned_throughput_in_mibps: nil, provisioned_throughput: nil)
+        @throughput_mode = mode unless mode.nil?
+        pt = provisioned_throughput_in_mibps.nil? ? provisioned_throughput : provisioned_throughput_in_mibps
+        @provisioned_throughput_in_mibps = pt unless pt.nil?
+      end
+
+      def provisioned_throughput_in_mibps(val)
+        @provisioned_throughput_in_mibps = val
+      end
+      alias provisioned_throughput provisioned_throughput_in_mibps
+
       def build
         posix = @posix_user.empty? ? nil : @posix_user
         lifecycle = @lifecycle_policies.empty? ? nil : @lifecycle_policies
+        has_fs_config = !lifecycle.nil? || !@throughput_mode.nil? || !@provisioned_throughput_in_mibps.nil?
         opts = {
           root_directory_path: @root_directory_path,
           posix_user: posix,
           creation_info: @creation_info,
           lifecycle_policies: lifecycle,
+          throughput_mode: @throughput_mode,
+          provisioned_throughput_in_mibps: @provisioned_throughput_in_mibps,
           tags: @tags.empty? ? nil : @tags
         }
-        opts[:file_system_id] = @file_system_id unless @file_system_id.nil? && lifecycle
+        opts[:file_system_id] = @file_system_id unless @file_system_id.nil? && has_fs_config
         Model::ManagedAccessPoint.new(**opts)
       end
 
