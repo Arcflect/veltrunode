@@ -90,6 +90,32 @@ end
 - **CloudFormation `AWS::EFS::FileSystem` への反映**:
   `lifecycle_policies` が設定されたマウントでは、`Veltrunode::Compiler::CloudFormation::FileSystemCompiler` により `AWS::EFS::FileSystem`（論理ID: `#{MountName}FileSystem`）の `Properties.LifecyclePolicies`（`TransitionToIA`, `TransitionToArchive`）が生成されます。
 
+### EFS スループットモード (Throughput Mode: Bursting / Provisioned / Elastic)
+
+突発的な高トラフィックワークロードや定常的な高スループットを要求される処理において、`managed_access_point` または `efs_mount` 定義内で `throughput_mode`（`:bursting`, `:provisioned`, `:elastic`）およびプロビジョンドスループット値 `provisioned_throughput_in_mibps` を指定できます。
+
+```ruby
+# 1. Elastic スループットモードの指定
+efs_mount :elastic_storage do
+  local_path "/mnt/elastic"
+  managed_access_point "fs-0123456789abcdef0" do
+    throughput_mode :elastic
+  end
+end
+
+# 2. Provisioned スループットモードと MiB/s 値の指定
+managed_access_point :provisioned_storage, "fs-0123456789abcdef0" do
+  local_path "/mnt/provisioned"
+  throughput_mode :provisioned
+  provisioned_throughput_in_mibps 200
+end
+```
+
+- **`throughput_mode`**: EFS のスループットモード（`:bursting`, `:provisioned`, `:elastic`）。
+- **`provisioned_throughput_in_mibps`（エイリアス: `provisioned_throughput`）**: `throughput_mode: :provisioned` 指定時のプロビジョンドスループット値（MiB/s、正の数値 `> 0`）。`:provisioned` 指定時に省略された場合や 0 以下の値、または `:elastic` / `:bursting` モードと同時指定された場合は `ValidationError` となります。
+- **CloudFormation `AWS::EFS::FileSystem` への反映**:
+  `Veltrunode::Compiler::CloudFormation::FileSystemCompiler` により `AWS::EFS::FileSystem` の `Properties.ThroughputMode` および `Properties.ProvisionedThroughputInMibps` に出力されます。
+
 ## 静的チェック項目 (Static Checks)
 
 - ローカルのマウントパスが `/mnt/` で始まっていること。
