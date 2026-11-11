@@ -168,5 +168,82 @@ RSpec.describe Veltrunode::Model::ManagedAccessPoint do
         end.to raise_error(Veltrunode::ValidationError, /must not be shorter than transition_to_ia/)
       end
     end
+
+    context 'throughput_mode and provisioned_throughput_in_mibps' do
+      it 'supports bursting and elastic throughput_mode' do
+        ap_elastic = described_class.new(file_system_id: valid_fs_id, throughput_mode: :elastic)
+        expect(ap_elastic.throughput_mode).to eq('elastic')
+        expect(ap_elastic.provisioned_throughput_in_mibps).to be_nil
+        expect(ap_elastic.throughput_configuration?).to be(true)
+
+        ap_bursting = described_class.new(file_system_id: valid_fs_id, throughput_mode: 'bursting')
+        expect(ap_bursting.throughput_mode).to eq('bursting')
+      end
+
+      it 'supports provisioned throughput_mode with numeric provisioned_throughput_in_mibps' do
+        ap_prov = described_class.new(
+          file_system_id: valid_fs_id,
+          throughput_mode: :provisioned,
+          provisioned_throughput_in_mibps: 100
+        )
+        expect(ap_prov.throughput_mode).to eq('provisioned')
+        expect(ap_prov.provisioned_throughput_in_mibps).to eq(100)
+
+        ap_float = described_class.new(
+          file_system_id: valid_fs_id,
+          throughput_mode: :provisioned,
+          provisioned_throughput_in_mibps: 256.5
+        )
+        expect(ap_float.provisioned_throughput_in_mibps).to eq(256.5)
+      end
+
+      it 'raises ValidationError when throughput_mode is invalid' do
+        expect do
+          described_class.new(file_system_id: valid_fs_id, throughput_mode: :invalid_mode)
+        end.to raise_error(Veltrunode::ValidationError, /Invalid EFS throughput_mode/)
+      end
+
+      it 'raises ValidationError when throughput_mode is provisioned without provisioned_throughput_in_mibps' do
+        expect do
+          described_class.new(file_system_id: valid_fs_id, throughput_mode: :provisioned)
+        end.to raise_error(Veltrunode::ValidationError, /requires provisioned_throughput_in_mibps/)
+      end
+
+      it 'raises ValidationError when provisioned_throughput_in_mibps is non-positive or non-numeric' do
+        expect do
+          described_class.new(
+            file_system_id: valid_fs_id,
+            throughput_mode: :provisioned,
+            provisioned_throughput_in_mibps: 0
+          )
+        end.to raise_error(Veltrunode::ValidationError, /Invalid EFS provisioned_throughput_in_mibps/)
+
+        expect do
+          described_class.new(
+            file_system_id: valid_fs_id,
+            throughput_mode: :provisioned,
+            provisioned_throughput_in_mibps: -10
+          )
+        end.to raise_error(Veltrunode::ValidationError, /Invalid EFS provisioned_throughput_in_mibps/)
+
+        expect do
+          described_class.new(
+            file_system_id: valid_fs_id,
+            throughput_mode: :provisioned,
+            provisioned_throughput_in_mibps: 'not_a_number'
+          )
+        end.to raise_error(Veltrunode::ValidationError, /Invalid EFS provisioned_throughput_in_mibps/)
+      end
+
+      it 'raises ValidationError when provisioned_throughput_in_mibps is set with elastic or bursting mode' do
+        expect do
+          described_class.new(
+            file_system_id: valid_fs_id,
+            throughput_mode: :elastic,
+            provisioned_throughput_in_mibps: 100
+          )
+        end.to raise_error(Veltrunode::ValidationError, /can only be specified when throughput_mode is 'provisioned'/)
+      end
+    end
   end
 end
