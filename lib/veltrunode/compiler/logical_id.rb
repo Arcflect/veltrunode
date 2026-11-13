@@ -113,10 +113,17 @@ module Veltrunode
       # IAM ロールの論理IDを生成します
       #
       # @param name [String, Symbol] ターゲットシンボリック名
-      # @param type [:lambda, :scheduler] ロール種別
+      # @param type [:lambda, :scheduler, :backup] ロール種別
       # @return [String] 論理ID
       def for_role(name, type: :lambda)
-        type.to_sym == :scheduler ? for_scheduler_role(name) : for_lambda_role(name)
+        case type.to_sym
+        when :scheduler
+          for_scheduler_role(name)
+        when :backup
+          for_backup_role(name)
+        else
+          for_lambda_role(name)
+        end
       end
 
       # リソース種別に応じた論理IDを汎用的に生成します
@@ -148,6 +155,14 @@ module Veltrunode
           for_access_point(name)
         when :file_system, :efs_file_system
           for_file_system(name)
+        when :backup_vault
+          for_backup_vault(name)
+        when :backup_plan
+          for_backup_plan(name)
+        when :backup_selection
+          for_backup_selection(name)
+        when :backup_role
+          for_backup_role(name)
         when :lambda_security_group
           for_lambda_security_group(name)
         when :efs_security_group
@@ -232,6 +247,54 @@ module Veltrunode
         "#{base}FileSystem"
       end
       alias for_efs_file_system for_file_system
+
+      # AWS Backup Vault (AWS::Backup::BackupVault) の論理IDを生成します（サフィックス: BackupVault）
+      #
+      # @param name [String, Symbol, nil] ターゲット名 (例: :shared_data)
+      # @return [String] 論理ID (例: "SharedDataBackupVault")
+      def for_backup_vault(name = nil)
+        base = pascalize(name)
+        return 'BackupVault' if base.empty? || base == 'Default'
+        return base if base.end_with?('BackupVault')
+
+        "#{base}BackupVault"
+      end
+
+      # AWS Backup Plan (AWS::Backup::BackupPlan) の論理IDを生成します（サフィックス: BackupPlan）
+      #
+      # @param name [String, Symbol, nil] ターゲット名 (例: :shared_data)
+      # @return [String] 論理ID (例: "SharedDataBackupPlan")
+      def for_backup_plan(name = nil)
+        base = pascalize(name)
+        return 'BackupPlan' if base.empty? || base == 'Default'
+        return base if base.end_with?('BackupPlan')
+
+        "#{base}BackupPlan"
+      end
+
+      # AWS Backup Selection (AWS::Backup::BackupSelection) の論理IDを生成します（サフィックス: BackupSelection）
+      #
+      # @param name [String, Symbol, nil] ターゲット名 (例: :shared_data)
+      # @return [String] 論理ID (例: "SharedDataBackupSelection")
+      def for_backup_selection(name = nil)
+        base = pascalize(name)
+        return 'BackupSelection' if base.empty? || base == 'Default'
+        return base if base.end_with?('BackupSelection')
+
+        "#{base}BackupSelection"
+      end
+
+      # AWS Backup サービスロール (AWS::IAM::Role) の論理IDを生成します（サフィックス: BackupRole）
+      #
+      # @param name [String, Symbol, nil] ターゲット名 (例: :shared_data)
+      # @return [String] 論理ID (例: "SharedDataBackupRole")
+      def for_backup_role(name = nil)
+        base = pascalize(name)
+        return 'BackupRole' if base.empty? || base == 'Default'
+        return base if base.end_with?('BackupRole')
+
+        "#{base}BackupRole"
+      end
 
       # Lambda 側 SecurityGroup の論理IDを生成します
       #

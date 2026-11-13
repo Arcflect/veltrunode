@@ -3,6 +3,7 @@
 require 'yaml'
 require_relative '../logical_id'
 require_relative 'file_system_compiler'
+require_relative 'backup_compiler'
 
 module Veltrunode
   module Compiler
@@ -59,6 +60,7 @@ module Veltrunode
             }
           }
           resources.merge!(FileSystemCompiler.compile(mount, context: context)) if file_system_configuration?
+          resources.merge!(BackupCompiler.compile(mount, context: context)) if backup_configuration?
 
           deep_sort_keys(resources)
         end
@@ -134,6 +136,15 @@ module Veltrunode
           false
         end
         alias lifecycle_policies? file_system_configuration?
+
+        def backup_configuration?
+          return true if mount.respond_to?(:backup?) && mount.backup?
+
+          map = managed_access_point_data
+          return true if map.respond_to?(:backup?) && map.backup?
+
+          false
+        end
 
         def format_posix_user(posix_user)
           return nil if posix_user.nil? || !posix_user.is_a?(Hash)
