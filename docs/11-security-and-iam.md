@@ -120,6 +120,18 @@ Lambda Function URL（`function_url`）を構成する際、認証種別（`auth
 3. **VPC ENI 管理権限とクラスタ/ブローカー読み取り権限の自動構成**:
    - Lambda が VPC 内の MSK クラスタまたは MQ ブローカーへポーリング接続するために必要な EC2 ネットワークインターフェース操作権限（`ec2:CreateNetworkInterface`, `ec2:DescribeNetworkInterfaces`, `ec2:DescribeVpcs`, `ec2:DeleteNetworkInterface`, `ec2:DescribeSubnets`, `ec2:DescribeSecurityGroups`）および最小限のブローカー読み取り権限（`kafka-cluster:ReadData` 等 / `mq:DescribeBroker`）を自動付与します。ワイルドカードアクション（`kafka:*` や `ec2:*`）は一切使用しないため、本番ポリシーパックの `deny_wildcard_actions` にも完全準拠します。
 
+## EFS 自動バックアップ用 AWS Backup IAM サービスロール (AWS Backup Service Role for EFS)
+
+EFS マウント定義（`efs_mount` / `managed_access_point`）で `backup: true` または `backup: { schedule: ..., retention_days: ... }` が指定された場合、Lambda 実行ロールとは完全に分離された **AWS Backup 専用サービスロール**（`AWS::IAM::Role`、論理ID: `#{MountName}BackupRole`）が自動生成されます。
+
+- **信頼ポリシー (`AssumeRolePolicyDocument`)**:
+  - Principal として `backup.amazonaws.com` サービスのみに `sts:AssumeRole` を許可します。
+- **アタッチされる AWS 管理ポリシー (`ManagedPolicyArns`)**:
+  - `arn:aws:iam::aws:policy/service-role/AWSBackupServiceRolePolicyForBackup`（バックアップ作成権限）
+  - `arn:aws:iam::aws:policy/service-role/AWSBackupServiceRolePolicyForRestores`（リストア実行権限）
+- **リソース選択 (`AWS::Backup::BackupSelection`) のスコープ**:
+  - バックアップ対象リソース（`Resources`）はワイルドカードを使用せず、該当する EFS ファイルシステム ARN（`Fn::GetAtt: [#{MountName}FileSystem, Arn]` または `arn:aws:elasticfilesystem:${AWS::Region}:${AWS::AccountId}:file-system/fs-xxxx`）のみに厳密に限定されます。
+
 ## 認証情報 (Credentials)
 
 Veltrunode は、標準の AWS SDK 資格情報チェーン（Credential Chain）を使用します。ツール自体が認証情報を収集したり、プロキシしたりすることはありません。リソースの変更操作（`deploy` 等）を行う前に、呼び出し元の AWS アカウントおよびリージョンが正しいかを事前検証（`AccountRegionGuard`）します。
