@@ -109,6 +109,37 @@ RSpec.describe Veltrunode::Compiler::CloudFormation::BackupCompiler do
       )
     end
 
+    it 'supports custom vault_name, plan_name, rule_name, and cold_storage_after_days' do
+      custom_mount = Veltrunode::Model::EfsMount.new(
+        symbolic_name: 'archive_efs',
+        local_path: '/mnt/archive',
+        managed_access_point: {
+          file_system_id: 'fs-0123456789abcdef0',
+          backup: {
+            schedule: 'cron(0 3 * * ? *)',
+            retention_days: 90,
+            cold_storage_after_days: 14,
+            vault_name: 'custom-efs-vault',
+            plan_name: 'custom-efs-plan',
+            rule_name: 'NightlyBackupRule'
+          }
+        }
+      )
+
+      result = described_class.compile(custom_mount)
+      expect(result['ArchiveEfsBackupVault']['Properties']['BackupVaultName']).to eq('custom-efs-vault')
+
+      plan_props = result['ArchiveEfsBackupPlan']['Properties']['BackupPlan']
+      expect(plan_props['BackupPlanName']).to eq('custom-efs-plan')
+      rule = plan_props['BackupPlanRule'].first
+      expect(rule['RuleName']).to eq('NightlyBackupRule')
+      expect(rule['ScheduleExpression']).to eq('cron(0 3 * * ? *)')
+      expect(rule['Lifecycle']).to eq(
+        'DeleteAfterDays' => 90,
+        'MoveToColdStorageAfterDays' => 14
+      )
+    end
+
     it 'generates valid YAML string' do
       yaml_str = described_class.to_yaml(mount)
       loaded = YAML.safe_load(yaml_str)
