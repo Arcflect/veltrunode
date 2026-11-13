@@ -489,6 +489,49 @@ RSpec.describe Veltrunode::DSL do
       expect(prov_mount.throughput_mode).to eq('provisioned')
       expect(prov_mount.provisioned_throughput_in_mibps).to eq(250)
     end
+
+    it 'supports backup: true, backup hash, and backup block in managed_access_point and efs_mount' do
+      code = <<~RUBY
+        Veltrunode.application "efs-backup-app" do
+          efs_mount :default_backup_storage, local_path: "/mnt/default_backup", backup: true
+
+          managed_access_point :scheduled_backup_storage, "fs-0123456789abcdef0" do
+            local_path "/mnt/scheduled_backup"
+            backup schedule: "cron(0 12 * * ? *)", retention_days: 30
+          end
+
+          efs_mount :block_backup_storage do
+            local_path "/mnt/block_backup"
+            managed_access_point "fs-fedcba98765432100" do
+              backup do
+                schedule "cron(0 3 * * ? *)"
+                retention_days 90
+                cold_storage_after_days 14
+              end
+            end
+          end
+        end
+      RUBY
+
+      app = Veltrunode.parse(code)
+      expect(app.mounts.size).to eq(3)
+
+      m1 = app.mounts.find { |m| m.symbolic_name == 'default_backup_storage' }
+      expect(m1.backup?).to be(true)
+      expect(m1.backup_schedule).to eq('cron(0 12 * * ? *)')
+      expect(m1.backup_retention_days).to eq(30)
+
+      m2 = app.mounts.find { |m| m.symbolic_name == 'scheduled_backup_storage' }
+      expect(m2.backup?).to be(true)
+      expect(m2.backup_schedule).to eq('cron(0 12 * * ? *)')
+      expect(m2.backup_retention_days).to eq(30)
+
+      m3 = app.mounts.find { |m| m.symbolic_name == 'block_backup_storage' }
+      expect(m3.backup?).to be(true)
+      expect(m3.backup_schedule).to eq('cron(0 3 * * ? *)')
+      expect(m3.backup_retention_days).to eq(90)
+      expect(m3.backup_cold_storage_after_days).to eq(14)
+    end
   end
 
   describe 'security_group_helper DSL' do

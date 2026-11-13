@@ -18,7 +18,10 @@ module Veltrunode
         transition_to_primary_storage_class: nil,
         throughput_mode: nil,
         provisioned_throughput_in_mibps: nil,
-        provisioned_throughput: nil
+        provisioned_throughput: nil,
+        backup: nil,
+        backup_policy: nil,
+        backup_plan: nil
       )
         super()
         @symbolic_name = symbolic_name.to_s
@@ -39,6 +42,15 @@ module Veltrunode
                                            else
                                              provisioned_throughput_in_mibps
                                            end
+        @backup = nil
+        raw_backup = if !backup.nil?
+                       backup
+                     elsif !backup_policy.nil?
+                       backup_policy
+                     else
+                       backup_plan
+                     end
+        merge_backup!(raw_backup) unless raw_backup.nil?
         @vpc_expectations = {}
         @posix_expectations = {}
         @diagnostic_policy = {}
@@ -61,6 +73,9 @@ module Veltrunode
         throughput_mode: nil,
         provisioned_throughput_in_mibps: nil,
         provisioned_throughput: nil,
+        backup: nil,
+        backup_policy: nil,
+        backup_plan: nil,
         local_path: nil,
         tags: nil,
         &
@@ -72,6 +87,15 @@ module Veltrunode
                       else
                         @provisioned_throughput_in_mibps
                       end
+        resolved_backup = if !backup.nil?
+                            backup
+                          elsif !backup_policy.nil?
+                            backup_policy
+                          elsif !backup_plan.nil?
+                            backup_plan
+                          else
+                            @backup
+                          end
         builder = ManagedAccessPointBuilder.new(
           file_system_id,
           root_directory: root_directory,
@@ -88,6 +112,7 @@ module Veltrunode
           transition_to_primary_storage_class: transition_to_primary_storage_class,
           throughput_mode: throughput_mode || @throughput_mode,
           provisioned_throughput_in_mibps: resolved_pt,
+          backup: resolved_backup,
           local_path: local_path,
           tags: tags
         )
@@ -146,6 +171,30 @@ module Veltrunode
       end
       alias provisioned_throughput provisioned_throughput_in_mibps
 
+      def backup(
+        val = :__unset__,
+        schedule: nil,
+        retention_days: nil,
+        cold_storage_after_days: nil,
+        vault_name: nil,
+        plan_name: nil,
+        rule_name: nil,
+        &
+      )
+        merge_backup!(
+          val,
+          schedule: schedule,
+          retention_days: retention_days,
+          cold_storage_after_days: cold_storage_after_days,
+          vault_name: vault_name,
+          plan_name: plan_name,
+          rule_name: rule_name,
+          &
+        )
+      end
+      alias backup_policy backup
+      alias backup_plan backup
+
       def existing_access_point(arn: nil)
         @access_point_source = arn if arn
       end
@@ -196,7 +245,8 @@ module Veltrunode
 
       def build
         lifecycle = @lifecycle_policies.empty? ? nil : @lifecycle_policies
-        has_fs_config = !lifecycle.nil? || !@throughput_mode.nil? || !@provisioned_throughput_in_mibps.nil?
+        has_fs_config = !lifecycle.nil? || !@throughput_mode.nil? ||
+                        !@provisioned_throughput_in_mibps.nil? || (!@backup.nil? && @backup != false)
         resolved_local_path = @local_path || (@managed_access_point || has_fs_config ? "/mnt/#{@symbolic_name}" : nil)
         Model::EfsMount.new(
           symbolic_name: @symbolic_name,
@@ -206,6 +256,7 @@ module Veltrunode
           lifecycle_policies: lifecycle,
           throughput_mode: @throughput_mode,
           provisioned_throughput_in_mibps: @provisioned_throughput_in_mibps,
+          backup: @backup,
           local_path: resolved_local_path,
           vpc_expectations: @vpc_expectations,
           posix_expectations: @posix_expectations,
@@ -214,6 +265,42 @@ module Veltrunode
       end
 
       private
+
+      def merge_backup!(
+        val = :__unset__,
+        schedule: nil,
+        retention_days: nil,
+        cold_storage_after_days: nil,
+        vault_name: nil,
+        plan_name: nil,
+        rule_name: nil,
+        &
+      )
+        if val == false
+          @backup = false
+          return
+        end
+
+        if val != :__unset__ && val != true && !val.is_a?(Hash) && !val.nil?
+          @backup = val
+          return
+        end
+
+        @backup = @backup.is_a?(Hash) ? @backup.dup : {}
+        @backup.merge!(val) if val.is_a?(Hash)
+        @backup[:schedule] = schedule if schedule
+        @backup[:retention_days] = retention_days if retention_days
+        @backup[:cold_storage_after_days] = cold_storage_after_days if cold_storage_after_days
+        @backup[:vault_name] = vault_name if vault_name
+        @backup[:plan_name] = plan_name if plan_name
+        @backup[:rule_name] = rule_name if rule_name
+
+        return unless block_given?
+
+        block_builder = ManagedAccessPointBuilder::BackupBlockBuilder.new(@backup)
+        block_builder.instance_eval(&)
+        @backup = block_builder.config
+      end
 
       def merge_lifecycle_policies!(
         policies,
