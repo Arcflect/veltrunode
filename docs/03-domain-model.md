@@ -6,11 +6,12 @@
 
 ## 関数 (Function)
 
-属性（Attributes）: 論理名（logical name）、ハンドラー（handler）、ランタイム（runtime）、アーキテクチャ（architecture）、メモリ（memory）、タイムアウト（timeout）、エフェメラルストレージ（ephemeral storage）、環境変数（environment）、VPC参照（VPC reference）、レイヤー（layers）、マウント設定（mounts）、IAMケーパビリティ（IAM capabilities）、同時実行数（concurrency）、ログ設定（logging）。
+属性（Attributes）: 論理名（logical name）、ハンドラー（handler）、ランタイム（runtime）、アーキテクチャ（architecture）、メモリ（memory）、タイムアウト（timeout）、エフェメラルストレージ（ephemeral storage）、環境変数（environment）、VPC参照（VPC reference）、レイヤー（layers）、マウント設定（mounts / efs_mounts：単一または複数の EFS マウント配列）、IAMケーパビリティ（IAM capabilities）、同時実行数（concurrency）、ログ設定（logging）。
 
 不変条件（Invariants）:
 - タイムアウト値が AWS Lambda の制限範囲内であること。
-- すべてのマウントパスが `/mnt/` で始まっていること。
+- すべてのマウントパスが `/mnt/` で始まっていること（`VLT-EFS-PATH`）。
+- 単一関数に複数の EFS マウントが設定されている場合、それぞれのローカルマウントパス（`/mnt/data`, `/mnt/shared` 等）が重複していないこと（`VLT-EFS-DUPLICATE-PATH`）。
 - アーキテクチャがアタッチされているすべての Layer と互換性があること。
 - 参照されている Layer およびマウント設定が存在すること。
 - ステージ統合（stage merge）後に、重複する環境変数のキーが存在しないこと。

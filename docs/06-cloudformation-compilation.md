@@ -359,6 +359,18 @@ Application レベルで `rest_api` を設定した場合、`Veltrunode::Compile
   - `Deployment` (`#{ApiLogicalId}Deployment`): 定義されたすべての `AWS::ApiGateway::Method` 論理IDを `DependsOn` に保持し、`RestApiId` と `StageName` を設定します。
   - `Stage` (`#{ApiLogicalId}Stage` または `#{ApiLogicalId}#{Stage}Stage`): `DeploymentId: { 'Ref' => DeploymentLogicalId }`、`RestApiId`、`StageName`（および任意の `TracingEnabled` / `Variables`）を設定します。
 
+## 複数 EFS ファイルシステムマウントのコンパイルとセキュリティグループ集約 (Multiple EFS Mounts Compilation)
+
+単一の Lambda 関数に対して複数の `efs_mount`（または `mount`）宣言や `efs_mounts` 配列を設定した場合、`FunctionCompiler`、`RoleCompiler`、`SecurityGroupCompiler`、および `TemplateCompiler` により以下の通り CloudFormation リソースへコンパイルされます。
+
+- **`FileSystemConfigs` 配列の出力**:
+  `AWS::Lambda::Function` の `Properties.FileSystemConfigs` に、マウントされたすべての EFS アクセスポイント設定（`Arn` および `LocalMountPath`）が配列として出力されます。コンパイル時にもローカルマウントパス（`/mnt/data`, `/mnt/shared` 等）の重複が検証され、重複が存在する場合は `ValidationError` を送出します。
+- **`DependsOn` と IAM 権限の集約**:
+  - マネージドアクセスポイント（`AWS::EFS::AccessPoint`）が複数マウントされている場合、すべてのアクセスポイントの論理ID（例: `CommonLibsAccessPoint`, `WorkDataAccessPoint`）が関数の `DependsOn` に追加されます。
+  - Lambda 実行ロール（`AWS::IAM::Role`）の EFS ポリシー（`elasticfilesystem:ClientMount`, `elasticfilesystem:ClientWrite`）の `Resource` 配列に、マウントされたすべてのアクセスポイント ARN（または `Fn::GetAtt`）が集約されます。
+- **セキュリティグループおよびルールの集約**:
+  - 各 `efs_mount` に `security_group_helper` が設定されている場合、それぞれの Lambda 用・EFS 用セキュリティグループおよび NFS（TCP 2049）の Ingress / Egress ルールが生成され、対象 Lambda 関数の `Properties.VpcConfig.SecurityGroupIds` にはマウント対象のすべての Lambda セキュリティグループ参照（例: `Ref: CommonLibsLambdaSecurityGroup`, `Ref: WorkDataLambdaSecurityGroup`）が重複なく集約されます。
+
 ## CloudWatch メトリクスダッシュボードのコンパイルと URL 出力 (CloudWatch Dashboard Compilation & Output)
 
 Application レベルで `dashboard` を設定した場合、`Veltrunode::Compiler::CloudFormation::DashboardCompiler` により `AWS::CloudWatch::Dashboard` リソースが自動生成されます。
