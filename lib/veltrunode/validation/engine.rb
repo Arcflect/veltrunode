@@ -180,6 +180,7 @@ module Veltrunode
           available_layer_names: Array(application.layers).map(&:name),
           available_mount_names: Array(application.mounts).map(&:symbolic_name),
           available_layers: Array(application.layers),
+          available_mounts: Array(application.mounts),
           available_security_group_names: sgs.map(&:symbolic_name).map(&:to_s),
           security_groups: sgs
         }

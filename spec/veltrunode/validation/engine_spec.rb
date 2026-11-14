@@ -626,6 +626,41 @@ RSpec.describe Veltrunode::Validation::Engine do
 
       expect(ref_errors.size).to eq(1)
     end
+
+    it 'detects duplicate EFS mount local_paths on a single function (VLT-EFS-DUPLICATE-PATH)' do
+      arn1 = 'arn:aws:elasticfilesystem:ap-northeast-1:123456789012:access-point/fsap-0123456789abcdef0'
+      arn2 = 'arn:aws:elasticfilesystem:ap-northeast-1:123456789012:access-point/fsap-fedcba98765432100'
+      m1 = Veltrunode::Model::EfsMount.new(
+        symbolic_name: 'data_efs',
+        access_point_source: arn1,
+        local_path: '/mnt/data'
+      )
+      m2 = Veltrunode::Model::EfsMount.new(
+        symbolic_name: 'shared_efs',
+        access_point_source: arn2,
+        local_path: '/mnt/data'
+      )
+      fn = Veltrunode::Model::Function.new(
+        logical_name: 'multi_mount_fn',
+        handler: 'app.handler',
+        runtime: 'ruby3.3',
+        efs_mounts: %w[data_efs shared_efs]
+      )
+      app = Veltrunode::Model::Application.new(
+        name: 'dup-mount-app',
+        region: 'ap-northeast-1',
+        stage: 'dev',
+        mounts: [m1, m2],
+        functions: [fn]
+      )
+
+      diagnostics = described_class.run(app)
+      dup_err = diagnostics.find { |d| d.code == 'VLT-EFS-DUPLICATE-PATH' }
+
+      expect(dup_err).not_to be_nil
+      expect(dup_err.severity).to eq(:error)
+      expect(dup_err.evidence['local_path']).to eq('/mnt/data')
+    end
   end
 
   describe '.run!' do

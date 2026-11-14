@@ -145,6 +145,23 @@ RSpec.describe Veltrunode::Model::EfsMount do
       expect { described_class.validate_unique_local_paths!(mounts) }
         .to raise_error(Veltrunode::ValidationError, /Duplicate local_path/)
     end
+
+    it 'resolves local_paths from mount_map for symbolic mount references and detects duplicates' do
+      m1 = described_class.new(symbolic_name: 'data_ap', access_point_source: 'ap1', local_path: '/mnt/data')
+      m2 = described_class.new(symbolic_name: 'shared_ap', access_point_source: 'ap2', local_path: '/mnt/data')
+
+      expect do
+        described_class.validate_unique_local_paths!(%w[data_ap shared_ap], mount_map: [m1, m2])
+      end.to raise_error(Veltrunode::ValidationError, %r{Duplicate local_path found: /mnt/data})
+    end
+
+    it 'allows overriding local_path on one of the mounts to avoid collision' do
+      m1 = described_class.new(symbolic_name: 'data_ap', access_point_source: 'ap1', local_path: '/mnt/data')
+      m2 = described_class.new(symbolic_name: 'shared_ap', access_point_source: 'ap2', local_path: '/mnt/data')
+
+      refs = ['data_ap', { name: 'shared_ap', local_path: '/mnt/shared' }]
+      expect { described_class.validate_unique_local_paths!(refs, mount_map: [m1, m2]) }.not_to raise_error
+    end
   end
 
   describe 'lifecycle_policies' do

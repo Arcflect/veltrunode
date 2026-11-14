@@ -120,6 +120,8 @@ module Veltrunode
 
           Array(fn.mounts).each do |mount_ref|
             mount_name = extract_name_string(mount_ref)
+            next if mount_name.nil? && direct_mount_arn?(mount_ref)
+
             add_edge(from: fn_key, to: typed_key(:mount, mount_name))
           end
         end
@@ -161,6 +163,7 @@ module Veltrunode
 
           Array(fn.mounts).each do |mount_ref|
             mount_name = extract_name_string(mount_ref)
+            next if mount_name.nil? && direct_mount_arn?(mount_ref)
             next if @typed_nodes[:mount].key?(mount_name)
 
             diagnostics << Diagnostics::Diagnostic.new(
@@ -264,7 +267,8 @@ module Veltrunode
       def extract_name_string(item)
         val = if item.is_a?(Hash)
                 item[:name] || item['name'] || item[:logical_name] ||
-                  item['logical_name'] || item[:symbolic_name] || item['symbolic_name']
+                  item['logical_name'] || item[:symbolic_name] || item['symbolic_name'] ||
+                  item[:mount] || item['mount']
               elsif item.respond_to?(:logical_name)
                 item.logical_name
               elsif item.respond_to?(:symbolic_name)
@@ -278,6 +282,13 @@ module Veltrunode
 
         s = val.to_s
         s.include?(':') ? s.split(':', 2).first : s
+      end
+
+      def direct_mount_arn?(mount)
+        return false unless mount.is_a?(Hash)
+
+        !(mount[:arn] || mount['arn'] || mount['Arn'] ||
+          mount[:access_point_source] || mount['access_point_source']).nil?
       end
     end
   end
