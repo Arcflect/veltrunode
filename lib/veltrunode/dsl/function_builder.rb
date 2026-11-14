@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative 'base_builder'
+require_relative 'efs_mount_builder'
 require_relative 'permit_builder'
 require_relative 'alarms_builder'
 require_relative 'logs_builder'
@@ -10,9 +11,11 @@ require_relative '../model/function'
 module Veltrunode
   module DSL
     class FunctionBuilder < BaseBuilder
+      attr_reader :inline_mounts
+
       def initialize(logical_name, runtime_default: nil, architecture_default: :x86_64, tracing_default: nil,
                      insights_default: nil, async_invoke_default: nil, alarms_default: nil, event_sources_default: nil,
-                     function_url_default: nil)
+                     function_url_default: nil, mounts_default: nil)
         super()
         @logical_name = logical_name.to_s
         @handler = nil
@@ -25,6 +28,7 @@ module Veltrunode
         @vpc_reference = nil
         @layers = []
         @mounts = []
+        @inline_mounts = []
         @iam_capabilities = []
         @concurrency = nil
         @logging = nil
@@ -39,6 +43,7 @@ module Veltrunode
         @event_sources = []
         @function_url = function_url_default
         apply_event_sources_default(event_sources_default) if event_sources_default
+        add_mount_entries(mounts_default) if mounts_default
       end
 
       def handler(h)
@@ -89,9 +94,29 @@ module Veltrunode
         @layers << layer_name.to_s
       end
 
-      def mount(mount_name)
-        @mounts << mount_name.to_s
+      def mount(*args, **kwargs, &)
+        if block_given?
+          build_block_mount(args.first, **kwargs, &)
+          return
+        end
+
+        if args.size == 2 && (args[0].is_a?(Symbol) || args[0].is_a?(String)) &&
+           args[1].is_a?(String) && args[1].start_with?('/') && kwargs.empty?
+          @mounts << { name: args[0].to_s, local_path: args[1] }
+          return
+        end
+
+        if args.size == 1 && (args[0].is_a?(Symbol) || args[0].is_a?(String)) && !kwargs.empty?
+          @mounts << normalize_mount_hash(kwargs.merge(name: args[0].to_s))
+          return
+        end
+
+        add_mount_entries(args) unless args.empty?
+        @mounts << normalize_mount_hash(kwargs) unless kwargs.empty?
       end
+      alias mounts mount
+      alias efs_mount mount
+      alias efs_mounts mount
 
       def permit(&)
         return unless block_given?
@@ -415,6 +440,64 @@ module Veltrunode
       end
 
       private
+
+      def build_block_mount(name, **, &)
+        builder = EfsMountBuilder.new(name, **)
+        builder.instance_eval(&)
+        if builder.inline_mount_definition?
+          built = builder.build
+          @inline_mounts << built
+          @mounts << { name: built.symbolic_name, local_path: built.local_path }
+        elsif builder.local_path_value
+          @mounts << { name: name.to_s, local_path: builder.local_path_value }
+        else
+          @mounts << name.to_s
+        end
+      end
+
+      def add_mount_entries(entries)
+        list = entries.is_a?(Array) ? entries : [entries]
+        list.each do |entry|
+          case entry
+          when Array
+            add_mount_entries(entry)
+          when Hash
+            @mounts << normalize_mount_hash(entry)
+          when Model::EfsMount
+            @inline_mounts << entry
+            @mounts << { name: entry.symbolic_name, local_path: entry.local_path }
+          when nil, false
+            next
+          else
+            @mounts << entry.to_s
+          end
+        end
+      end
+
+      def normalize_mount_hash(hash)
+        normalized = {}
+        name_val = hash[:name] || hash['name'] || hash[:symbolic_name] || hash['symbolic_name'] ||
+                   hash[:mount] || hash['mount'] || hash[:efs_mount] || hash['efs_mount'] ||
+                   hash[:access_point] || hash['access_point']
+        path_val = hash[:local_path] || hash['local_path'] ||
+                   hash[:local_mount_path] || hash['local_mount_path'] ||
+                   hash[:path] || hash['path']
+        arn_val = hash[:arn] || hash['arn'] || hash[:access_point_source] || hash['access_point_source']
+
+        normalized[:name] = name_val.to_s if name_val
+        normalized[:local_path] = path_val.to_s if path_val
+        normalized[:arn] = arn_val if arn_val
+
+        if name_val && arn_val && path_val
+          @inline_mounts << Model::EfsMount.new(
+            symbolic_name: name_val.to_s,
+            access_point_source: arn_val,
+            local_path: path_val.to_s
+          )
+        end
+
+        normalized
+      end
 
       def apply_event_sources_default(default_cfg)
         list = default_cfg.is_a?(Array) ? default_cfg : [default_cfg]

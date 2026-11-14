@@ -11,6 +11,8 @@ module Veltrunode
       def initialize(
         symbolic_name,
         local_path: nil,
+        arn: nil,
+        access_point_source: nil,
         lifecycle_policies: nil,
         lifecycle_policy: nil,
         transition_to_ia: nil,
@@ -25,7 +27,7 @@ module Veltrunode
       )
         super()
         @symbolic_name = symbolic_name.to_s
-        @access_point_source = nil
+        @access_point_source = access_point_source || arn
         @managed_access_point = nil
         @security_group_helper = nil
         @local_path = local_path&.to_s
@@ -209,6 +211,18 @@ module Veltrunode
 
       def local_path(path)
         @local_path = path.to_s
+      end
+
+      def local_path_value
+        @local_path
+      end
+
+      def inline_mount_definition?
+        !@access_point_source.nil? || !@managed_access_point.nil? ||
+          !@security_group_helper.nil? || !@lifecycle_policies.empty? ||
+          !@throughput_mode.nil? || !@provisioned_throughput_in_mibps.nil? ||
+          (!@backup.nil? && @backup != false) || !@vpc_expectations.empty? ||
+          !@posix_expectations.empty?
       end
 
       def expect_posix(uid: nil, gid: nil)

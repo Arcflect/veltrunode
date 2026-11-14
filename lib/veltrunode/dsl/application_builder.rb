@@ -124,9 +124,11 @@ module Veltrunode
 
       def function(name, tracing: nil, insights: nil, async_invoke: nil, alarms: nil,
                    event_source: nil, event_sources: nil, rule: nil, rules: nil,
-                   kinesis_stream: nil, msk: nil, mq: nil, function_url: nil, **, &)
+                   kinesis_stream: nil, msk: nil, mq: nil, function_url: nil,
+                   mounts: nil, efs_mounts: nil, efs_mount: nil, mount: nil, **, &)
         alarms_cfg = alarms.nil? ? @runtime_defaults[:alarms] : alarms
         fn_url_cfg = function_url.nil? ? @runtime_defaults[:function_url] : function_url
+        mounts_cfg = combine_mounts_defaults(mounts, efs_mounts, efs_mount, mount)
         es_cfg = combine_event_source_defaults(
           event_source || event_sources || @runtime_defaults[:event_sources],
           rule || rules,
@@ -143,7 +145,8 @@ module Veltrunode
           async_invoke_default: async_invoke || @runtime_defaults[:async_invoke],
           alarms_default: alarms_cfg,
           event_sources_default: es_cfg,
-          function_url_default: fn_url_cfg
+          function_url_default: fn_url_cfg,
+          mounts_default: mounts_cfg
         )
         builder.instance_eval(&) if block_given?
         @function_builders << builder
@@ -252,8 +255,10 @@ module Veltrunode
 
       def build
         layers = @layer_builders.map(&:build)
-        mounts = @efs_mount_builders.map(&:build)
+        top_mounts = @efs_mount_builders.map(&:build)
         functions = @function_builders.map(&:build)
+        inline_mounts = @function_builders.flat_map(&:inline_mounts)
+        mounts = (top_mounts + inline_mounts).uniq(&:symbolic_name)
         schedules = @schedule_builders.map(&:build)
         rules = @rule_builders.map(&:build)
         http_apis = @http_api_builders.map(&:build)
@@ -286,6 +291,20 @@ module Veltrunode
       end
 
       private
+
+      def combine_mounts_defaults(*mount_sources)
+        items = []
+        mount_sources.each do |src|
+          next if src.nil? || src == false
+
+          if src.is_a?(Array)
+            items.concat(src)
+          else
+            items << src
+          end
+        end
+        items.empty? ? nil : items
+      end
 
       def combine_event_source_defaults(es_cfg, rule_cfg, kinesis_cfg = nil, msk: nil, mq: nil)
         extras = []
