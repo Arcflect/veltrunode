@@ -205,4 +205,29 @@ RSpec.describe Veltrunode::Model::EfsMount do
       expect(mount_prov.provisioned_throughput_in_mibps).to eq(150)
     end
   end
+
+  describe 'backup configuration' do
+    it 'supports backup: true or backup plan hash on EfsMount and via managed_access_point' do
+      mount_bool = described_class.new(
+        symbolic_name: 'stateful_efs',
+        local_path: '/mnt/stateful',
+        backup: true
+      )
+      expect(mount_bool.backup?).to be(true)
+      expect(mount_bool.backup_schedule).to eq('cron(0 12 * * ? *)')
+      expect(mount_bool.backup_retention_days).to eq(30)
+
+      mount_plan = described_class.new(
+        symbolic_name: 'custom_backup_efs',
+        local_path: '/mnt/backup',
+        managed_access_point: {
+          file_system_id: 'fs-0123456789abcdef0',
+          backup: { schedule: 'cron(0 12 * * ? *)', retention_days: 30 }
+        }
+      )
+      expect(mount_plan.backup?).to be(true)
+      expect(mount_plan.backup_schedule).to eq('cron(0 12 * * ? *)')
+      expect(mount_plan.backup_retention_days).to eq(30)
+    end
+  end
 end

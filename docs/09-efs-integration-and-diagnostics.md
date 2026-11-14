@@ -116,6 +116,43 @@ end
 - **CloudFormation `AWS::EFS::FileSystem` への反映**:
   `Veltrunode::Compiler::CloudFormation::FileSystemCompiler` により `AWS::EFS::FileSystem` の `Properties.ThroughputMode` および `Properties.ProvisionedThroughputInMibps` に出力されます。
 
+### EFS 自動バックアップ連携 (AWS Backup Automation: BackupVault / BackupPlan / BackupSelection)
+
+ステートフルな EFS データの消失や破損に備え、定期的なスナップショットバックアップを自動構成するため、`managed_access_point` または `efs_mount` 定義内で `backup: true` またはバックアッププラン（`schedule`, `retention_days` 等）を指定できます。
+
+```ruby
+# 1. デフォルト設定（毎日 12:00 UTC、30日間保持）で自動バックアップを有効化
+efs_mount :stateful_data, local_path: "/mnt/stateful", backup: true
+
+# 2. スケジュールと保持期間を指定したバックアッププランの構成
+efs_mount :shared_data do
+  local_path "/mnt/shared"
+  managed_access_point "fs-0123456789abcdef0" do
+    posix_user uid: 1000, gid: 1000
+    backup schedule: "cron(0 12 * * ? *)", retention_days: 30
+  end
+end
+
+# 3. ブロック構文での詳細なバックアッププラン設定
+managed_access_point :critical_storage, "fs-0123456789abcdef0" do
+  local_path "/mnt/critical"
+  backup do
+    schedule "cron(0 3 * * ? *)"
+    retention_days 90
+    cold_storage_after_days 14
+  end
+end
+```
+
+- **`schedule`**: バックアップ実行スケジュール（`cron(...)` または `rate(...)` 形式。`backup: true` 時のデフォルト: `'cron(0 12 * * ? *)'`）。
+- **`retention_days`**: バックアップスナップショットの保持日数（正の整数 `> 0`。`backup: true` 時のデフォルト: `30`）。
+- **`cold_storage_after_days`（任意）**: コールドストレージへ移行するまでの日数（`retention_days` 未満の正の整数）。
+- **生成される CloudFormation リソース（`Veltrunode::Compiler::CloudFormation::BackupCompiler`）**:
+  - `AWS::Backup::BackupVault`（論理ID: `#{MountName}BackupVault`）
+  - `AWS::Backup::BackupPlan`（論理ID: `#{MountName}BackupPlan`、`ScheduleExpression` および `Lifecycle.DeleteAfterDays` を設定）
+  - `AWS::Backup::BackupSelection`（論理ID: `#{MountName}BackupSelection`、対象 EFS ファイルシステム ARN と IAM ロールを紐付け）
+  - `AWS::IAM::Role`（論理ID: `#{MountName}BackupRole`、AWS Backup サービスロール）
+
 ## 静的チェック項目 (Static Checks)
 
 - ローカルのマウントパスが `/mnt/` で始まっていること。

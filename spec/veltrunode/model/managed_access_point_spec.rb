@@ -245,5 +245,46 @@ RSpec.describe Veltrunode::Model::ManagedAccessPoint do
         end.to raise_error(Veltrunode::ValidationError, /can only be specified when throughput_mode is 'provisioned'/)
       end
     end
+
+    context 'backup configuration' do
+      it 'supports backup: true with default schedule and retention_days' do
+        ap = described_class.new(file_system_id: valid_fs_id, backup: true)
+        expect(ap.backup?).to be(true)
+        expect(ap.backup_schedule).to eq('cron(0 12 * * ? *)')
+        expect(ap.backup_retention_days).to eq(30)
+        expect(ap.backup).to eq('schedule' => 'cron(0 12 * * ? *)', 'retention_days' => 30)
+      end
+
+      it 'supports custom backup hash with schedule and retention_days' do
+        ap = described_class.new(
+          file_system_id: valid_fs_id,
+          backup: { schedule: 'cron(0 3 * * ? *)', retention_days: 90, cold_storage_after_days: 14 }
+        )
+        expect(ap.backup?).to be(true)
+        expect(ap.backup_schedule).to eq('cron(0 3 * * ? *)')
+        expect(ap.backup_retention_days).to eq(90)
+        expect(ap.backup_cold_storage_after_days).to eq(14)
+      end
+
+      it 'raises ValidationError when schedule or retention_days is invalid' do
+        expect do
+          described_class.new(file_system_id: valid_fs_id, backup: { schedule: 'invalid', retention_days: 30 })
+        end.to raise_error(Veltrunode::ValidationError, /Invalid EFS backup schedule/)
+
+        expect do
+          described_class.new(
+            file_system_id: valid_fs_id,
+            backup: { schedule: 'cron(0 12 * * ? *)', retention_days: 0 }
+          )
+        end.to raise_error(Veltrunode::ValidationError, /Invalid EFS backup retention_days/)
+
+        expect do
+          described_class.new(
+            file_system_id: valid_fs_id,
+            backup: { schedule: 'cron(0 12 * * ? *)', retention_days: 30, cold_storage_after_days: 30 }
+          )
+        end.to raise_error(Veltrunode::ValidationError, /cold_storage_after_days .* must be less than retention_days/)
+      end
+    end
   end
 end

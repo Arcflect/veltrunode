@@ -25,6 +25,10 @@ module Veltrunode
             new(schedule, type: :scheduler, **).to_h
           end
 
+          def compile_backup_role(mount, **)
+            new(mount, type: :backup, **).to_h
+          end
+
           def to_yaml(target, type: :lambda, **)
             new(target, type: type, **).to_yaml
           end
@@ -37,12 +41,20 @@ module Veltrunode
             new(schedule, type: :scheduler, **).to_yaml
           end
 
+          def to_yaml_backup_role(mount, **)
+            new(mount, type: :backup, **).to_yaml
+          end
+
           def logical_id_for_function(logical_name)
             LogicalId.for_lambda_role(logical_name)
           end
 
           def logical_id_for_schedule(schedule_name)
             LogicalId.for_scheduler_role(schedule_name)
+          end
+
+          def logical_id_for_backup(mount_name)
+            LogicalId.for_backup_role(mount_name)
           end
 
           def pascalize(str)
@@ -58,9 +70,13 @@ module Veltrunode
         end
 
         def logical_id
-          if type == :scheduler
+          case type
+          when :scheduler
             sch_name = extract_val(target, :name) || target.to_s
             self.class.logical_id_for_schedule(sch_name)
+          when :backup
+            mnt_name = extract_val(target, :symbolic_name) || extract_val(target, :name) || target.to_s
+            self.class.logical_id_for_backup(mnt_name)
           else
             fn_name = extract_val(target, :logical_name) || target.to_s
             self.class.logical_id_for_function(fn_name)
@@ -72,8 +88,11 @@ module Veltrunode
         end
 
         def properties
-          if type == :scheduler
+          case type
+          when :scheduler
             build_scheduler_role_properties
+          when :backup
+            build_backup_role_properties
           else
             build_lambda_role_properties
           end
@@ -266,6 +285,29 @@ module Veltrunode
           {
             'AssumeRolePolicyDocument' => assume_role_policy,
             'Policies' => [policy]
+          }
+        end
+
+        def build_backup_role_properties
+          assume_role_policy = {
+            'Version' => '2012-10-17',
+            'Statement' => [
+              {
+                'Effect' => 'Allow',
+                'Principal' => {
+                  'Service' => 'backup.amazonaws.com'
+                },
+                'Action' => 'sts:AssumeRole'
+              }
+            ]
+          }
+
+          {
+            'AssumeRolePolicyDocument' => assume_role_policy,
+            'ManagedPolicyArns' => [
+              'arn:aws:iam::aws:policy/service-role/AWSBackupServiceRolePolicyForBackup',
+              'arn:aws:iam::aws:policy/service-role/AWSBackupServiceRolePolicyForRestores'
+            ]
           }
         end
 

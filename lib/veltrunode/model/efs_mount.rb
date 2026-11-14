@@ -17,11 +17,14 @@ module Veltrunode
                   :security_group_helper,
                   :lifecycle_policies,
                   :throughput_mode,
-                  :provisioned_throughput_in_mibps
+                  :provisioned_throughput_in_mibps,
+                  :backup
 
       alias name symbolic_name
       alias lifecycle_policy lifecycle_policies
       alias provisioned_throughput provisioned_throughput_in_mibps
+      alias backup_policy backup
+      alias backup_plan backup
 
       class << self
         def validate_unique_local_paths!(mounts)
@@ -58,6 +61,11 @@ module Veltrunode
         throughput_mode: nil,
         provisioned_throughput_in_mibps: nil,
         provisioned_throughput: nil,
+        backup: nil,
+        backup_policy: nil,
+        backup_plan: nil,
+        backup_schedule: nil,
+        backup_retention_days: nil,
         vpc_expectations: {},
         posix_expectations: {},
         diagnostic_policy: {}
@@ -73,16 +81,31 @@ module Veltrunode
           provisioned_throughput_in_mibps: provisioned_throughput_in_mibps,
           provisioned_throughput: provisioned_throughput
         )
+        raw_backup = if !backup.nil?
+                       backup
+                     elsif !backup_policy.nil?
+                       backup_policy
+                     else
+                       backup_plan
+                     end
+        explicit_backup = ManagedAccessPoint.normalize_backup_config(
+          raw_backup,
+          schedule: backup_schedule,
+          retention_days: backup_retention_days
+        )
         normalized_map = normalize_managed_access_point(
           managed_access_point,
           explicit_lifecycle,
           explicit_tp_mode,
-          explicit_prov_tp
+          explicit_prov_tp,
+          explicit_backup
         )
         resolved_lifecycle = explicit_lifecycle || normalized_map&.lifecycle_policies
         resolved_tp_mode = explicit_tp_mode || normalized_map&.throughput_mode
         resolved_prov_tp = explicit_prov_tp || normalized_map&.provisioned_throughput_in_mibps
-        has_fs_config = !resolved_lifecycle.nil? || !resolved_tp_mode.nil? || !resolved_prov_tp.nil?
+        resolved_backup = explicit_backup || normalized_map&.backup
+        has_fs_config = !resolved_lifecycle.nil? || !resolved_tp_mode.nil? ||
+                        !resolved_prov_tp.nil? || !resolved_backup.nil?
         resolved_source = access_point_source ||
                           (normalized_map || has_fs_config ? symbolic_name : nil)
         validate!(
@@ -101,6 +124,7 @@ module Veltrunode
         @lifecycle_policies = resolved_lifecycle
         @throughput_mode = resolved_tp_mode
         @provisioned_throughput_in_mibps = resolved_prov_tp
+        @backup = resolved_backup
         @vpc_expectations = freeze_value(vpc_expectations)
         @posix_expectations = freeze_value(posix_expectations)
         @diagnostic_policy = freeze_value(diagnostic_policy)
@@ -124,8 +148,25 @@ module Veltrunode
         !@throughput_mode.nil? || !@provisioned_throughput_in_mibps.nil?
       end
 
+      def backup?
+        !@backup.nil? && !@backup.empty?
+      end
+
+      def backup_schedule
+        @backup&.fetch('schedule', nil)
+      end
+
+      def backup_retention_days
+        @backup&.fetch('retention_days', nil)
+      end
+
+      def backup_cold_storage_after_days
+        @backup&.fetch('cold_storage_after_days', nil)
+      end
+
       def file_system_configuration?
-        lifecycle_policies? || throughput_configuration?
+        lifecycle_policies? || throughput_configuration? ||
+          (backup? && (@managed_access_point.nil? || @managed_access_point.file_system_id.nil?))
       end
 
       def transition_to_ia
@@ -154,7 +195,13 @@ module Veltrunode
         validate_access_point_source!(access_point_source) if access_point_source
       end
 
-      def normalize_managed_access_point(map, explicit_lifecycle = nil, explicit_tp_mode = nil, explicit_prov_tp = nil)
+      def normalize_managed_access_point(
+        map,
+        explicit_lifecycle = nil,
+        explicit_tp_mode = nil,
+        explicit_prov_tp = nil,
+        explicit_backup = nil
+      )
         return nil if map.nil?
         return map if map.is_a?(ManagedAccessPoint)
 
@@ -163,6 +210,7 @@ module Veltrunode
           opts[:lifecycle_policies] ||= explicit_lifecycle if explicit_lifecycle
           opts[:throughput_mode] ||= explicit_tp_mode if explicit_tp_mode
           opts[:provisioned_throughput_in_mibps] ||= explicit_prov_tp if explicit_prov_tp
+          opts[:backup] ||= explicit_backup if explicit_backup
           return ManagedAccessPoint.new(**opts)
         end
 

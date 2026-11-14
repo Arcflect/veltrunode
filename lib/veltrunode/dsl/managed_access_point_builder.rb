@@ -6,6 +6,46 @@ require_relative '../model/managed_access_point'
 module Veltrunode
   module DSL
     class ManagedAccessPointBuilder < BaseBuilder
+      # backup { ... } ブロック用ビルダ
+      class BackupBlockBuilder < BaseBuilder
+        attr_reader :config
+
+        def initialize(initial = {})
+          super()
+          @config = initial.dup
+        end
+
+        def schedule(val)
+          @config[:schedule] = val
+        end
+        alias schedule_expression schedule
+
+        def retention_days(val)
+          @config[:retention_days] = val
+        end
+        alias delete_after_days retention_days
+        alias retention retention_days
+
+        def cold_storage_after_days(val)
+          @config[:cold_storage_after_days] = val
+        end
+        alias move_to_cold_storage_after_days cold_storage_after_days
+
+        def vault_name(val)
+          @config[:vault_name] = val
+        end
+        alias backup_vault_name vault_name
+
+        def plan_name(val)
+          @config[:plan_name] = val
+        end
+        alias backup_plan_name plan_name
+
+        def rule_name(val)
+          @config[:rule_name] = val
+        end
+      end
+
       def initialize(
         file_system_id = nil,
         root_directory: nil,
@@ -23,6 +63,9 @@ module Veltrunode
         throughput_mode: nil,
         provisioned_throughput_in_mibps: nil,
         provisioned_throughput: nil,
+        backup: nil,
+        backup_policy: nil,
+        backup_plan: nil,
         local_path: nil,
         tags: nil
       )
@@ -47,6 +90,15 @@ module Veltrunode
                                            else
                                              provisioned_throughput_in_mibps
                                            end
+        @backup = nil
+        raw_backup = if !backup.nil?
+                       backup
+                     elsif !backup_policy.nil?
+                       backup_policy
+                     else
+                       backup_plan
+                     end
+        merge_backup!(raw_backup) unless raw_backup.nil?
         @tags = tags ? tags.dup : {}
         @local_path_val = local_path&.to_s
       end
@@ -168,10 +220,35 @@ module Veltrunode
       end
       alias provisioned_throughput provisioned_throughput_in_mibps
 
+      def backup(
+        val = :__unset__,
+        schedule: nil,
+        retention_days: nil,
+        cold_storage_after_days: nil,
+        vault_name: nil,
+        plan_name: nil,
+        rule_name: nil,
+        &
+      )
+        merge_backup!(
+          val,
+          schedule: schedule,
+          retention_days: retention_days,
+          cold_storage_after_days: cold_storage_after_days,
+          vault_name: vault_name,
+          plan_name: plan_name,
+          rule_name: rule_name,
+          &
+        )
+      end
+      alias backup_policy backup
+      alias backup_plan backup
+
       def build
         posix = @posix_user.empty? ? nil : @posix_user
         lifecycle = @lifecycle_policies.empty? ? nil : @lifecycle_policies
-        has_fs_config = !lifecycle.nil? || !@throughput_mode.nil? || !@provisioned_throughput_in_mibps.nil?
+        has_fs_config = !lifecycle.nil? || !@throughput_mode.nil? ||
+                        !@provisioned_throughput_in_mibps.nil? || (!@backup.nil? && @backup != false)
         opts = {
           root_directory_path: @root_directory_path,
           posix_user: posix,
@@ -179,6 +256,7 @@ module Veltrunode
           lifecycle_policies: lifecycle,
           throughput_mode: @throughput_mode,
           provisioned_throughput_in_mibps: @provisioned_throughput_in_mibps,
+          backup: @backup,
           tags: @tags.empty? ? nil : @tags
         }
         opts[:file_system_id] = @file_system_id unless @file_system_id.nil? && has_fs_config
@@ -186,6 +264,42 @@ module Veltrunode
       end
 
       private
+
+      def merge_backup!(
+        val = :__unset__,
+        schedule: nil,
+        retention_days: nil,
+        cold_storage_after_days: nil,
+        vault_name: nil,
+        plan_name: nil,
+        rule_name: nil,
+        &
+      )
+        if val == false
+          @backup = false
+          return
+        end
+
+        if val != :__unset__ && val != true && !val.is_a?(Hash) && !val.nil?
+          @backup = val
+          return
+        end
+
+        @backup = @backup.is_a?(Hash) ? @backup.dup : {}
+        @backup.merge!(val) if val.is_a?(Hash)
+        @backup[:schedule] = schedule if schedule
+        @backup[:retention_days] = retention_days if retention_days
+        @backup[:cold_storage_after_days] = cold_storage_after_days if cold_storage_after_days
+        @backup[:vault_name] = vault_name if vault_name
+        @backup[:plan_name] = plan_name if plan_name
+        @backup[:rule_name] = rule_name if rule_name
+
+        return unless block_given?
+
+        block_builder = BackupBlockBuilder.new(@backup)
+        block_builder.instance_eval(&)
+        @backup = block_builder.config
+      end
 
       def merge_lifecycle_policies!(
         policies,

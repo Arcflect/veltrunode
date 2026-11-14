@@ -29,6 +29,9 @@ module Veltrunode
       }.freeze
       VALID_PRIMARY_STORAGE_CLASS_VALUES = %w[AFTER_1_ACCESS].freeze
       VALID_THROUGHPUT_MODES = %w[bursting provisioned elastic].freeze
+      DEFAULT_BACKUP_SCHEDULE = 'cron(0 12 * * ? *)'
+      DEFAULT_BACKUP_RETENTION_DAYS = 30
+      BACKUP_SCHEDULE_PATTERN = /\A(cron|rate)\(.+\)\z/
 
       attr_reader :file_system_id,
                   :root_directory_path,
@@ -37,12 +40,81 @@ module Veltrunode
                   :lifecycle_policies,
                   :throughput_mode,
                   :provisioned_throughput_in_mibps,
+                  :backup,
                   :tags
 
       alias lifecycle_policy lifecycle_policies
       alias provisioned_throughput provisioned_throughput_in_mibps
+      alias backup_policy backup
+      alias backup_plan backup
 
       class << self
+        def normalize_backup_config(
+          backup = nil,
+          schedule: nil,
+          retention_days: nil,
+          cold_storage_after_days: nil,
+          vault_name: nil,
+          plan_name: nil,
+          rule_name: nil
+        )
+          has_kwargs = !schedule.nil? || !retention_days.nil? || !cold_storage_after_days.nil? ||
+                       !vault_name.nil? || !plan_name.nil? || !rule_name.nil?
+          return nil if backup.nil? && !has_kwargs
+          return nil if backup == false
+
+          if !backup.nil? && backup != true && !backup.is_a?(Hash)
+            raise ValidationError,
+                  "Invalid EFS backup configuration '#{backup}'. Must be true, false, or a Hash"
+          end
+
+          raw = backup.is_a?(Hash) ? backup : {}
+          return nil if raw[:enabled] == false || raw['enabled'] == false
+
+          raw_schedule = schedule ||
+                         raw[:schedule] || raw['schedule'] ||
+                         raw[:schedule_expression] || raw['schedule_expression'] ||
+                         raw[:ScheduleExpression] || raw['ScheduleExpression'] ||
+                         DEFAULT_BACKUP_SCHEDULE
+          raw_retention = retention_days ||
+                          raw[:retention_days] || raw['retention_days'] ||
+                          raw[:delete_after_days] || raw['delete_after_days'] ||
+                          raw[:DeleteAfterDays] || raw['DeleteAfterDays'] ||
+                          raw[:retention] || raw['retention'] ||
+                          DEFAULT_BACKUP_RETENTION_DAYS
+          raw_cold = cold_storage_after_days ||
+                     raw[:cold_storage_after_days] || raw['cold_storage_after_days'] ||
+                     raw[:move_to_cold_storage_after_days] || raw['move_to_cold_storage_after_days'] ||
+                     raw[:MoveToColdStorageAfterDays] || raw['MoveToColdStorageAfterDays']
+          raw_vault = vault_name ||
+                      raw[:vault_name] || raw['vault_name'] ||
+                      raw[:backup_vault_name] || raw['backup_vault_name']
+          raw_plan = plan_name ||
+                     raw[:plan_name] || raw['plan_name'] ||
+                     raw[:backup_plan_name] || raw['backup_plan_name']
+          raw_rule = rule_name || raw[:rule_name] || raw['rule_name']
+
+          norm_schedule = normalize_backup_schedule!(raw_schedule)
+          norm_retention = normalize_backup_positive_integer!(raw_retention, :retention_days)
+          norm_cold = raw_cold.nil? ? nil : normalize_backup_positive_integer!(raw_cold, :cold_storage_after_days)
+
+          if norm_cold && norm_cold >= norm_retention
+            raise ValidationError,
+                  "EFS backup cold_storage_after_days (#{norm_cold}) " \
+                  "must be less than retention_days (#{norm_retention})"
+          end
+
+          result = {
+            'schedule' => norm_schedule,
+            'retention_days' => norm_retention
+          }
+          result['cold_storage_after_days'] = norm_cold if norm_cold
+          result['vault_name'] = raw_vault.to_s.strip.freeze if raw_vault && !raw_vault.to_s.strip.empty?
+          result['plan_name'] = raw_plan.to_s.strip.freeze if raw_plan && !raw_plan.to_s.strip.empty?
+          result['rule_name'] = raw_rule.to_s.strip.freeze if raw_rule && !raw_rule.to_s.strip.empty?
+          result.freeze
+        end
+
         def normalize_throughput_config(
           throughput_mode: nil,
           provisioned_throughput_in_mibps: nil,
@@ -199,6 +271,32 @@ module Veltrunode
           raise ValidationError,
                 "Invalid EFS provisioned_throughput_in_mibps '#{val}'. Must be a positive number (> 0)"
         end
+
+        def normalize_backup_schedule!(val)
+          str = val.to_s.strip
+          if str.empty? || !BACKUP_SCHEDULE_PATTERN.match?(str)
+            raise ValidationError,
+                  "Invalid EFS backup schedule '#{val}'. Must be a valid cron(...) or rate(...) expression"
+          end
+
+          str.freeze
+        end
+
+        def normalize_backup_positive_integer!(val, field_name)
+          num = if val.is_a?(Integer)
+                  val
+                elsif val.is_a?(String) && val.strip.match?(/\A-?\d+\z/)
+                  Integer(val.strip, 10)
+                else
+                  raise ValidationError,
+                        "Invalid EFS backup #{field_name} '#{val}'. Must be a positive integer (> 0)"
+                end
+
+          return num if num.positive?
+
+          raise ValidationError,
+                "Invalid EFS backup #{field_name} '#{val}'. Must be a positive integer (> 0)"
+        end
       end
 
       def initialize(
@@ -214,6 +312,11 @@ module Veltrunode
         throughput_mode: nil,
         provisioned_throughput_in_mibps: nil,
         provisioned_throughput: nil,
+        backup: nil,
+        backup_policy: nil,
+        backup_plan: nil,
+        backup_schedule: nil,
+        backup_retention_days: nil,
         tags: nil
       )
         resolved_lifecycle = self.class.normalize_lifecycle_policies(
@@ -227,7 +330,20 @@ module Veltrunode
           provisioned_throughput_in_mibps: provisioned_throughput_in_mibps,
           provisioned_throughput: provisioned_throughput
         )
-        has_fs_config = !resolved_lifecycle.nil? || !resolved_tp_mode.nil? || !resolved_prov_tp.nil?
+        raw_backup = if !backup.nil?
+                       backup
+                     elsif !backup_policy.nil?
+                       backup_policy
+                     else
+                       backup_plan
+                     end
+        resolved_backup = self.class.normalize_backup_config(
+          raw_backup,
+          schedule: backup_schedule,
+          retention_days: backup_retention_days
+        )
+        has_fs_config = !resolved_lifecycle.nil? || !resolved_tp_mode.nil? ||
+                        !resolved_prov_tp.nil? || !resolved_backup.nil?
         allow_nil_fs_id = (file_system_id == :__unset__ || file_system_id.nil?) && has_fs_config
         resolved_fs_id = file_system_id == :__unset__ ? nil : file_system_id
 
@@ -251,6 +367,7 @@ module Veltrunode
         @lifecycle_policies = resolved_lifecycle
         @throughput_mode = resolved_tp_mode
         @provisioned_throughput_in_mibps = resolved_prov_tp
+        @backup = resolved_backup
         @tags = tags ? freeze_hash(tags) : {}.freeze
 
         freeze
@@ -264,8 +381,24 @@ module Veltrunode
         !@throughput_mode.nil? || !@provisioned_throughput_in_mibps.nil?
       end
 
+      def backup?
+        !@backup.nil? && !@backup.empty?
+      end
+
+      def backup_schedule
+        @backup&.fetch('schedule', nil)
+      end
+
+      def backup_retention_days
+        @backup&.fetch('retention_days', nil)
+      end
+
+      def backup_cold_storage_after_days
+        @backup&.fetch('cold_storage_after_days', nil)
+      end
+
       def file_system_configuration?
-        lifecycle_policies? || throughput_configuration?
+        lifecycle_policies? || throughput_configuration? || (backup? && @file_system_id.nil?)
       end
 
       def transition_to_ia

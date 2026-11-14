@@ -4,6 +4,7 @@ require 'fileutils'
 require 'yaml'
 require_relative 'access_point_compiler'
 require_relative 'file_system_compiler'
+require_relative 'backup_compiler'
 require_relative 'alarm_compiler'
 require_relative 'function_compiler'
 require_relative 'layer_version_compiler'
@@ -351,6 +352,11 @@ module Veltrunode
             if has_fs
               fs_res = FileSystemCompiler.compile(mount, context: context)
               resources.merge!(fs_res)
+            end
+
+            if mount.respond_to?(:backup?) && mount.backup?
+              backup_res = BackupCompiler.compile(mount, context: context)
+              resources.merge!(backup_res)
             end
 
             next unless mount.respond_to?(:managed_access_point?) && mount.managed_access_point?

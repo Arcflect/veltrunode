@@ -1795,5 +1795,68 @@ RSpec.describe Veltrunode::Compiler::CloudFormation::TemplateCompiler do
       expect(prov_fs['Properties']['ThroughputMode']).to eq('provisioned')
       expect(prov_fs['Properties']['ProvisionedThroughputInMibps']).to eq(200)
     end
+
+    it 'compiles AWS::Backup::BackupVault, BackupPlan, BackupSelection, and Backup IAM Role for EFS backup' do
+      dsl_code = <<~RUBY
+        Veltrunode.application "efs-backup-service" do
+          aws region: "ap-northeast-1", account: "123456789012"
+          runtime ruby: "3.3"
+
+          efs_mount :shared_data do
+            local_path "/mnt/shared"
+            managed_access_point "fs-0123456789abcdef0" do
+              posix_user uid: 1000, gid: 1000
+              backup schedule: "cron(0 12 * * ? *)", retention_days: 30
+            end
+          end
+
+          function :backup_worker do
+            handler "worker.handler"
+            vpc_reference subnet_ids: ["subnet-11112222"], security_group_ids: ["sg-11112222"]
+            mount :shared_data
+          end
+        end
+      RUBY
+
+      app = Veltrunode.parse(dsl_code)
+      result = described_class.compile(app)
+      resources = result['Resources']
+
+      expect(resources).to have_key('SharedDataBackupVault')
+      expect(resources['SharedDataBackupVault']['Type']).to eq('AWS::Backup::BackupVault')
+
+      expect(resources).to have_key('SharedDataBackupPlan')
+      plan = resources['SharedDataBackupPlan']
+      expect(plan['Type']).to eq('AWS::Backup::BackupPlan')
+      rule = plan['Properties']['BackupPlan']['BackupPlanRule'].first
+      expect(rule['ScheduleExpression']).to eq('cron(0 12 * * ? *)')
+      expect(rule['Lifecycle']).to eq('DeleteAfterDays' => 30)
+      expect(rule['TargetBackupVault']).to eq('Ref' => 'SharedDataBackupVault')
+
+      expect(resources).to have_key('SharedDataBackupRole')
+      role = resources['SharedDataBackupRole']
+      expect(role['Type']).to eq('AWS::IAM::Role')
+      expect(role['Properties']['AssumeRolePolicyDocument']['Statement']).to eq(
+        [
+          {
+            'Action' => 'sts:AssumeRole',
+            'Effect' => 'Allow',
+            'Principal' => { 'Service' => 'backup.amazonaws.com' }
+          }
+        ]
+      )
+      expect(role['Properties']['ManagedPolicyArns']).to include(
+        'arn:aws:iam::aws:policy/service-role/AWSBackupServiceRolePolicyForBackup',
+        'arn:aws:iam::aws:policy/service-role/AWSBackupServiceRolePolicyForRestores'
+      )
+
+      expect(resources).to have_key('SharedDataBackupSelection')
+      selection = resources['SharedDataBackupSelection']
+      expect(selection['Type']).to eq('AWS::Backup::BackupSelection')
+      expect(selection['Properties']['BackupPlanId']).to eq('Ref' => 'SharedDataBackupPlan')
+      expect(selection['Properties']['BackupSelection']['IamRoleArn']).to eq(
+        'Fn::GetAtt' => %w[SharedDataBackupRole Arn]
+      )
+    end
   end
 end
