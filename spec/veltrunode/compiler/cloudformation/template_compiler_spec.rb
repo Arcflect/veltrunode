@@ -1858,5 +1858,80 @@ RSpec.describe Veltrunode::Compiler::CloudFormation::TemplateCompiler do
         'Fn::GetAtt' => %w[SharedDataBackupRole Arn]
       )
     end
+
+    it 'compiles multiple EFS mounts on a single function with FileSystemConfigs and aggregated security groups' do
+      dsl_code = <<~RUBY
+        Veltrunode.application "multi-efs-service" do
+          aws region: "ap-northeast-1", account: "123456789012"
+          runtime ruby: "3.3"
+
+          efs_mount :common_libs do
+            local_path "/mnt/shared"
+            managed_access_point "fs-11111111111111111" do
+              posix_user uid: 1000, gid: 1000
+            end
+            security_group_helper vpc_id: "vpc-0123456789abcdef0"
+          end
+
+          efs_mount :work_data do
+            local_path "/mnt/data"
+            managed_access_point "fs-22222222222222222" do
+              posix_user uid: 1001, gid: 1001
+            end
+            security_group_helper vpc_id: "vpc-0123456789abcdef0"
+          end
+
+          function :batch_worker do
+            handler "worker.handler"
+            vpc_reference subnet_ids: ["subnet-11112222"]
+            efs_mount :common_libs
+            efs_mount :work_data
+          end
+        end
+      RUBY
+
+      app = Veltrunode.parse(dsl_code)
+      result = described_class.compile(app)
+      resources = result['Resources']
+
+      fn = resources['BatchWorkerFunction']
+      expect(fn['DependsOn']).to include(
+        'BatchWorkerFunctionLogGroup',
+        'CommonLibsAccessPoint',
+        'WorkDataAccessPoint'
+      )
+      expect(fn['Properties']['FileSystemConfigs']).to eq(
+        [
+          {
+            'Arn' => { 'Fn::GetAtt' => %w[CommonLibsAccessPoint Arn] },
+            'LocalMountPath' => '/mnt/shared'
+          },
+          {
+            'Arn' => { 'Fn::GetAtt' => %w[WorkDataAccessPoint Arn] },
+            'LocalMountPath' => '/mnt/data'
+          }
+        ]
+      )
+
+      expect(fn['Properties']['VpcConfig']['SecurityGroupIds']).to eq(
+        [
+          { 'Ref' => 'CommonLibsLambdaSecurityGroup' },
+          { 'Ref' => 'WorkDataLambdaSecurityGroup' }
+        ]
+      )
+
+      expect(resources).to have_key('CommonLibsEfsSecurityGroupIngress')
+      expect(resources).to have_key('CommonLibsLambdaSecurityGroupEgress')
+      expect(resources).to have_key('WorkDataEfsSecurityGroupIngress')
+      expect(resources).to have_key('WorkDataLambdaSecurityGroupEgress')
+
+      policy_doc = resources['BatchWorkerFunctionRole']['Properties']['Policies'].first['PolicyDocument']
+      role_statements = policy_doc['Statement']
+      efs_stmt = role_statements.find { |s| Array(s['Action']).include?('elasticfilesystem:ClientMount') }
+      expect(efs_stmt['Resource']).to eq([
+                                           { 'Fn::GetAtt' => %w[CommonLibsAccessPoint Arn] },
+                                           { 'Fn::GetAtt' => %w[WorkDataAccessPoint Arn] }
+                                         ])
+    end
   end
 end

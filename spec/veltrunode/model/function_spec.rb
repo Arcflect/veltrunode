@@ -38,6 +38,7 @@ RSpec.describe Veltrunode::Model::Function do
         expect(fn.vpc_reference).to eq('vpc-12345')
         expect(fn.layers).to eq(['shared_layer'])
         expect(fn.mounts).to eq([{ 'name' => 'data_mount', 'local_path' => '/mnt/data' }])
+        expect(fn.efs_mounts).to eq([{ 'name' => 'data_mount', 'local_path' => '/mnt/data' }])
         expect(fn.iam_capabilities).to eq(['s3:GetObject'])
         expect(fn.concurrency).to eq(10)
         expect(fn.logging).to eq({ 'format' => 'JSON' })
@@ -203,6 +204,63 @@ RSpec.describe Veltrunode::Model::Function do
         )
         ctx = { available_mount_names: ['shared'] }
         expect(fn.validate_invariants(ctx)).to be_empty
+      end
+
+      it 'accepts multiple EFS mounts via efs_mounts option with distinct local_paths' do
+        fn = described_class.new(
+          logical_name: 'fn',
+          efs_mounts: [
+            { name: 'data_efs', local_path: '/mnt/data' },
+            { name: 'shared_efs', local_path: '/mnt/shared' }
+          ]
+        )
+        ctx = { available_mount_names: %w[data_efs shared_efs] }
+        expect(fn.efs_mounts.size).to eq(2)
+        expect(fn.validate_invariants(ctx)).to be_empty
+      end
+
+      it 'creates a VLT-EFS-DUPLICATE-PATH Diagnostic when duplicate local_paths are configured on a function' do
+        fn = described_class.new(
+          logical_name: 'fn',
+          efs_mounts: [
+            { name: 'data_efs', local_path: '/mnt/data' },
+            { name: 'shared_efs', local_path: '/mnt/data' }
+          ]
+        )
+        ctx = { available_mount_names: %w[data_efs shared_efs] }
+        diagnostics = fn.validate_invariants(ctx)
+
+        expect(diagnostics.size).to eq(1)
+        diag = diagnostics.first
+        expect(diag.code).to eq('VLT-EFS-DUPLICATE-PATH')
+        expect(diag.severity).to eq(:error)
+        expect(diag.evidence['local_path']).to eq('/mnt/data')
+      end
+
+      it 'detects duplicate local_paths resolved from available_mounts in context' do
+        m1 = Veltrunode::Model::EfsMount.new(
+          symbolic_name: 'data_efs',
+          access_point_source: 'ap1',
+          local_path: '/mnt/shared'
+        )
+        m2 = Veltrunode::Model::EfsMount.new(
+          symbolic_name: 'shared_efs',
+          access_point_source: 'ap2',
+          local_path: '/mnt/shared'
+        )
+        fn = described_class.new(
+          logical_name: 'fn',
+          efs_mounts: %w[data_efs shared_efs]
+        )
+        ctx = {
+          available_mount_names: %w[data_efs shared_efs],
+          available_mounts: [m1, m2]
+        }
+        diagnostics = fn.validate_invariants(ctx)
+
+        expect(diagnostics.size).to eq(1)
+        expect(diagnostics.first.code).to eq('VLT-EFS-DUPLICATE-PATH')
+        expect(diagnostics.first.evidence['local_path']).to eq('/mnt/shared')
       end
     end
 

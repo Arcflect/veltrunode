@@ -27,23 +27,65 @@ module Veltrunode
       alias backup_plan backup
 
       class << self
-        def validate_unique_local_paths!(mounts)
-          return if mounts.nil? || mounts.empty?
-
-          paths = mounts.map do |m|
-            if m.is_a?(Hash)
-              m[:local_path] || m['local_path']
-            elsif m.respond_to?(:local_path)
-              m.local_path
-            end
-          end.compact.map(&:to_s)
-
-          counts = Hash.new(0)
-          paths.each { |p| counts[p] += 1 }
-          duplicates = counts.select { |_p, c| c > 1 }.keys
+        def validate_unique_local_paths!(mounts, mount_map: {})
+          duplicates = duplicate_local_paths(mounts, mount_map: mount_map)
           return if duplicates.empty?
 
           raise ValidationError, "Duplicate local_path found: #{duplicates.join(', ')}"
+        end
+
+        def duplicate_local_paths(mounts, mount_map: {})
+          return [] if mounts.nil? || mounts.empty?
+
+          paths = Array(mounts).map { |m| extract_local_path_for_validation(m, mount_map) }.compact.map(&:to_s)
+          counts = Hash.new(0)
+          paths.each { |p| counts[p] += 1 }
+          counts.select { |_p, c| c > 1 }.keys
+        end
+
+        private
+
+        def extract_local_path_for_validation(mount, mount_map)
+          if mount.is_a?(Hash)
+            explicit = mount[:local_path] || mount['local_path'] ||
+                       mount[:local_mount_path] || mount['local_mount_path'] || mount['LocalMountPath']
+            return explicit if explicit
+
+            name = mount[:name] || mount['name'] || mount[:symbolic_name] || mount['symbolic_name'] ||
+                   mount[:mount] || mount['mount']
+            resolve_from_mount_map(name, mount_map)
+          elsif mount.respond_to?(:local_path)
+            mount.local_path
+          elsif mount.is_a?(String) && mount.include?(':')
+            mount.split(':', 2).last
+          elsif mount.is_a?(String) && mount.start_with?('/')
+            mount
+          elsif mount.is_a?(String) || mount.is_a?(Symbol)
+            resolve_from_mount_map(mount, mount_map)
+          end
+        end
+
+        def resolve_from_mount_map(name, mount_map)
+          return nil if name.nil? || mount_map.nil? || mount_map.empty?
+
+          target = if mount_map.is_a?(Hash)
+                     mount_map[name.to_s] || mount_map[name.to_sym]
+                   elsif mount_map.is_a?(Array)
+                     mount_map.find { |item| extract_mount_item_name(item) == name.to_s }
+                   end
+          return nil unless target
+
+          target.respond_to?(:local_path) ? target.local_path : (target[:local_path] || target['local_path'])
+        end
+
+        def extract_mount_item_name(item)
+          if item.respond_to?(:symbolic_name)
+            item.symbolic_name.to_s
+          elsif item.respond_to?(:name)
+            item.name.to_s
+          elsif item.is_a?(Hash)
+            (item[:name] || item['name'] || item[:symbolic_name] || item['symbolic_name'])&.to_s
+          end
         end
       end
 

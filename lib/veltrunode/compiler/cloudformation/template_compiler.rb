@@ -680,7 +680,8 @@ module Veltrunode
           elsif m_ref.respond_to?(:name)
             m_ref.name
           elsif m_ref.is_a?(Hash)
-            m_ref[:name] || m_ref['name'] || m_ref[:symbolic_name] || m_ref['symbolic_name']
+            m_ref[:name] || m_ref['name'] || m_ref[:symbolic_name] || m_ref['symbolic_name'] ||
+              m_ref[:mount] || m_ref['mount']
           else
             m_ref.to_s.split(':', 2).first
           end

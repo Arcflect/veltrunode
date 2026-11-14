@@ -62,7 +62,12 @@ module Veltrunode
         @schedules = schedules.dup.freeze
         @rules = rules.dup.freeze
         @mounts = mounts.dup.freeze
-        @security_groups = security_groups.dup.freeze
+        mount_sgs = Array(mounts).map do |m|
+          m.respond_to?(:security_group_helper) ? m.security_group_helper : nil
+        end.compact
+        @security_groups = (Array(security_groups) + mount_sgs).uniq do |sg|
+          sg.respond_to?(:symbolic_name) ? sg.symbolic_name.to_s : sg.to_s
+        end.freeze
         @policies = policies.dup.freeze
         @tags = tags.dup.freeze
         @cache_config = freeze_value(cache || cache_config || {})

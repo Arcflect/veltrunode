@@ -625,5 +625,57 @@ RSpec.describe Veltrunode::DSL do
       expect(sched.dlq_alarm?).to be(true)
       expect(sched.dlq_alarm_topic).to eq(Veltrunode::DSL::Reference.new(:alert_topic))
     end
+
+    it 'supports multiple efs_mount declarations and efs_mounts array in a single function' do
+      code = <<~RUBY
+        Veltrunode.application "multi-efs-app" do
+          efs_mount :common_libs do
+            existing_access_point arn: "arn:aws:elasticfilesystem:ap-northeast-1:123456789012:access-point/fsap-11111111111111111"
+            local_path "/mnt/shared"
+          end
+
+          efs_mount :work_data do
+            existing_access_point arn: "arn:aws:elasticfilesystem:ap-northeast-1:123456789012:access-point/fsap-22222222222222222"
+            local_path "/mnt/data"
+          end
+
+          function :multi_decl_worker do
+            handler "worker.handler"
+            efs_mount :common_libs, local_path: "/mnt/shared"
+            efs_mount :work_data, local_path: "/mnt/data"
+          end
+
+          function :array_worker do
+            handler "array_worker.handler"
+            efs_mounts [
+              { name: :common_libs, local_path: "/mnt/shared" },
+              { name: :work_data, local_path: "/mnt/data" }
+            ]
+          end
+
+          function :kw_worker, efs_mounts: [:common_libs, :work_data] do
+            handler "kw_worker.handler"
+          end
+        end
+      RUBY
+
+      app = Veltrunode.parse(code)
+      expect(app.functions.size).to eq(3)
+
+      decl_fn = app.functions.find { |f| f.logical_name == 'multi_decl_worker' }
+      expect(decl_fn.efs_mounts).to eq([
+                                         { 'name' => 'common_libs', 'local_path' => '/mnt/shared' },
+                                         { 'name' => 'work_data', 'local_path' => '/mnt/data' }
+                                       ])
+
+      array_fn = app.functions.find { |f| f.logical_name == 'array_worker' }
+      expect(array_fn.efs_mounts).to eq([
+                                          { 'name' => 'common_libs', 'local_path' => '/mnt/shared' },
+                                          { 'name' => 'work_data', 'local_path' => '/mnt/data' }
+                                        ])
+
+      kw_fn = app.functions.find { |f| f.logical_name == 'kw_worker' }
+      expect(kw_fn.efs_mounts).to eq(%w[common_libs work_data])
+    end
   end
 end

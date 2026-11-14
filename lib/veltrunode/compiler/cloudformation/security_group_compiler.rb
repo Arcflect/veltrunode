@@ -12,10 +12,25 @@ module Veltrunode
 
         class << self
           def compile(helper, **)
+            return compile_all(helper, **) if helper.is_a?(Array)
+
             new(helper, **).to_h
           end
 
+          def compile_all(helpers, **)
+            merged = {}
+            Array(helpers).each do |h|
+              target = h.respond_to?(:security_group_helper) ? h.security_group_helper : h
+              next if target.nil?
+
+              merged.merge!(new(target, **).to_h)
+            end
+            merged.keys.sort_by(&:to_s).to_h { |k| [k.to_s, merged[k]] }
+          end
+
           def to_yaml(helper, **)
+            return YAML.dump(compile_all(helper, **)) if helper.is_a?(Array)
+
             new(helper, **).to_yaml
           end
 
@@ -37,7 +52,11 @@ module Veltrunode
         end
 
         def initialize(helper, context: {})
-          @helper = helper
+          @helper = if helper.respond_to?(:security_group_helper) && !helper.security_group_helper.nil?
+                      helper.security_group_helper
+                    else
+                      helper
+                    end
           @context = freeze_hash(context)
         end
 

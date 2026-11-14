@@ -2,6 +2,7 @@
 
 require_relative '../diagnostics/diagnostic'
 require_relative 'async_invoke_config'
+require_relative 'efs_mount'
 require_relative 'event_source'
 require_relative 'function_url'
 
@@ -11,6 +12,8 @@ module Veltrunode
       attr_reader :handler, :runtime, :logical_name, :architecture, :memory, :timeout, :ephemeral_storage,
                   :environment, :vpc_reference, :layers, :mounts, :iam_capabilities, :concurrency, :logging,
                   :alarms, :subscription_filters, :tracing, :insights, :async_invoke, :event_sources, :function_url
+
+      alias efs_mounts mounts
 
       def initialize(
         positional_logical_name = nil,
@@ -25,6 +28,9 @@ module Veltrunode
         vpc_reference: nil,
         layers: [],
         mounts: [],
+        efs_mounts: nil,
+        efs_mount: nil,
+        mount: nil,
         iam_capabilities: [],
         concurrency: nil,
         logging: nil,
@@ -51,7 +57,7 @@ module Veltrunode
         @environment = freeze_hash(environment)
         @vpc_reference = freeze_value(vpc_reference)
         @layers = freeze_array(layers)
-        @mounts = freeze_array(mounts)
+        @mounts = normalize_mounts_list(mounts, efs_mounts, efs_mount, mount)
         @iam_capabilities = freeze_array(iam_capabilities)
         @concurrency = freeze_value(concurrency)
         @logging = freeze_value(logging)
@@ -158,7 +164,7 @@ module Veltrunode
         diagnostics = []
 
         validate_timeout(diagnostics)
-        validate_mount_paths(diagnostics)
+        validate_mount_paths(diagnostics, context)
         validate_layer_architecture_compatibility(context, diagnostics)
         validate_references(context, diagnostics)
         validate_environment_duplicates(context, diagnostics)
@@ -178,7 +184,25 @@ module Veltrunode
         raise ValidationError.new(first_diag.summary, diagnostics:)
       end
 
+      def validate_unique_mount_paths!(mount_map: {})
+        EfsMount.validate_unique_local_paths!(mounts, mount_map: mount_map)
+      end
+
       private
+
+      def normalize_mounts_list(*mount_sources)
+        items = []
+        mount_sources.each do |src|
+          next if src.nil? || src == false
+
+          if src.is_a?(Array)
+            items.concat(src)
+          else
+            items << src
+          end
+        end
+        freeze_array(items)
+      end
 
       def validate_logical_name!(name)
         raise ValidationError, 'Function logical_name is required' if name.nil? || name.to_s.strip.empty?
@@ -229,7 +253,7 @@ module Veltrunode
         )
       end
 
-      def validate_mount_paths(diagnostics)
+      def validate_mount_paths(diagnostics, context = {})
         mounts.each do |m|
           path = extract_mount_path(m)
           next if path.nil? || path.start_with?('/mnt/')
@@ -242,11 +266,29 @@ module Veltrunode
             evidence: { 'local_path' => path }
           )
         end
+
+        available_mounts = context[:available_mounts] || context[:mounts] || []
+        duplicates = EfsMount.duplicate_local_paths(mounts, mount_map: available_mounts)
+        duplicates.each do |dup_path|
+          diagnostics << Diagnostics::Diagnostic.new(
+            code: 'VLT-EFS-DUPLICATE-PATH',
+            severity: :error,
+            summary: "Duplicate EFS mount local_path '#{dup_path}' in function '#{logical_name}'.",
+            suggested_action: "Specify a unique local_path (e.g., '/mnt/data', '/mnt/shared') " \
+                              "for each EFS mount in function '#{logical_name}'.",
+            evidence: {
+              'function' => logical_name,
+              'local_path' => dup_path,
+              'duplicate_local_path' => dup_path
+            }
+          )
+        end
       end
 
       def extract_mount_path(mount)
         if mount.is_a?(Hash)
-          mount[:local_path] || mount['local_path']
+          mount[:local_path] || mount['local_path'] ||
+            mount[:local_mount_path] || mount['local_mount_path'] || mount['LocalMountPath']
         elsif mount.respond_to?(:local_path)
           mount.local_path
         elsif mount.is_a?(String) && mount.include?(':')
@@ -307,6 +349,7 @@ module Veltrunode
 
         mounts.each do |m_ref|
           m_name = extract_name(m_ref)
+          next if m_name.nil? && direct_mount_arn?(m_ref)
           next if available_mount_names.include?(m_name)
 
           diagnostics << Diagnostics::Diagnostic.new(
@@ -317,6 +360,13 @@ module Veltrunode
             evidence: { 'missing_mount' => m_name }
           )
         end
+      end
+
+      def direct_mount_arn?(mount)
+        return false unless mount.is_a?(Hash)
+
+        !(mount[:arn] || mount['arn'] || mount['Arn'] ||
+          mount[:access_point_source] || mount['access_point_source']).nil?
       end
 
       def validate_environment_duplicates(context, diagnostics)
@@ -363,7 +413,7 @@ module Veltrunode
         value =
           if item.is_a?(Hash)
             item[:name] || item['name'] || item[:logical_name] || item['logical_name'] ||
-              item[:symbolic_name] || item['symbolic_name']
+              item[:symbolic_name] || item['symbolic_name'] || item[:mount] || item['mount']
           elsif item.respond_to?(:logical_name)
             item.logical_name
           elsif item.respond_to?(:name)
