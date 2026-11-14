@@ -186,24 +186,111 @@ module Veltrunode
           end
 
           sub_ids = vpc_ref[:subnet_ids] || vpc_ref['subnet_ids'] || vpc_ref['SubnetIds']
-
-          # 自動補完: sg_ids が未指定で context[:security_groups] が存在する場合
-          sgs_in_context = context[:security_groups] || context['security_groups']
-          if (sg_ids.nil? || (sg_ids.respond_to?(:empty?) && sg_ids.empty?)) && sgs_in_context
-            matching_sgs = Array(sgs_in_context)
-            unless matching_sgs.empty?
-              first_sg = matching_sgs.first
-              sg_name = first_sg.respond_to?(:symbolic_name) ? first_sg.symbolic_name : first_sg
-              sg_ids = [{ 'Ref' => LogicalId.for_lambda_security_group(sg_name) }]
-            end
+          if sub_ids.nil? || (sub_ids.respond_to?(:empty?) && sub_ids.empty?)
+            mount_sub_ids = collect_mount_subnet_ids
+            sub_ids = mount_sub_ids unless mount_sub_ids.empty?
           end
 
           cfg = {}
-          cfg['SecurityGroupIds'] = format_security_group_ids(sg_ids) if sg_ids
+          if sg_ids.is_a?(Hash)
+            cfg['SecurityGroupIds'] = sg_ids
+          else
+            explicit_sgs = sg_ids ? format_security_group_ids(sg_ids) : []
+            mount_sgs = collect_mount_security_group_ids(include_context_sgs: explicit_sgs.empty?)
+            combined_sgs = (explicit_sgs + mount_sgs).uniq
+            cfg['SecurityGroupIds'] = combined_sgs unless combined_sgs.empty?
+          end
           if sub_ids
             cfg['SubnetIds'] = sub_ids.is_a?(Hash) ? sub_ids : Array(sub_ids).map(&:to_s)
           end
           cfg
+        end
+
+        def collect_mount_security_group_ids(include_context_sgs: true)
+          sgs = []
+          mounts_list = function.respond_to?(:mounts) ? Array(function.mounts) : []
+          mounted_names = []
+
+          mounts_list.each do |mount_entry|
+            if mount_entry.is_a?(Hash)
+              inline_sg = mount_entry[:security_group_ids] || mount_entry['security_group_ids'] ||
+                          mount_entry[:security_group_id] || mount_entry['security_group_id']
+              sgs.concat(format_security_group_ids(inline_sg)) if inline_sg
+            end
+
+            m_name = extract_mount_entry_name(mount_entry)
+            mounted_names << m_name if m_name
+            mount_obj = if mount_entry.respond_to?(:security_group_helper)
+                          mount_entry
+                        elsif m_name
+                          mount_map[m_name]
+                        end
+            next unless mount_obj
+
+            if mount_obj.respond_to?(:security_group_helper?) && mount_obj.security_group_helper?
+              helper = mount_obj.security_group_helper
+              sg_name = helper.respond_to?(:symbolic_name) ? helper.symbolic_name : m_name
+              sgs << { 'Ref' => LogicalId.for_lambda_security_group(sg_name) }
+            end
+
+            next unless include_context_sgs && mount_obj.respond_to?(:vpc_expectations) &&
+                        mount_obj.vpc_expectations.is_a?(Hash)
+
+            exp_sg = mount_obj.vpc_expectations['security_group_ids'] ||
+                     mount_obj.vpc_expectations[:security_group_ids] ||
+                     mount_obj.vpc_expectations['security_group_id'] ||
+                     mount_obj.vpc_expectations[:security_group_id]
+            sgs.concat(format_security_group_ids(exp_sg)) if exp_sg
+          end
+
+          sgs_in_context = context[:security_groups] || context['security_groups']
+          if include_context_sgs && sgs_in_context
+            known_mount_names = mount_map.keys.map(&:to_s)
+            all_ctx_sgs = Array(sgs_in_context)
+            relevant_sgs = all_ctx_sgs.select do |sg|
+              sg_name = (sg.respond_to?(:symbolic_name) ? sg.symbolic_name : sg).to_s
+              !known_mount_names.include?(sg_name) || mounted_names.include?(sg_name)
+            end
+            relevant_sgs = all_ctx_sgs if relevant_sgs.empty?
+            relevant_sgs.each do |sg|
+              sg_name = sg.respond_to?(:symbolic_name) ? sg.symbolic_name : sg
+              sgs << { 'Ref' => LogicalId.for_lambda_security_group(sg_name) }
+            end
+          end
+
+          sgs.uniq
+        end
+
+        def collect_mount_subnet_ids
+          subs = []
+          mounts_list = function.respond_to?(:mounts) ? Array(function.mounts) : []
+          mounts_list.each do |mount_entry|
+            m_name = extract_mount_entry_name(mount_entry)
+            mount_obj = if mount_entry.respond_to?(:vpc_expectations)
+                          mount_entry
+                        elsif m_name
+                          mount_map[m_name]
+                        end
+            next unless mount_obj.respond_to?(:vpc_expectations) && mount_obj.vpc_expectations.is_a?(Hash)
+
+            exp_subs = mount_obj.vpc_expectations['subnet_ids'] || mount_obj.vpc_expectations[:subnet_ids]
+            subs.concat(Array(exp_subs).map(&:to_s)) if exp_subs
+          end
+          subs.uniq
+        end
+
+        def extract_mount_entry_name(mount_entry)
+          if mount_entry.respond_to?(:symbolic_name)
+            mount_entry.symbolic_name.to_s
+          elsif mount_entry.respond_to?(:name)
+            mount_entry.name.to_s
+          elsif mount_entry.is_a?(Hash)
+            (mount_entry[:name] || mount_entry['name'] ||
+             mount_entry[:symbolic_name] || mount_entry['symbolic_name'] ||
+             mount_entry[:mount] || mount_entry['mount'])&.to_s
+          else
+            mount_entry.to_s.split(':', 2).first
+          end
         end
 
         def format_security_group_ids(sg_ids)
@@ -251,7 +338,7 @@ module Veltrunode
                   '(vpc_reference). Lambda requires VpcConfig to mount EFS.'
           end
 
-          Array(mounts_array).map do |mount_entry|
+          configs = Array(mounts_array).map do |mount_entry|
             if mount_entry.respond_to?(:access_point_source) && mount_entry.respond_to?(:local_path)
               {
                 'Arn' => format_arn_or_ref(mount_entry.access_point_source),
@@ -259,7 +346,8 @@ module Veltrunode
               }
             elsif mount_entry.is_a?(Hash)
               mount_name = mount_entry[:name] || mount_entry['name'] ||
-                           mount_entry[:symbolic_name] || mount_entry['symbolic_name']
+                           mount_entry[:symbolic_name] || mount_entry['symbolic_name'] ||
+                           mount_entry[:mount] || mount_entry['mount']
               raw_arn = mount_entry[:arn] || mount_entry['arn'] || mount_entry['Arn'] ||
                         mount_entry[:access_point_source] || mount_entry['access_point_source']
 
@@ -273,6 +361,7 @@ module Veltrunode
               mapped_local = mapped.local_path if mapped.respond_to?(:local_path)
               local_path = mount_entry[:local_path] || mount_entry['local_path'] ||
                            mount_entry['LocalMountPath'] || mount_entry[:local_mount_path] ||
+                           mount_entry['local_mount_path'] ||
                            mapped_local ||
                            (mount_name ? "/mnt/#{mount_name}" : nil)
 
@@ -309,6 +398,20 @@ module Veltrunode
               end
             end
           end
+
+          validate_unique_local_mount_paths!(configs)
+          configs
+        end
+
+        def validate_unique_local_mount_paths!(configs)
+          paths = configs.map { |c| c.is_a?(Hash) ? (c['LocalMountPath'] || c[:local_mount_path]) : nil }.compact
+          counts = Hash.new(0)
+          paths.each { |p| counts[p.to_s] += 1 }
+          duplicates = counts.select { |_p, c| c > 1 }.keys
+          return if duplicates.empty?
+
+          raise ValidationError,
+                "Function '#{function.logical_name}' has duplicate EFS mount local_path: #{duplicates.join(', ')}"
         end
 
         def format_arn_or_ref(val)

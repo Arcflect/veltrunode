@@ -266,6 +266,90 @@ RSpec.describe Veltrunode::Compiler::CloudFormation::FunctionCompiler do
       expect(fs_cfg['Arn']).to eq(expected_arn)
       expect(fs_cfg['LocalMountPath']).to eq('/mnt/app_storage')
     end
+
+    it 'compiles multiple EFS mounts into FileSystemConfigs array with distinct LocalMountPaths' do
+      arn1 = 'arn:aws:elasticfilesystem:ap-northeast-1:123456789012:access-point/fsap-11111111111111111'
+      arn2 = 'arn:aws:elasticfilesystem:ap-northeast-1:123456789012:access-point/fsap-22222222222222222'
+      m1 = Veltrunode::Model::EfsMount.new(
+        symbolic_name: 'common_libs',
+        access_point_source: arn1,
+        local_path: '/mnt/shared'
+      )
+      m2 = Veltrunode::Model::EfsMount.new(
+        symbolic_name: 'work_data',
+        access_point_source: arn2,
+        local_path: '/mnt/data'
+      )
+
+      multi_mount_fn = Veltrunode::Model::Function.new(
+        logical_name: 'multi_mount_fn',
+        handler: 'fn.handler',
+        vpc_reference: { security_group_ids: ['sg-12345'], subnet_ids: ['subnet-abc'] },
+        efs_mounts: %w[common_libs work_data]
+      )
+
+      result = described_class.compile(
+        multi_mount_fn,
+        mount_map: { 'common_libs' => m1, 'work_data' => m2 }
+      )
+      fs_configs = result['MultiMountFnFunction']['Properties']['FileSystemConfigs']
+
+      expect(fs_configs).to eq([
+                                 { 'Arn' => arn1, 'LocalMountPath' => '/mnt/shared' },
+                                 { 'Arn' => arn2, 'LocalMountPath' => '/mnt/data' }
+                               ])
+    end
+
+    it 'raises ValidationError when multiple EFS mounts resolve to duplicate LocalMountPaths' do
+      dup_fn = Veltrunode::Model::Function.new(
+        logical_name: 'dup_mount_fn',
+        handler: 'fn.handler',
+        vpc_reference: { security_group_ids: ['sg-12345'], subnet_ids: ['subnet-abc'] },
+        efs_mounts: [
+          { name: 'common_libs', local_path: '/mnt/data' },
+          { name: 'work_data', local_path: '/mnt/data' }
+        ]
+      )
+
+      expect { described_class.compile(dup_fn) }
+        .to raise_error(Veltrunode::ValidationError, %r{duplicate EFS mount local_path: /mnt/data})
+    end
+
+    it 'aggregates security groups across multiple EFS mounts in VpcConfig' do
+      sg1 = Veltrunode::Model::SecurityGroupHelper.new(symbolic_name: :common_libs, vpc_id: 'vpc-12345678')
+      sg2 = Veltrunode::Model::SecurityGroupHelper.new(symbolic_name: :work_data, vpc_id: 'vpc-12345678')
+      m1 = Veltrunode::Model::EfsMount.new(
+        symbolic_name: 'common_libs',
+        access_point_source: 'common_libs',
+        local_path: '/mnt/shared',
+        security_group_helper: sg1
+      )
+      m2 = Veltrunode::Model::EfsMount.new(
+        symbolic_name: 'work_data',
+        access_point_source: 'work_data',
+        local_path: '/mnt/data',
+        security_group_helper: sg2
+      )
+
+      fn = Veltrunode::Model::Function.new(
+        logical_name: 'multi_sg_fn',
+        handler: 'fn.handler',
+        vpc_reference: { subnet_ids: ['subnet-abc'] },
+        efs_mounts: %w[common_libs work_data]
+      )
+
+      result = described_class.compile(
+        fn,
+        context: { security_groups: [sg1, sg2] },
+        mount_map: { 'common_libs' => m1, 'work_data' => m2 }
+      )
+      vpc_cfg = result['MultiSgFnFunction']['Properties']['VpcConfig']
+
+      expect(vpc_cfg['SecurityGroupIds']).to eq([
+                                                  { 'Ref' => 'CommonLibsLambdaSecurityGroup' },
+                                                  { 'Ref' => 'WorkDataLambdaSecurityGroup' }
+                                                ])
+    end
   end
 
   it 'avoids duplicate LayerVersion suffix when layer name ends with layer_version' do

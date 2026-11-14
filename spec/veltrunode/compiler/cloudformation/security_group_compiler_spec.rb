@@ -124,5 +124,29 @@ RSpec.describe Veltrunode::Compiler::CloudFormation::SecurityGroupCompiler do
         expect(efs_sg['Properties']['VpcId']).to eq(fn_import)
       end
     end
+
+    context 'with multiple EFS security group helpers' do
+      let(:sg1) do
+        Veltrunode::Model::SecurityGroupHelper.new(symbolic_name: :common_libs, vpc_id: valid_vpc_id)
+      end
+      let(:sg2) do
+        Veltrunode::Model::SecurityGroupHelper.new(symbolic_name: :work_data, vpc_id: valid_vpc_id)
+      end
+
+      it 'aggregates all security groups and ingress/egress rules via compile_all or array input' do
+        resources = described_class.compile([sg1, sg2])
+
+        expect(resources.keys).to contain_exactly(
+          'CommonLibsLambdaSecurityGroup',
+          'CommonLibsEfsSecurityGroup',
+          'CommonLibsEfsSecurityGroupIngress',
+          'CommonLibsLambdaSecurityGroupEgress',
+          'WorkDataLambdaSecurityGroup',
+          'WorkDataEfsSecurityGroup',
+          'WorkDataEfsSecurityGroupIngress',
+          'WorkDataLambdaSecurityGroupEgress'
+        )
+      end
+    end
   end
 end

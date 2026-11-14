@@ -586,7 +586,7 @@ module Veltrunode
           Array(mounts).map do |mount_entry|
             raw_arn = extract_mount_arn(mount_entry)
             format_arn_or_ref(raw_arn)
-          end.compact
+          end.compact.uniq
         end
 
         def extract_mount_arn(mount_entry)
@@ -605,7 +605,8 @@ module Veltrunode
           return raw if raw
 
           name = mount_entry[:name] || mount_entry['name'] ||
-                 mount_entry[:symbolic_name] || mount_entry['symbolic_name']
+                 mount_entry[:symbolic_name] || mount_entry['symbolic_name'] ||
+                 mount_entry[:mount] || mount_entry['mount']
           return name unless name && resolved_mount_map.key?(name.to_s)
 
           m = resolved_mount_map[name.to_s]
