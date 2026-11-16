@@ -286,5 +286,53 @@ RSpec.describe Veltrunode::Model::ManagedAccessPoint do
         end.to raise_error(Veltrunode::ValidationError, /cold_storage_after_days .* must be less than retention_days/)
       end
     end
+
+    context 'alarms configuration (BurstCreditBalance and PercentIOLimit)' do
+      it 'supports alarms: true with default thresholds for BurstCreditBalance and PercentIOLimit' do
+        ap = described_class.new(file_system_id: valid_fs_id, alarms: true)
+        expect(ap.alarms?).to be(true)
+        expect(ap.burst_credit_balance_threshold).to eq(1_073_741_824)
+        expect(ap.percent_io_limit_threshold).to eq(80)
+        expect(ap.alarms['burst_credit_balance']['metric_name']).to eq('BurstCreditBalance')
+        expect(ap.alarms['burst_credit_balance']['comparison_operator']).to eq('LessThanOrEqualToThreshold')
+        expect(ap.alarms['burst_credit_balance']['statistic']).to eq('Minimum')
+        expect(ap.alarms['percent_io_limit']['metric_name']).to eq('PercentIOLimit')
+        expect(ap.alarms['percent_io_limit']['comparison_operator']).to eq('GreaterThanOrEqualToThreshold')
+        expect(ap.alarms['percent_io_limit']['statistic']).to eq('Average')
+      end
+
+      it 'supports custom BurstCreditBalance and PercentIOLimit thresholds and byte unit strings' do
+        ap = described_class.new(
+          file_system_id: valid_fs_id,
+          alarms: {
+            burst_credit_balance: '10GB',
+            percent_io_limit: 85,
+            topic: :alert_topic
+          }
+        )
+        expect(ap.alarms?).to be(true)
+        expect(ap.burst_credit_balance_threshold).to eq(10_000_000_000)
+        expect(ap.percent_io_limit_threshold).to eq(85)
+        expect(ap.alarm_topic).to eq(:alert_topic)
+      end
+
+      it 'raises ValidationError when BurstCreditBalance or PercentIOLimit threshold is invalid' do
+        expect do
+          described_class.new(file_system_id: valid_fs_id, alarms: { burst_credit_balance: 0 })
+        end.to raise_error(Veltrunode::ValidationError, /Invalid EFS alarm burst_credit_balance threshold/)
+
+        expect do
+          described_class.new(file_system_id: valid_fs_id, alarms: { burst_credit_balance: -500 })
+        end.to raise_error(Veltrunode::ValidationError, /Invalid EFS alarm burst_credit_balance threshold/)
+
+        expect do
+          described_class.new(file_system_id: valid_fs_id, alarms: { percent_io_limit: 105 })
+        end.to raise_error(Veltrunode::ValidationError, /Invalid EFS alarm percent_io_limit threshold/)
+
+        expect do
+          described_class.new(file_system_id: valid_fs_id, alarms: { percent_io_limit: 0 })
+        end.to raise_error(Veltrunode::ValidationError, /Invalid EFS alarm percent_io_limit threshold/)
+      end
+    end
   end
 end

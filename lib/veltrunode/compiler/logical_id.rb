@@ -163,6 +163,8 @@ module Veltrunode
           for_backup_selection(name)
         when :backup_role
           for_backup_role(name)
+        when :efs_alarm
+          for_efs_alarm(name, :burst_credit_balance)
         when :lambda_security_group
           for_lambda_security_group(name)
         when :efs_security_group
@@ -368,6 +370,26 @@ module Veltrunode
         return "#{base}Alarm" if base.end_with?('Queue')
 
         "#{base}QueueAlarm"
+      end
+
+      # EFS ファイルシステムの CloudWatch メトリクスアラームの論理IDを生成します
+      #
+      # @param mount_name [String, Symbol, nil] マウントシンボリック名 (例: :shared_data)
+      # @param metric [String, Symbol] メトリクス種別 (例: :burst_credit_balance, :percent_io_limit)
+      # @return [String] 論理ID (例: "SharedDataBurstCreditBalanceAlarm", "SharedDataPercentIOLimitAlarm")
+      def for_efs_alarm(mount_name, metric = :burst_credit_balance)
+        base = pascalize(mount_name)
+        base = 'Efs' if base.empty? || base == 'Default'
+        metric_str = case metric.to_s.downcase
+                     when 'burst_credit_balance', 'burstcreditbalance'
+                       'BurstCreditBalance'
+                     when 'percent_io_limit', 'percentiolimit', 'io_limit'
+                       'PercentIOLimit'
+                     else
+                       pascalize(metric)
+                     end
+        suffix = metric_str.end_with?('Alarm') ? metric_str : "#{metric_str}Alarm"
+        "#{base}#{suffix}"
       end
 
       # CloudWatch Logs サブスクリプションフィルターの論理IDを生成します

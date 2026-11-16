@@ -596,5 +596,103 @@ RSpec.describe Veltrunode::AWS::Inspectors::EfsInspector do
         expect(diag.suggested_action).to include('Enable automatic backup policy')
       end
     end
+
+    context 'EFS CloudWatch アラームの状態確認 (BurstCreditBalance / PercentIOLimit)' do
+      let(:mock_cw_client) { double('Aws::CloudWatch::Client') }
+
+      it 'BurstCreditBalance および PercentIOLimit アラームが OK 状態の場合に passed を返すこと' do
+        alarms_resp = double(
+          'AlarmsResponse',
+          metric_alarms: [
+            double(
+              'BurstCreditAlarm',
+              alarm_name: 'shared-BurstCreditBalance',
+              namespace: 'AWS/EFS',
+              metric_name: 'BurstCreditBalance',
+              state_value: 'OK',
+              threshold: 1_073_741_824,
+              dimensions: [double('Dim', name: 'FileSystemId', value: 'fs-12345678')]
+            ),
+            double(
+              'PercentIOLimitAlarm',
+              alarm_name: 'shared-PercentIOLimit',
+              namespace: 'AWS/EFS',
+              metric_name: 'PercentIOLimit',
+              state_value: 'OK',
+              threshold: 80,
+              dimensions: [double('Dim', name: 'FileSystemId', value: 'fs-12345678')]
+            )
+          ]
+        )
+        allow(mock_cw_client).to receive(:describe_alarms).and_return(alarms_resp)
+
+        cw_inspector = described_class.new(
+          application,
+          target_name: 'shared_data',
+          efs_client: mock_efs_client,
+          ec2_client: mock_ec2_client,
+          iam_client: mock_iam_client,
+          cloudwatch_client: mock_cw_client
+        )
+
+        report = cw_inspector.inspect
+        alarm_check = report.checks.find { |c| c.name == 'cloudwatch_alarms' }
+        expect(alarm_check).not_to be_nil
+        expect(alarm_check.passed?).to be(true)
+        expect(alarm_check.summary).to include('BurstCreditBalance: OK, PercentIOLimit: OK')
+      end
+
+      it 'BurstCreditBalance アラームが ALARM 状態の場合に VLT-EFS-ALARM-STATE 警告を報告すること' do
+        alarms_resp = double(
+          'AlarmsResponse',
+          metric_alarms: [
+            double(
+              'BurstCreditAlarm',
+              alarm_name: 'shared-BurstCreditBalance',
+              namespace: 'AWS/EFS',
+              metric_name: 'BurstCreditBalance',
+              state_value: 'ALARM',
+              threshold: 1_073_741_824,
+              dimensions: [double('Dim', name: 'FileSystemId', value: 'fs-12345678')]
+            )
+          ]
+        )
+        allow(mock_cw_client).to receive(:describe_alarms).and_return(alarms_resp)
+
+        cw_inspector = described_class.new(
+          application,
+          target_name: 'shared_data',
+          efs_client: mock_efs_client,
+          ec2_client: mock_ec2_client,
+          iam_client: mock_iam_client,
+          cloudwatch_client: mock_cw_client
+        )
+
+        report = cw_inspector.inspect
+        expect(report.has_warnings?).to be(true)
+        diag = report.diagnostics.find { |d| d.code == 'VLT-EFS-ALARM-STATE' }
+        expect(diag).not_to be_nil
+        expect(diag.severity).to eq(:warning)
+        expect(diag.summary).to include('BurstCreditBalance (ALARM)')
+      end
+
+      it 'アラームが未設定の場合に VLT-EFS-ALARM-MISSING 警告を報告すること' do
+        allow(mock_cw_client).to receive(:describe_alarms).and_return(double('EmptyAlarms', metric_alarms: []))
+
+        cw_inspector = described_class.new(
+          application,
+          target_name: 'shared_data',
+          efs_client: mock_efs_client,
+          ec2_client: mock_ec2_client,
+          iam_client: mock_iam_client,
+          cloudwatch_client: mock_cw_client
+        )
+
+        report = cw_inspector.inspect
+        expect(report.has_warnings?).to be(true)
+        diag = report.diagnostics.find { |d| d.code == 'VLT-EFS-ALARM-MISSING' }
+        expect(diag).not_to be_nil
+      end
+    end
   end
 end

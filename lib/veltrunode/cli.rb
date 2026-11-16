@@ -941,6 +941,7 @@ module Veltrunode
         when 'lambda_iam_permissions' then 'Lambda Execution Role EFS IAM Permissions'
         when 'encryption_at_rest' then 'EFS Encryption at Rest'
         when 'backup_policy' then 'EFS Automatic Backup Policy'
+        when 'cloudwatch_alarms' then 'EFS CloudWatch Alarms (BurstCreditBalance / PercentIOLimit)'
         else
           name.to_s.split('_').map(&:capitalize).join(' ')
         end

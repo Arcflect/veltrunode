@@ -18,13 +18,15 @@ module Veltrunode
                   :lifecycle_policies,
                   :throughput_mode,
                   :provisioned_throughput_in_mibps,
-                  :backup
+                  :backup,
+                  :alarms
 
       alias name symbolic_name
       alias lifecycle_policy lifecycle_policies
       alias provisioned_throughput provisioned_throughput_in_mibps
       alias backup_policy backup
       alias backup_plan backup
+      alias efs_alarms alarms
 
       class << self
         def validate_unique_local_paths!(mounts, mount_map: {})
@@ -108,6 +110,15 @@ module Veltrunode
         backup_plan: nil,
         backup_schedule: nil,
         backup_retention_days: nil,
+        alarms: nil,
+        efs_alarms: nil,
+        burst_credit_balance: nil,
+        burst_credit_balance_threshold: nil,
+        burst_credit_threshold: nil,
+        percent_io_limit: nil,
+        percent_io_limit_threshold: nil,
+        io_limit_threshold: nil,
+        alarm_topic: nil,
         vpc_expectations: {},
         posix_expectations: {},
         diagnostic_policy: {}
@@ -135,19 +146,32 @@ module Veltrunode
           schedule: backup_schedule,
           retention_days: backup_retention_days
         )
+        raw_alarms = alarms.nil? ? efs_alarms : alarms
+        explicit_alarms = ManagedAccessPoint.normalize_alarms_config(
+          raw_alarms,
+          burst_credit_balance: burst_credit_balance,
+          burst_credit_balance_threshold: burst_credit_balance_threshold,
+          burst_credit_threshold: burst_credit_threshold,
+          percent_io_limit: percent_io_limit,
+          percent_io_limit_threshold: percent_io_limit_threshold,
+          io_limit_threshold: io_limit_threshold,
+          topic: alarm_topic
+        )
         normalized_map = normalize_managed_access_point(
           managed_access_point,
           explicit_lifecycle,
           explicit_tp_mode,
           explicit_prov_tp,
-          explicit_backup
+          explicit_backup,
+          explicit_alarms
         )
         resolved_lifecycle = explicit_lifecycle || normalized_map&.lifecycle_policies
         resolved_tp_mode = explicit_tp_mode || normalized_map&.throughput_mode
         resolved_prov_tp = explicit_prov_tp || normalized_map&.provisioned_throughput_in_mibps
         resolved_backup = explicit_backup || normalized_map&.backup
+        resolved_alarms = explicit_alarms || normalized_map&.alarms
         has_fs_config = !resolved_lifecycle.nil? || !resolved_tp_mode.nil? ||
-                        !resolved_prov_tp.nil? || !resolved_backup.nil?
+                        !resolved_prov_tp.nil? || !resolved_backup.nil? || !resolved_alarms.nil?
         resolved_source = access_point_source ||
                           (normalized_map || has_fs_config ? symbolic_name : nil)
         validate!(
@@ -167,6 +191,7 @@ module Veltrunode
         @throughput_mode = resolved_tp_mode
         @provisioned_throughput_in_mibps = resolved_prov_tp
         @backup = resolved_backup
+        @alarms = resolved_alarms
         @vpc_expectations = freeze_value(vpc_expectations)
         @posix_expectations = freeze_value(posix_expectations)
         @diagnostic_policy = freeze_value(diagnostic_policy)
@@ -194,6 +219,25 @@ module Veltrunode
         !@backup.nil? && !@backup.empty?
       end
 
+      def alarms?
+        !@alarms.nil? && !@alarms.empty?
+      end
+      alias efs_alarms? alarms?
+
+      def burst_credit_balance_threshold
+        @alarms&.dig('burst_credit_balance', 'threshold')
+      end
+      alias burst_credit_threshold burst_credit_balance_threshold
+
+      def percent_io_limit_threshold
+        @alarms&.dig('percent_io_limit', 'threshold')
+      end
+      alias io_limit_threshold percent_io_limit_threshold
+
+      def alarm_topic
+        @alarms&.fetch('topic', nil)
+      end
+
       def backup_schedule
         @backup&.fetch('schedule', nil)
       end
@@ -208,7 +252,7 @@ module Veltrunode
 
       def file_system_configuration?
         lifecycle_policies? || throughput_configuration? ||
-          (backup? && (@managed_access_point.nil? || @managed_access_point.file_system_id.nil?))
+          ((backup? || alarms?) && (@managed_access_point.nil? || @managed_access_point.file_system_id.nil?))
       end
 
       def transition_to_ia
@@ -242,7 +286,8 @@ module Veltrunode
         explicit_lifecycle = nil,
         explicit_tp_mode = nil,
         explicit_prov_tp = nil,
-        explicit_backup = nil
+        explicit_backup = nil,
+        explicit_alarms = nil
       )
         return nil if map.nil?
         return map if map.is_a?(ManagedAccessPoint)
@@ -253,6 +298,7 @@ module Veltrunode
           opts[:throughput_mode] ||= explicit_tp_mode if explicit_tp_mode
           opts[:provisioned_throughput_in_mibps] ||= explicit_prov_tp if explicit_prov_tp
           opts[:backup] ||= explicit_backup if explicit_backup
+          opts[:alarms] ||= explicit_alarms if explicit_alarms
           return ManagedAccessPoint.new(**opts)
         end
 

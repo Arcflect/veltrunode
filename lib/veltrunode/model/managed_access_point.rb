@@ -32,6 +32,21 @@ module Veltrunode
       DEFAULT_BACKUP_SCHEDULE = 'cron(0 12 * * ? *)'
       DEFAULT_BACKUP_RETENTION_DAYS = 30
       BACKUP_SCHEDULE_PATTERN = /\A(cron|rate)\(.+\)\z/
+      DEFAULT_BURST_CREDIT_THRESHOLD = 1_073_741_824 # 1 GiB
+      DEFAULT_PERCENT_IO_LIMIT_THRESHOLD = 80
+      DEFAULT_ALARM_PERIOD = 300
+      DEFAULT_ALARM_EVALUATION_PERIODS = 1
+      BYTE_UNIT_MULTIPLIERS = {
+        'B' => 1,
+        'KB' => 1_000,
+        'KIB' => 1_024,
+        'MB' => 1_000_000,
+        'MIB' => 1_048_576,
+        'GB' => 1_000_000_000,
+        'GIB' => 1_073_741_824,
+        'TB' => 1_000_000_000_000,
+        'TIB' => 1_099_511_627_776
+      }.freeze
 
       attr_reader :file_system_id,
                   :root_directory_path,
@@ -41,14 +56,96 @@ module Veltrunode
                   :throughput_mode,
                   :provisioned_throughput_in_mibps,
                   :backup,
+                  :alarms,
                   :tags
 
       alias lifecycle_policy lifecycle_policies
       alias provisioned_throughput provisioned_throughput_in_mibps
       alias backup_policy backup
       alias backup_plan backup
+      alias efs_alarms alarms
 
       class << self
+        def normalize_alarms_config(
+          alarms = nil,
+          burst_credit_balance: nil,
+          burst_credit_balance_threshold: nil,
+          burst_credit_threshold: nil,
+          percent_io_limit: nil,
+          percent_io_limit_threshold: nil,
+          io_limit_threshold: nil,
+          topic: nil,
+          alarm_actions: nil
+        )
+          has_kwargs = !burst_credit_balance.nil? || !burst_credit_balance_threshold.nil? ||
+                       !burst_credit_threshold.nil? || !percent_io_limit.nil? ||
+                       !percent_io_limit_threshold.nil? || !io_limit_threshold.nil? ||
+                       !topic.nil? || !alarm_actions.nil?
+          return nil if alarms.nil? && !has_kwargs
+          return nil if alarms == false
+
+          if !alarms.nil? && alarms != true && !alarms.is_a?(Hash)
+            raise ValidationError,
+                  "Invalid EFS alarms configuration '#{alarms}'. Must be true, false, or a Hash"
+          end
+
+          raw = alarms.is_a?(Hash) ? alarms : {}
+          return nil if raw[:enabled] == false || raw['enabled'] == false
+
+          common_topic = topic || raw[:topic] || raw['topic'] || raw[:alarm_topic] || raw['alarm_topic']
+          raw_actions = alarm_actions || raw[:alarm_actions] || raw['alarm_actions']
+          common_actions = if raw_actions
+                             raw_actions.is_a?(Array) ? raw_actions : [raw_actions]
+                           elsif common_topic
+                             common_topic.is_a?(Array) ? common_topic : [common_topic]
+                           else
+                             []
+                           end
+          common_ok_actions = Array(raw[:ok_actions] || raw['ok_actions']).compact
+          common_period = raw[:period] || raw['period'] || DEFAULT_ALARM_PERIOD
+          common_eval_periods = raw[:evaluation_periods] || raw['evaluation_periods'] ||
+                                DEFAULT_ALARM_EVALUATION_PERIODS
+          common_treat_missing = (raw[:treat_missing_data] || raw['treat_missing_data'] || 'notBreaching').to_s
+
+          raw_bc = extract_alarm_metric_raw(
+            raw,
+            [burst_credit_balance, burst_credit_balance_threshold, burst_credit_threshold],
+            %i[burst_credit_balance BurstCreditBalance burst_credit_balance_threshold burst_credit_threshold]
+          )
+          raw_io = extract_alarm_metric_raw(
+            raw,
+            [percent_io_limit, percent_io_limit_threshold, io_limit_threshold],
+            %i[percent_io_limit PercentIOLimit percent_io_limit_threshold io_limit_threshold]
+          )
+
+          result = {}
+          unless raw_bc == false
+            result['burst_credit_balance'] = build_burst_credit_alarm_entry(
+              raw_bc,
+              common_period: common_period,
+              common_eval_periods: common_eval_periods,
+              common_treat_missing: common_treat_missing,
+              common_actions: common_actions,
+              common_ok_actions: common_ok_actions
+            )
+          end
+          unless raw_io == false
+            result['percent_io_limit'] = build_percent_io_limit_alarm_entry(
+              raw_io,
+              common_period: common_period,
+              common_eval_periods: common_eval_periods,
+              common_treat_missing: common_treat_missing,
+              common_actions: common_actions,
+              common_ok_actions: common_ok_actions
+            )
+          end
+
+          return nil if result.empty?
+
+          result['topic'] = common_topic if common_topic
+          result.freeze
+        end
+
         def normalize_backup_config(
           backup = nil,
           schedule: nil,
@@ -297,6 +394,183 @@ module Veltrunode
           raise ValidationError,
                 "Invalid EFS backup #{field_name} '#{val}'. Must be a positive integer (> 0)"
         end
+
+        def extract_alarm_metric_raw(raw_hash, explicit_values, keys)
+          explicit_values.each do |val|
+            return val unless val.nil?
+          end
+
+          keys.each do |k|
+            return raw_hash[k] if raw_hash.key?(k)
+            return raw_hash[k.to_s] if raw_hash.key?(k.to_s)
+          end
+
+          nil
+        end
+
+        def build_burst_credit_alarm_entry(
+          raw_bc,
+          common_period:,
+          common_eval_periods:,
+          common_treat_missing:,
+          common_actions:,
+          common_ok_actions:
+        )
+          opts = raw_bc.is_a?(Hash) ? raw_bc : {}
+          raw_threshold = if raw_bc.is_a?(Hash)
+                            opts[:threshold] || opts['threshold'] || DEFAULT_BURST_CREDIT_THRESHOLD
+                          elsif raw_bc.nil? || raw_bc == true
+                            DEFAULT_BURST_CREDIT_THRESHOLD
+                          else
+                            raw_bc
+                          end
+          threshold = normalize_burst_credit_threshold!(raw_threshold)
+          comp_op = (opts[:comparison_operator] || opts['comparison_operator'] || 'LessThanOrEqualToThreshold').to_s
+          stat = (opts[:statistic] || opts['statistic'] || 'Minimum').to_s
+          period = normalize_alarm_period!(opts[:period] || opts['period'] || common_period)
+          eval_periods = normalize_alarm_evaluation_periods!(
+            opts[:evaluation_periods] || opts['evaluation_periods'] || common_eval_periods
+          )
+          treat_missing = (opts[:treat_missing_data] || opts['treat_missing_data'] || common_treat_missing).to_s
+          actions = extract_alarm_actions(opts, common_actions)
+          ok_actions = Array(opts[:ok_actions] || opts['ok_actions'] || common_ok_actions).compact
+
+          {
+            'metric_name' => 'BurstCreditBalance',
+            'threshold' => threshold,
+            'comparison_operator' => comp_op.freeze,
+            'statistic' => stat.freeze,
+            'period' => period,
+            'evaluation_periods' => eval_periods,
+            'treat_missing_data' => treat_missing.freeze,
+            'alarm_actions' => actions.freeze,
+            'ok_actions' => ok_actions.freeze
+          }.freeze
+        end
+
+        def build_percent_io_limit_alarm_entry(
+          raw_io,
+          common_period:,
+          common_eval_periods:,
+          common_treat_missing:,
+          common_actions:,
+          common_ok_actions:
+        )
+          opts = raw_io.is_a?(Hash) ? raw_io : {}
+          raw_threshold = if raw_io.is_a?(Hash)
+                            opts[:threshold] || opts['threshold'] || DEFAULT_PERCENT_IO_LIMIT_THRESHOLD
+                          elsif raw_io.nil? || raw_io == true
+                            DEFAULT_PERCENT_IO_LIMIT_THRESHOLD
+                          else
+                            raw_io
+                          end
+          threshold = normalize_percent_io_limit_threshold!(raw_threshold)
+          comp_op = (opts[:comparison_operator] || opts['comparison_operator'] || 'GreaterThanOrEqualToThreshold').to_s
+          stat = (opts[:statistic] || opts['statistic'] || 'Average').to_s
+          period = normalize_alarm_period!(opts[:period] || opts['period'] || common_period)
+          eval_periods = normalize_alarm_evaluation_periods!(
+            opts[:evaluation_periods] || opts['evaluation_periods'] || common_eval_periods
+          )
+          treat_missing = (opts[:treat_missing_data] || opts['treat_missing_data'] || common_treat_missing).to_s
+          actions = extract_alarm_actions(opts, common_actions)
+          ok_actions = Array(opts[:ok_actions] || opts['ok_actions'] || common_ok_actions).compact
+
+          {
+            'metric_name' => 'PercentIOLimit',
+            'threshold' => threshold,
+            'comparison_operator' => comp_op.freeze,
+            'statistic' => stat.freeze,
+            'period' => period,
+            'evaluation_periods' => eval_periods,
+            'treat_missing_data' => treat_missing.freeze,
+            'alarm_actions' => actions.freeze,
+            'ok_actions' => ok_actions.freeze
+          }.freeze
+        end
+
+        def extract_alarm_actions(opts, fallback_actions)
+          raw = opts[:alarm_actions] || opts['alarm_actions'] || opts[:topic] || opts['topic']
+          return fallback_actions if raw.nil?
+
+          raw.is_a?(Array) ? raw : [raw]
+        end
+
+        def normalize_burst_credit_threshold!(val)
+          num = parse_byte_or_numeric_threshold(val, 'burst_credit_balance')
+          return num if num.positive?
+
+          raise ValidationError,
+                "Invalid EFS alarm burst_credit_balance threshold '#{val}'. Must be a positive number (> 0)"
+        end
+
+        def parse_byte_or_numeric_threshold(val, field_name)
+          case val
+          when Integer, Float
+            val
+          when Numeric
+            val.to_f
+          when String
+            str = val.strip
+            if (m = str.match(/\A(-?\d+(?:\.\d+)?)\s*([a-zA-Z]+)?\z/))
+              base = m[1].include?('.') ? Float(m[1]) : Integer(m[1], 10)
+              unit = m[2]&.upcase
+              return base if unit.nil? || unit.empty?
+
+              mult = BYTE_UNIT_MULTIPLIERS[unit]
+              raise ValidationError, "Invalid byte unit '#{m[2]}' in EFS alarm #{field_name} threshold" unless mult
+
+              res = base * mult
+              res.to_i == res ? res.to_i : res
+            else
+              raise ValidationError,
+                    "Invalid EFS alarm #{field_name} threshold '#{val}'. Must be a positive number"
+            end
+          else
+            raise ValidationError,
+                  "Invalid EFS alarm #{field_name} threshold '#{val}'. Must be a positive number"
+          end
+        end
+
+        def normalize_percent_io_limit_threshold!(val)
+          num = if val.is_a?(Integer) || val.is_a?(Float)
+                  val
+                elsif val.is_a?(Numeric)
+                  val.to_f
+                elsif val.is_a?(String) && val.strip.match?(/\A-?\d+(\.\d+)?%?\z/)
+                  cleaned = val.strip.delete_suffix('%')
+                  cleaned.include?('.') ? Float(cleaned) : Integer(cleaned, 10)
+                else
+                  raise ValidationError,
+                        "Invalid EFS alarm percent_io_limit threshold '#{val}'. Must be between 1 and 100"
+                end
+
+          return num if num.positive? && num <= 100
+
+          raise ValidationError,
+                "Invalid EFS alarm percent_io_limit threshold '#{val}'. Must be between 1 and 100"
+        end
+
+        def normalize_alarm_period!(val)
+          period = Integer(val)
+          return period if period >= 10 && (period % 10).zero?
+
+          raise ValidationError,
+                "Invalid EFS alarm period '#{val}'. Must be a multiple of 10 seconds (>= 10)"
+        rescue ArgumentError, TypeError
+          raise ValidationError,
+                "Invalid EFS alarm period '#{val}'. Must be a multiple of 10 seconds (>= 10)"
+        end
+
+        def normalize_alarm_evaluation_periods!(val)
+          eval_periods = Integer(val)
+          return eval_periods if eval_periods >= 1
+
+          raise ValidationError,
+                "Invalid EFS alarm evaluation_periods '#{val}'. Must be at least 1"
+        rescue ArgumentError, TypeError
+          raise ValidationError,
+                "Invalid EFS alarm evaluation_periods '#{val}'. Must be at least 1"
+        end
       end
 
       def initialize(
@@ -317,6 +591,15 @@ module Veltrunode
         backup_plan: nil,
         backup_schedule: nil,
         backup_retention_days: nil,
+        alarms: nil,
+        efs_alarms: nil,
+        burst_credit_balance: nil,
+        burst_credit_balance_threshold: nil,
+        burst_credit_threshold: nil,
+        percent_io_limit: nil,
+        percent_io_limit_threshold: nil,
+        io_limit_threshold: nil,
+        alarm_topic: nil,
         tags: nil
       )
         resolved_lifecycle = self.class.normalize_lifecycle_policies(
@@ -342,8 +625,19 @@ module Veltrunode
           schedule: backup_schedule,
           retention_days: backup_retention_days
         )
+        raw_alarms = alarms.nil? ? efs_alarms : alarms
+        resolved_alarms = self.class.normalize_alarms_config(
+          raw_alarms,
+          burst_credit_balance: burst_credit_balance,
+          burst_credit_balance_threshold: burst_credit_balance_threshold,
+          burst_credit_threshold: burst_credit_threshold,
+          percent_io_limit: percent_io_limit,
+          percent_io_limit_threshold: percent_io_limit_threshold,
+          io_limit_threshold: io_limit_threshold,
+          topic: alarm_topic
+        )
         has_fs_config = !resolved_lifecycle.nil? || !resolved_tp_mode.nil? ||
-                        !resolved_prov_tp.nil? || !resolved_backup.nil?
+                        !resolved_prov_tp.nil? || !resolved_backup.nil? || !resolved_alarms.nil?
         allow_nil_fs_id = (file_system_id == :__unset__ || file_system_id.nil?) && has_fs_config
         resolved_fs_id = file_system_id == :__unset__ ? nil : file_system_id
 
@@ -368,6 +662,7 @@ module Veltrunode
         @throughput_mode = resolved_tp_mode
         @provisioned_throughput_in_mibps = resolved_prov_tp
         @backup = resolved_backup
+        @alarms = resolved_alarms
         @tags = tags ? freeze_hash(tags) : {}.freeze
 
         freeze
@@ -385,6 +680,25 @@ module Veltrunode
         !@backup.nil? && !@backup.empty?
       end
 
+      def alarms?
+        !@alarms.nil? && !@alarms.empty?
+      end
+      alias efs_alarms? alarms?
+
+      def burst_credit_balance_threshold
+        @alarms&.dig('burst_credit_balance', 'threshold')
+      end
+      alias burst_credit_threshold burst_credit_balance_threshold
+
+      def percent_io_limit_threshold
+        @alarms&.dig('percent_io_limit', 'threshold')
+      end
+      alias io_limit_threshold percent_io_limit_threshold
+
+      def alarm_topic
+        @alarms&.fetch('topic', nil)
+      end
+
       def backup_schedule
         @backup&.fetch('schedule', nil)
       end
@@ -398,7 +712,8 @@ module Veltrunode
       end
 
       def file_system_configuration?
-        lifecycle_policies? || throughput_configuration? || (backup? && @file_system_id.nil?)
+        lifecycle_policies? || throughput_configuration? ||
+          ((backup? || alarms?) && @file_system_id.nil?)
       end
 
       def transition_to_ia

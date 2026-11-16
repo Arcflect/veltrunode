@@ -5,6 +5,7 @@ require 'yaml'
 require_relative 'access_point_compiler'
 require_relative 'file_system_compiler'
 require_relative 'backup_compiler'
+require_relative 'efs_alarm_compiler'
 require_relative 'alarm_compiler'
 require_relative 'function_compiler'
 require_relative 'layer_version_compiler'
@@ -278,6 +279,25 @@ module Veltrunode
             }
           end
 
+          # Include referenced SNS topic ARN parameters from EFS alarms
+          mount_nodes = extract_collection(:mounts)
+          mount_nodes.each do |mount|
+            next unless mount.respond_to?(:alarms?) && mount.alarms?
+
+            topic = mount.respond_to?(:alarm_topic) ? mount.alarm_topic : nil
+            next if topic.nil?
+
+            Array(topic).each do |t|
+              param_key = resolve_sns_topic_param_key(t)
+              next if param_key.nil? || params.key?(param_key)
+
+              params[param_key] = {
+                'Description' => "SNS topic ARN for #{param_key}",
+                'Type' => 'String'
+              }
+            end
+          end
+
           # Include referenced EventBridge event bus parameters from top-level rules
           rule_nodes = extract_collection(:rules)
           rule_nodes.each do |rule|
@@ -357,6 +377,11 @@ module Veltrunode
             if mount.respond_to?(:backup?) && mount.backup?
               backup_res = BackupCompiler.compile(mount, context: context)
               resources.merge!(backup_res)
+            end
+
+            if mount.respond_to?(:alarms?) && mount.alarms?
+              alarm_res = EfsAlarmCompiler.compile(mount, context: context)
+              resources.merge!(alarm_res)
             end
 
             next unless mount.respond_to?(:managed_access_point?) && mount.managed_access_point?

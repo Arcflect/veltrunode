@@ -247,4 +247,32 @@ RSpec.describe Veltrunode::Model::EfsMount do
       expect(mount_plan.backup_retention_days).to eq(30)
     end
   end
+
+  describe 'alarms configuration (BurstCreditBalance and PercentIOLimit)' do
+    it 'supports alarms: true and custom thresholds on EfsMount and via managed_access_point' do
+      mount_bool = described_class.new(
+        symbolic_name: 'monitored_efs',
+        local_path: '/mnt/monitored',
+        alarms: true
+      )
+      expect(mount_bool.alarms?).to be(true)
+      expect(mount_bool.burst_credit_balance_threshold).to eq(1_073_741_824)
+      expect(mount_bool.percent_io_limit_threshold).to eq(80)
+
+      mount_custom = described_class.new(
+        symbolic_name: 'custom_monitored_efs',
+        local_path: '/mnt/custom_monitored',
+        managed_access_point: {
+          file_system_id: 'fs-0123456789abcdef0',
+          alarms: {
+            burst_credit_balance: 500_000_000,
+            percent_io_limit: 90
+          }
+        }
+      )
+      expect(mount_custom.alarms?).to be(true)
+      expect(mount_custom.burst_credit_balance_threshold).to eq(500_000_000)
+      expect(mount_custom.percent_io_limit_threshold).to eq(90)
+    end
+  end
 end

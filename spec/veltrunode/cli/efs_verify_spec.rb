@@ -138,6 +138,35 @@ RSpec.describe 'CLI veltrunode efs verify NAME' do
       )
       expect(output).to include('Status: FAILED (1 errors, 0 warnings)')
     end
+
+    it 'EFS CloudWatch アラームの検証結果をフォーマットして出力すること' do
+      alarm_check = Veltrunode::AWS::Inspectors::EfsInspector::CheckResult.new(
+        name: 'cloudwatch_alarms',
+        status: :passed,
+        confidence: 'HIGH',
+        summary: 'EFS CloudWatch alarms for fs-12345678 are healthy (BurstCreditBalance: OK, PercentIOLimit: OK).',
+        evidence: { 'file_system_id' => 'fs-12345678' }
+      )
+      report_with_alarms = Veltrunode::AWS::Inspectors::EfsInspector::Report.new(
+        target_name: 'shared_data',
+        function_name: 'processor',
+        access_point_id: 'fsap-1234567890abcdef0',
+        file_system_id: 'fs-12345678',
+        checks: [alarm_check],
+        diagnostics: [],
+        overall_confidence: 'HIGH'
+      )
+      allow(Veltrunode::AWS::Inspectors::EfsInspector).to receive(:inspect).and_return(report_with_alarms)
+
+      code = run_cli(%w[efs verify shared_data])
+
+      expect(code).to eq(0)
+      output = stdout.string
+      expect(output).to include(
+        '[PASSED]  EFS CloudWatch Alarms (BurstCreditBalance / PercentIOLimit) (confidence: HIGH)'
+      )
+      expect(output).to include('BurstCreditBalance: OK, PercentIOLimit: OK')
+    end
   end
 
   describe 'JSON 出力モード (--format json)' do
