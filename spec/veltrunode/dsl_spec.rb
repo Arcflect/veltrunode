@@ -677,5 +677,49 @@ RSpec.describe Veltrunode::DSL do
       kw_fn = app.functions.find { |f| f.logical_name == 'kw_worker' }
       expect(kw_fn.efs_mounts).to eq(%w[common_libs work_data])
     end
+
+    it 'supports EFS alarms (BurstCreditBalance and PercentIOLimit) in efs_mount and managed_access_point' do
+      code = <<~RUBY
+        Veltrunode.application "efs-alarms-app" do
+          efs_mount :default_alarms_storage, local_path: "/mnt/default_alarms", alarms: true
+
+          managed_access_point :hash_alarms_storage, "fs-0123456789abcdef0" do
+            local_path "/mnt/hash_alarms"
+            alarms burst_credit_balance: 500_000_000, percent_io_limit: 85, topic: ref(:alert_topic)
+          end
+
+          efs_mount :block_alarms_storage do
+            local_path "/mnt/block_alarms"
+            managed_access_point "fs-fedcba98765432100" do
+              alarms do
+                burst_credit_balance "2GB"
+                percent_io_limit 90
+                topic ref(:ops_topic)
+              end
+            end
+          end
+        end
+      RUBY
+
+      app = Veltrunode.parse(code)
+      expect(app.mounts.size).to eq(3)
+
+      m1 = app.mounts.find { |m| m.symbolic_name == 'default_alarms_storage' }
+      expect(m1.alarms?).to be(true)
+      expect(m1.burst_credit_balance_threshold).to eq(1_073_741_824)
+      expect(m1.percent_io_limit_threshold).to eq(80)
+
+      m2 = app.mounts.find { |m| m.symbolic_name == 'hash_alarms_storage' }
+      expect(m2.alarms?).to be(true)
+      expect(m2.burst_credit_balance_threshold).to eq(500_000_000)
+      expect(m2.percent_io_limit_threshold).to eq(85)
+      expect(m2.alarm_topic).to eq(Veltrunode::DSL::Reference.new(:alert_topic))
+
+      m3 = app.mounts.find { |m| m.symbolic_name == 'block_alarms_storage' }
+      expect(m3.alarms?).to be(true)
+      expect(m3.burst_credit_balance_threshold).to eq(2_000_000_000)
+      expect(m3.percent_io_limit_threshold).to eq(90)
+      expect(m3.alarm_topic).to eq(Veltrunode::DSL::Reference.new(:ops_topic))
+    end
   end
 end

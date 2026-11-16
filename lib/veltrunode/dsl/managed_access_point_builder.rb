@@ -46,6 +46,65 @@ module Veltrunode
         end
       end
 
+      # alarms { ... } ブロック用ビルダ
+      class AlarmsBlockBuilder < BaseBuilder
+        attr_reader :config
+
+        def initialize(initial = {})
+          super()
+          @config = initial.dup
+        end
+
+        def burst_credit_balance(val = nil, **kwargs)
+          @config[:burst_credit_balance] = if val.is_a?(Hash)
+                                             val.merge(kwargs)
+                                           elsif kwargs.empty?
+                                             val.nil? || val
+                                           elsif val.nil?
+                                             kwargs
+                                           else
+                                             kwargs.merge(threshold: val)
+                                           end
+        end
+        alias burst_credit_balance_threshold burst_credit_balance
+        alias burst_credit_threshold burst_credit_balance
+
+        def percent_io_limit(val = nil, **kwargs)
+          @config[:percent_io_limit] = if val.is_a?(Hash)
+                                         val.merge(kwargs)
+                                       elsif kwargs.empty?
+                                         val.nil? || val
+                                       elsif val.nil?
+                                         kwargs
+                                       else
+                                         kwargs.merge(threshold: val)
+                                       end
+        end
+        alias percent_io_limit_threshold percent_io_limit
+        alias io_limit_threshold percent_io_limit
+
+        def topic(val)
+          @config[:topic] = val
+        end
+        alias alarm_topic topic
+
+        def alarm_actions(*actions)
+          @config[:alarm_actions] = actions.flatten
+        end
+
+        def ok_actions(*actions)
+          @config[:ok_actions] = actions.flatten
+        end
+
+        def period(val)
+          @config[:period] = val
+        end
+
+        def evaluation_periods(val)
+          @config[:evaluation_periods] = val
+        end
+      end
+
       def initialize(
         file_system_id = nil,
         root_directory: nil,
@@ -66,6 +125,15 @@ module Veltrunode
         backup: nil,
         backup_policy: nil,
         backup_plan: nil,
+        alarms: nil,
+        efs_alarms: nil,
+        burst_credit_balance: nil,
+        burst_credit_balance_threshold: nil,
+        burst_credit_threshold: nil,
+        percent_io_limit: nil,
+        percent_io_limit_threshold: nil,
+        io_limit_threshold: nil,
+        alarm_topic: nil,
         local_path: nil,
         tags: nil
       )
@@ -99,6 +167,20 @@ module Veltrunode
                        backup_plan
                      end
         merge_backup!(raw_backup) unless raw_backup.nil?
+        @alarms = nil
+        raw_alarms = alarms.nil? ? efs_alarms : alarms
+        has_alarm_kwargs = !burst_credit_balance.nil? || !burst_credit_balance_threshold.nil? ||
+                           !burst_credit_threshold.nil? || !percent_io_limit.nil? ||
+                           !percent_io_limit_threshold.nil? || !io_limit_threshold.nil? ||
+                           !alarm_topic.nil?
+        if !raw_alarms.nil? || has_alarm_kwargs
+          merge_alarms!(
+            raw_alarms.nil? ? :__unset__ : raw_alarms,
+            burst_credit_balance: burst_credit_balance || burst_credit_balance_threshold || burst_credit_threshold,
+            percent_io_limit: percent_io_limit || percent_io_limit_threshold || io_limit_threshold,
+            topic: alarm_topic
+          )
+        end
         @tags = tags ? tags.dup : {}
         @local_path_val = local_path&.to_s
       end
@@ -244,11 +326,59 @@ module Veltrunode
       alias backup_policy backup
       alias backup_plan backup
 
+      def alarms(
+        val = :__unset__,
+        burst_credit_balance: nil,
+        burst_credit_balance_threshold: nil,
+        burst_credit_threshold: nil,
+        percent_io_limit: nil,
+        percent_io_limit_threshold: nil,
+        io_limit_threshold: nil,
+        topic: nil,
+        alarm_actions: nil,
+        ok_actions: nil,
+        period: nil,
+        evaluation_periods: nil,
+        &
+      )
+        merge_alarms!(
+          val,
+          burst_credit_balance: burst_credit_balance || burst_credit_balance_threshold || burst_credit_threshold,
+          percent_io_limit: percent_io_limit || percent_io_limit_threshold || io_limit_threshold,
+          topic: topic,
+          alarm_actions: alarm_actions,
+          ok_actions: ok_actions,
+          period: period,
+          evaluation_periods: evaluation_periods,
+          &
+        )
+      end
+      alias efs_alarms alarms
+      alias efs_alarm_helper alarms
+
+      def burst_credit_balance(val)
+        merge_alarms!(burst_credit_balance: val)
+      end
+      alias burst_credit_balance_threshold burst_credit_balance
+      alias burst_credit_threshold burst_credit_balance
+
+      def percent_io_limit(val)
+        merge_alarms!(percent_io_limit: val)
+      end
+      alias percent_io_limit_threshold percent_io_limit
+      alias io_limit_threshold percent_io_limit
+
+      def alarm_topic(val)
+        merge_alarms!(topic: val)
+      end
+
       def build
         posix = @posix_user.empty? ? nil : @posix_user
         lifecycle = @lifecycle_policies.empty? ? nil : @lifecycle_policies
         has_fs_config = !lifecycle.nil? || !@throughput_mode.nil? ||
-                        !@provisioned_throughput_in_mibps.nil? || (!@backup.nil? && @backup != false)
+                        !@provisioned_throughput_in_mibps.nil? ||
+                        (!@backup.nil? && @backup != false) ||
+                        (!@alarms.nil? && @alarms != false)
         opts = {
           root_directory_path: @root_directory_path,
           posix_user: posix,
@@ -257,6 +387,7 @@ module Veltrunode
           throughput_mode: @throughput_mode,
           provisioned_throughput_in_mibps: @provisioned_throughput_in_mibps,
           backup: @backup,
+          alarms: @alarms,
           tags: @tags.empty? ? nil : @tags
         }
         opts[:file_system_id] = @file_system_id unless @file_system_id.nil? && has_fs_config
@@ -264,6 +395,44 @@ module Veltrunode
       end
 
       private
+
+      def merge_alarms!(
+        val = :__unset__,
+        burst_credit_balance: nil,
+        percent_io_limit: nil,
+        topic: nil,
+        alarm_actions: nil,
+        ok_actions: nil,
+        period: nil,
+        evaluation_periods: nil,
+        &
+      )
+        if val == false
+          @alarms = false
+          return
+        end
+
+        if val != :__unset__ && val != true && !val.is_a?(Hash) && !val.nil?
+          @alarms = val
+          return
+        end
+
+        @alarms = @alarms.is_a?(Hash) ? @alarms.dup : {}
+        @alarms.merge!(val) if val.is_a?(Hash)
+        @alarms[:burst_credit_balance] = burst_credit_balance unless burst_credit_balance.nil?
+        @alarms[:percent_io_limit] = percent_io_limit unless percent_io_limit.nil?
+        @alarms[:topic] = topic if topic
+        @alarms[:alarm_actions] = alarm_actions if alarm_actions
+        @alarms[:ok_actions] = ok_actions if ok_actions
+        @alarms[:period] = period if period
+        @alarms[:evaluation_periods] = evaluation_periods if evaluation_periods
+
+        return unless block_given?
+
+        block_builder = AlarmsBlockBuilder.new(@alarms)
+        block_builder.instance_eval(&)
+        @alarms = block_builder.config
+      end
 
       def merge_backup!(
         val = :__unset__,

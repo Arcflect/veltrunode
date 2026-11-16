@@ -122,6 +122,19 @@ module Veltrunode
       alias efs_security_groups security_group_helper
       alias efs_security_group security_group_helper
 
+      def efs_alarms(name, **, &)
+        target_name = name.to_s
+        existing = @efs_mount_builders.find { |b| b.symbolic_name == target_name }
+        if existing
+          existing.alarms(**, &)
+        else
+          builder = EfsMountBuilder.new(target_name)
+          builder.alarms(**, &)
+          @efs_mount_builders << builder
+        end
+      end
+      alias efs_alarm_helper efs_alarms
+
       def function(name, tracing: nil, insights: nil, async_invoke: nil, alarms: nil,
                    event_source: nil, event_sources: nil, rule: nil, rules: nil,
                    kinesis_stream: nil, msk: nil, mq: nil, function_url: nil,
