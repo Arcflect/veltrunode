@@ -1933,5 +1933,53 @@ RSpec.describe Veltrunode::Compiler::CloudFormation::TemplateCompiler do
                                            { 'Fn::GetAtt' => %w[WorkDataAccessPoint Arn] }
                                          ])
     end
+
+    it 'compiles EFS BurstCreditBalance and PercentIOLimit CloudWatch alarms and discovers SNS topic parameters' do
+      dsl_code = <<~RUBY
+        Veltrunode.application "efs-alarms-service" do
+          aws region: "ap-northeast-1", account: "123456789012"
+          runtime ruby: "3.3"
+
+          efs_mount :shared_data do
+            local_path "/mnt/shared"
+            managed_access_point "fs-0123456789abcdef0" do
+              posix_user uid: 1000, gid: 1000
+              alarms burst_credit_balance: 500_000_000, percent_io_limit: 85, topic: ref(:efs_alert_topic)
+            end
+          end
+
+          function :worker do
+            handler "worker.handler"
+            vpc_reference subnet_ids: ["subnet-11112222"], security_group_ids: ["sg-11112222"]
+            mount :shared_data
+          end
+        end
+      RUBY
+
+      app = Veltrunode.parse(dsl_code)
+      result = described_class.compile(app)
+      resources = result['Resources']
+      params = result['Parameters']
+
+      expect(params).to have_key('EfsAlertTopic')
+      expect(resources).to have_key('SharedDataBurstCreditBalanceAlarm')
+      expect(resources).to have_key('SharedDataPercentIOLimitAlarm')
+
+      bc_alarm = resources['SharedDataBurstCreditBalanceAlarm']
+      expect(bc_alarm['Type']).to eq('AWS::CloudWatch::Alarm')
+      expect(bc_alarm['Properties']['MetricName']).to eq('BurstCreditBalance')
+      expect(bc_alarm['Properties']['Namespace']).to eq('AWS/EFS')
+      expect(bc_alarm['Properties']['Threshold']).to eq(500_000_000)
+      expect(bc_alarm['Properties']['ComparisonOperator']).to eq('LessThanOrEqualToThreshold')
+      expect(bc_alarm['Properties']['AlarmActions']).to eq([{ 'Ref' => 'EfsAlertTopic' }])
+
+      io_alarm = resources['SharedDataPercentIOLimitAlarm']
+      expect(io_alarm['Type']).to eq('AWS::CloudWatch::Alarm')
+      expect(io_alarm['Properties']['MetricName']).to eq('PercentIOLimit')
+      expect(io_alarm['Properties']['Namespace']).to eq('AWS/EFS')
+      expect(io_alarm['Properties']['Threshold']).to eq(85)
+      expect(io_alarm['Properties']['ComparisonOperator']).to eq('GreaterThanOrEqualToThreshold')
+      expect(io_alarm['Properties']['AlarmActions']).to eq([{ 'Ref' => 'EfsAlertTopic' }])
+    end
   end
 end
