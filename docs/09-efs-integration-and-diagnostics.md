@@ -153,6 +153,46 @@ end
   - `AWS::Backup::BackupSelection`（論理ID: `#{MountName}BackupSelection`、対象 EFS ファイルシステム ARN と IAM ロールを紐付け）
   - `AWS::IAM::Role`（論理ID: `#{MountName}BackupRole`、AWS Backup サービスロール）
 
+### EFS メトリクス監視アラームヘルパー (CloudWatch Alarms: BurstCreditBalance / PercentIOLimit)
+
+EFS のバーストクレジット枯渇や I/O 上限到達による Lambda 関数のハングアップを未然に検知するため、`managed_access_point` または `efs_mount` 定義内で `alarms`（エイリアス: `efs_alarms`, `efs_alarm_helper`）を指定して `BurstCreditBalance` および `PercentIOLimit` の CloudWatch アラームを自動生成できます。
+
+```ruby
+# 1. デフォルト閾値（BurstCreditBalance <= 1 GiB、PercentIOLimit >= 80%）でアラームを有効化
+efs_mount :shared_data, local_path: "/mnt/shared", alarms: true
+
+# 2. バーストクレジット残量の警告閾値や I/O 上限率、SNS 通知トピックを指定
+efs_mount :work_data do
+  local_path "/mnt/data"
+  managed_access_point "fs-0123456789abcdef0" do
+    posix_user uid: 1000, gid: 1000
+    alarms burst_credit_balance: 500_000_000,
+           percent_io_limit: 85,
+           topic: ref(:efs_alert_topic)
+  end
+end
+
+# 3. ブロック構文またはバイト単位文字列での詳細なアラーム設定
+managed_access_point :critical_storage, "fs-0123456789abcdef0" do
+  local_path "/mnt/critical"
+  alarms do
+    burst_credit_balance "2GB"
+    percent_io_limit 90
+    topic ref(:ops_topic)
+  end
+end
+```
+
+- **`burst_credit_balance`（エイリアス: `burst_credit_balance_threshold`, `burst_credit_threshold`）**:
+  - バーストクレジット残量（`AWS/EFS` の `BurstCreditBalance` メトリクス、単位: Bytes）の低下警告閾値。
+  - デフォルト閾値: `1_073_741_824`（1 GiB）、統計: `Minimum`、比較演算子: `LessThanOrEqualToThreshold`、期間: `300` 秒。正の数値または `'500MB'`, `'10GB'` 等のバイト単位文字列を指定可能。
+- **`percent_io_limit`（エイリアス: `percent_io_limit_threshold`, `io_limit_threshold`）**:
+  - I/O 上限到達率（`AWS/EFS` の `PercentIOLimit` メトリクス、単位: `%`）の警告閾値（`1..100`）。
+  - デフォルト閾値: `80`（80%）、統計: `Average`、比較演算子: `GreaterThanOrEqualToThreshold`、期間: `300` 秒。
+- **生成される CloudFormation リソース（`Veltrunode::Compiler::CloudFormation::EfsAlarmCompiler`）**:
+  - `AWS::CloudWatch::Alarm`（論理ID: `#{MountName}BurstCreditBalanceAlarm` および `#{MountName}PercentIOLimitAlarm`、`Dimensions: [{ Name: 'FileSystemId', Value: ... }]`）。
+  - `topic` にパラメータ参照（`ref(:efs_alert_topic)` 等）が指定された場合、CloudFormation の `Parameters` に SNS トピック ARN パラメータが自動登録されます。
+
 ## 静的チェック項目 (Static Checks)
 
 - ローカルのマウントパスが `/mnt/` で始まっていること。
@@ -174,6 +214,7 @@ end
 - アクセスポイントのルートディレクトリおよび POSIX ユーザー/グループ ID（UID/GID）。
 - Lambda 実行ロールにおける EFS クライアントのIAM操作権限。
 - 暗号化設定およびバックアップ設定に関する警告メッセージ。
+- EFS CloudWatch アラーム（`BurstCreditBalance` / `PercentIOLimit`）の設定有無およびアラーム状態（`OK` / `ALARM`）の確認（`VLT-EFS-ALARM-STATE`, `VLT-EFS-ALARM-MISSING`）。
 
 ## 診断の制限事項 (Diagnostic Limitations)
 
