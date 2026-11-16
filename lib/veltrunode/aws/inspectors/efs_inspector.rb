@@ -114,7 +114,8 @@ module Veltrunode
           end
         end
 
-        attr_reader :application, :target_name, :efs_client, :ec2_client, :iam_client, :sts_client, :configured_region
+        attr_reader :application, :target_name, :efs_client, :ec2_client, :iam_client, :sts_client,
+                    :cloudwatch_client, :configured_region
 
         def initialize(
           application,
@@ -123,6 +124,7 @@ module Veltrunode
           ec2_client: nil,
           iam_client: nil,
           sts_client: nil,
+          cloudwatch_client: nil,
           aws_region: nil
         )
           @application = application
@@ -131,6 +133,7 @@ module Veltrunode
           @ec2_client = ec2_client
           @iam_client = iam_client
           @sts_client = sts_client
+          @cloudwatch_client = cloudwatch_client
           @configured_region = aws_region
         end
 
@@ -191,6 +194,9 @@ module Veltrunode
 
           # 11. バックアップ設定の警告
           check_backup_setting(fs_id, checks, diagnostics)
+
+          # 12. CloudWatch アラーム状態確認 (BurstCreditBalance / PercentIOLimit)
+          check_cloudwatch_alarms(fs_id, efs_mount, checks, diagnostics)
 
           confidence = calculate_overall_confidence(checks, diagnostics)
 
@@ -1092,6 +1098,144 @@ module Veltrunode
           )
         end
 
+        # チェック 12: CloudWatch アラーム状態確認 (BurstCreditBalance / PercentIOLimit)
+        def check_cloudwatch_alarms(fs_id, efs_mount, checks, diagnostics)
+          client = resolve_cloudwatch_client
+          unless client
+            return unless efs_mount.respond_to?(:alarms?) && efs_mount.alarms?
+
+            checks << CheckResult.new(
+              name: 'cloudwatch_alarms',
+              status: :passed,
+              confidence: CONFIDENCE_HIGH,
+              summary: 'EFS CloudWatch alarms (BurstCreditBalance, PercentIOLimit) are configured ' \
+                       "for #{efs_mount.symbolic_name}.",
+              evidence: {
+                'file_system_id' => fs_id,
+                'compiler_managed' => true,
+                'burst_credit_balance_threshold' => efs_mount.burst_credit_balance_threshold,
+                'percent_io_limit_threshold' => efs_mount.percent_io_limit_threshold
+              }
+            )
+            return
+          end
+
+          fs_alarms = fetch_efs_alarms(client, fs_id)
+          alarm_summaries = fs_alarms.map do |a|
+            {
+              'alarm_name' => a.respond_to?(:alarm_name) ? a.alarm_name : nil,
+              'metric_name' => a.respond_to?(:metric_name) ? a.metric_name : nil,
+              'state_value' => a.respond_to?(:state_value) ? a.state_value.to_s : 'OK',
+              'threshold' => a.respond_to?(:threshold) ? a.threshold : nil
+            }
+          end
+
+          alarming = alarm_summaries.select { |a| a['state_value'].upcase == 'ALARM' }
+          if !alarming.empty?
+            alarming_names = alarming.map { |a| "#{a['metric_name'] || a['alarm_name']} (ALARM)" }.join(', ')
+            diag = Diagnostics::Diagnostic.new(
+              code: 'VLT-EFS-ALARM-STATE',
+              severity: :warning,
+              summary: "EFS CloudWatch alarm is in ALARM state for file system #{fs_id}: #{alarming_names}.",
+              suggested_action: 'Check EFS BurstCreditBalance and PercentIOLimit metrics in CloudWatch ' \
+                                'and consider switching throughput_mode to :elastic or :provisioned.',
+              evidence: {
+                'file_system_id' => fs_id,
+                'alarming_metrics' => alarming.map { |a| a['metric_name'] }.compact,
+                'alarms' => alarm_summaries
+              }
+            )
+            diagnostics << diag
+            checks << CheckResult.new(
+              name: 'cloudwatch_alarms',
+              status: :warning,
+              confidence: CONFIDENCE_HIGH,
+              summary: "EFS CloudWatch alarm in ALARM state for #{fs_id}: #{alarming_names}.",
+              evidence: { 'file_system_id' => fs_id, 'alarms' => alarm_summaries },
+              diagnostic: diag
+            )
+          elsif fs_alarms.empty?
+            diag = Diagnostics::Diagnostic.new(
+              code: 'VLT-EFS-ALARM-MISSING',
+              severity: :warning,
+              summary: "No CloudWatch alarms (BurstCreditBalance / PercentIOLimit) found for EFS file system #{fs_id}.",
+              suggested_action: 'Enable EFS alarms in Veltrunodefile (alarms: true) to monitor ' \
+                                'BurstCreditBalance and PercentIOLimit.',
+              evidence: { 'file_system_id' => fs_id, 'alarms' => [] }
+            )
+            diagnostics << diag
+            checks << CheckResult.new(
+              name: 'cloudwatch_alarms',
+              status: :warning,
+              confidence: CONFIDENCE_HIGH,
+              summary: "No EFS CloudWatch alarms configured for #{fs_id}.",
+              evidence: { 'file_system_id' => fs_id, 'alarms' => [] },
+              diagnostic: diag
+            )
+          else
+            metrics_str = alarm_summaries.map { |a| "#{a['metric_name']}: #{a['state_value']}" }.join(', ')
+            checks << CheckResult.new(
+              name: 'cloudwatch_alarms',
+              status: :passed,
+              confidence: CONFIDENCE_HIGH,
+              summary: "EFS CloudWatch alarms for #{fs_id} are healthy (#{metrics_str}).",
+              evidence: { 'file_system_id' => fs_id, 'alarms' => alarm_summaries }
+            )
+          end
+        rescue StandardError => e
+          diag = Diagnostics::Diagnostic.new(
+            code: 'VLT-EFS-ALARM-MISSING',
+            severity: :warning,
+            summary: "Could not verify CloudWatch alarms for EFS file system #{fs_id}: #{e.message}",
+            suggested_action: 'Verify cloudwatch:DescribeAlarms permissions and EFS alarm configuration.',
+            evidence: { 'file_system_id' => fs_id, 'error' => e.message }
+          )
+          diagnostics << diag
+          checks << CheckResult.new(
+            name: 'cloudwatch_alarms',
+            status: :warning,
+            confidence: CONFIDENCE_MEDIUM,
+            summary: "CloudWatch alarms for #{fs_id} could not be determined.",
+            evidence: { 'file_system_id' => fs_id, 'error' => e.message },
+            diagnostic: diag
+          )
+        end
+
+        def fetch_efs_alarms(client, fs_id)
+          if client.respond_to?(:describe_alarms)
+            resp = client.describe_alarms
+            all_alarms = Array(resp.respond_to?(:metric_alarms) ? resp.metric_alarms : [])
+            filter_efs_alarms(all_alarms, fs_id)
+          elsif client.respond_to?(:describe_alarms_for_metric)
+            %w[BurstCreditBalance PercentIOLimit].flat_map do |metric|
+              resp = client.describe_alarms_for_metric(
+                namespace: 'AWS/EFS',
+                metric_name: metric,
+                dimensions: [{ name: 'FileSystemId', value: fs_id }]
+              )
+              Array(resp.respond_to?(:metric_alarms) ? resp.metric_alarms : [])
+            end
+          else
+            []
+          end
+        end
+
+        def filter_efs_alarms(alarms, fs_id)
+          alarms.select do |alarm|
+            if alarm.respond_to?(:namespace) && alarm.namespace && alarm.namespace != 'AWS/EFS'
+              false
+            elsif alarm.respond_to?(:dimensions) && alarm.dimensions && !Array(alarm.dimensions).empty?
+              Array(alarm.dimensions).any? do |d|
+                d_name = d.respond_to?(:name) ? d.name : (d[:name] || d['name'])
+                d_val = d.respond_to?(:value) ? d.value : (d[:value] || d['value'])
+                d_name == 'FileSystemId' && d_val == fs_id
+              end
+            else
+              true
+            end
+          end
+        end
+
         # ヘルパー群
 
         def resolve_lambda_vpc(function)
@@ -1194,6 +1338,18 @@ module Veltrunode
           begin
             require 'aws-sdk-iam' unless defined?(::Aws::IAM::Client)
             ::Aws::IAM::Client.new(region: region)
+          rescue LoadError, StandardError
+            nil
+          end
+        end
+
+        def resolve_cloudwatch_client
+          return cloudwatch_client if cloudwatch_client
+          return nil if efs_client
+
+          begin
+            require 'aws-sdk-cloudwatch' unless defined?(::Aws::CloudWatch::Client)
+            ::Aws::CloudWatch::Client.new(region: region)
           rescue LoadError, StandardError
             nil
           end
