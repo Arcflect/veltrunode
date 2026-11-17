@@ -76,6 +76,8 @@ module Veltrunode
           execute_destroy
         elsif match_command?('efs verify')
           execute_efs_verify
+        elsif match_command?('efs quota')
+          execute_efs_quota
         elsif match_command?('layer inspect')
           execute_layer_inspect
         elsif match_command?('layer prune') || match_command?('layer cleanup')
@@ -947,6 +949,129 @@ module Veltrunode
         end
       end
 
+      def execute_efs_quota
+        @current_command = 'efs quota'
+        name = @argv.first
+        application = nil
+        begin
+          application = load_application!
+        rescue StandardError
+          # Veltrunodefile がない場合でもリージョン内の全ファイルシステムを取得可能
+        end
+
+        report = Veltrunode::AWS::Inspectors::EfsQuotaInspector.inspect(
+          application,
+          target_name: name,
+          aws_region: @options[:region]
+        )
+
+        if @options[:format] == :json
+          status_str = report.success? ? 'success' : 'error'
+          output_json(
+            command: 'efs quota',
+            status: status_str,
+            diagnostics: report.diagnostics,
+            data: report.to_h
+          )
+        else
+          print_efs_quota_text_report(report)
+        end
+
+        return EXIT_SUCCESS if report.success?
+        return EXIT_AWS_AUTH_FAILED if report.diagnostics.any? { |d| d.code == 'VLT-AWS-AUTH-001' }
+
+        EXIT_VALIDATION_FAILED
+      end
+
+      def print_efs_quota_text_report(report)
+        $stdout.puts '=' * 124
+        $stdout.puts "  Veltrunode EFS Storage & Quota Report (Region: #{report.region})"
+        $stdout.puts '=' * 124
+
+        $stdout.puts "\nFile Systems Storage Breakdown:"
+        fs_headers = [
+          'File System ID'.ljust(22),
+          'Name / Mount'.ljust(18),
+          'Total Size'.rjust(12),
+          'Standard'.rjust(12),
+          'IA'.rjust(12),
+          'Archive'.rjust(12),
+          'Size Limit'.rjust(14),
+          'Mount Targets'.rjust(15)
+        ].join(' ')
+        $stdout.puts fs_headers
+        $stdout.puts '-' * 124
+
+        if report.file_systems.empty?
+          $stdout.puts '  (No EFS file systems found)'
+        else
+          inspector_cls = Veltrunode::AWS::Inspectors::EfsQuotaInspector
+          report.file_systems.each do |fs|
+            mt_str = "#{fs.mount_targets_count} / #{fs.mount_targets_limit}"
+            row = [
+              fs.file_system_id.ljust(22),
+              fs.display_name.to_s[0, 18].ljust(18),
+              inspector_cls.format_size(fs.total_bytes).rjust(12),
+              inspector_cls.format_size(fs.standard_bytes).rjust(12),
+              inspector_cls.format_size(fs.ia_bytes).rjust(12),
+              inspector_cls.format_size(fs.archive_bytes).rjust(12),
+              inspector_cls.format_size(fs.size_limit_bytes).rjust(14),
+              mt_str.rjust(15)
+            ].join(' ')
+            $stdout.puts row
+          end
+        end
+
+        if report.quotas && !report.quotas.empty?
+          $stdout.puts "\nRegional EFS Quotas (#{report.region}):"
+          q_headers = [
+            'Quota Metric'.ljust(38),
+            'Used'.rjust(12),
+            'Limit'.rjust(12),
+            'Usage (%)'.rjust(12)
+          ].join(' ')
+          $stdout.puts q_headers
+          $stdout.puts '-' * 78
+
+          fs_q = report.quotas['file_systems'] || {}
+          mt_q = report.quotas['mount_targets'] || {}
+
+          $stdout.puts [
+            'File Systems'.ljust(38),
+            format_number(fs_q['used'].to_i).rjust(12),
+            format_number(fs_q['limit'].to_i).rjust(12),
+            "#{format('%.2f', fs_q['usage_percent'].to_f)}%".rjust(12)
+          ].join(' ')
+
+          $stdout.puts [
+            'Mount Targets (Total)'.ljust(38),
+            format_number(mt_q['used'].to_i).rjust(12),
+            format_number(mt_q['limit'].to_i).rjust(12),
+            "#{format('%.2f', mt_q['usage_percent'].to_f)}%".rjust(12)
+          ].join(' ')
+
+          if mt_q['max_per_file_system']
+            $stdout.puts [
+              'Mount Targets (Max per File System)'.ljust(38),
+              format_number(mt_q['max_used_per_file_system'].to_i).rjust(12),
+              format_number(mt_q['max_per_file_system'].to_i).rjust(12),
+              "#{format('%.2f', mt_q['max_per_file_system_usage_percent'].to_f)}%".rjust(12)
+            ].join(' ')
+          end
+        end
+
+        unless report.diagnostics.empty?
+          $stdout.puts "\nDiagnostics:"
+          report.diagnostics.each do |diag|
+            prefix = diag.severity == :error ? '[ERROR]' : '[WARN]'
+            $stdout.puts "  #{prefix} #{diag.code}: #{diag.summary}"
+            $stdout.puts "         Suggested action: #{diag.suggested_action}"
+          end
+        end
+
+        $stdout.puts '=' * 124
+      end
+
       def execute_layer_inspect
         @current_command = 'layer inspect'
         name = @argv.first
@@ -1468,6 +1593,7 @@ module Veltrunode
             invoke local NAME          # Execute Lambda function locally
             destroy                    # Destroy application stack
             efs verify NAME            # Verify EFS access and configuration
+            efs quota [NAME]           # Display EFS storage breakdown (Standard / IA) and regional quotas
             layer inspect NAME         # Inspect Lambda Layer version
             layer prune NAME           # Prune old Lambda Layer versions
             schedule preview NAME      # Preview future run times for schedule
@@ -1485,6 +1611,8 @@ module Veltrunode
             { name: 'invoke local NAME', description: 'Execute Lambda function locally' },
             { name: 'destroy', description: 'Destroy application stack' },
             { name: 'efs verify NAME', description: 'Verify EFS access and configuration' },
+            { name: 'efs quota [NAME]',
+              description: 'Display EFS storage breakdown (Standard / IA) and regional quotas' },
             { name: 'layer inspect NAME', description: 'Inspect Lambda Layer version' },
             { name: 'layer prune NAME', description: 'Prune old Lambda Layer versions' },
             { name: 'schedule preview NAME', description: 'Preview future run times for schedule' },
