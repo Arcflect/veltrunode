@@ -216,6 +216,23 @@ end
 - 暗号化設定およびバックアップ設定に関する警告メッセージ。
 - EFS CloudWatch アラーム（`BurstCreditBalance` / `PercentIOLimit`）の設定有無およびアラーム状態（`OK` / `ALARM`）の確認（`VLT-EFS-ALARM-STATE`, `VLT-EFS-ALARM-MISSING`）。
 
+## EFS ストレージサイズ・クォータ確認 (`veltrunode efs quota`)
+
+`veltrunode efs quota [NAME]` コマンドは、`Veltrunode::AWS::Inspectors::EfsQuotaInspector` により EFS API（`DescribeFileSystems` 等）を呼び出し、ファイルシステムごとのストレージクラス別サイズ内訳およびリージョン内のクォータ状況を表形式（または `--format json` での構造化 JSON）で表示します。
+
+- **ストレージクラス別サイズ内訳**:
+  - `Total Size`: ファイルシステム全体のサイズ（`size_in_bytes.value`）
+  - `Standard`: EFS Standard ストレージクラスのサイズ（`size_in_bytes.value_in_standard`）
+  - `IA`: EFS Infrequent Access (IA) ストレージクラスのサイズ（`size_in_bytes.value_in_ia`）
+  - `Archive`: EFS Archive ストレージクラスのサイズ（`size_in_bytes.value_in_archive`）
+  - `Size Limit`: ファイルシステムあたりの容量上限（256 TiB）
+  - `Mount Targets`: ファイルシステムに作成されているマウントターゲット数 / 上限数（32）
+- **リージョン内 EFS クォータ**:
+  - `File Systems`: リージョン内の EFS ファイルシステム数 / アカウント上限（デフォルト: 1,000）および使用率（%）
+  - `Mount Targets (Total)`: リージョン内のマウントターゲット総数 / 上限（デフォルト: 1,000）および使用率（%）
+  - `Mount Targets (Max per File System)`: 単一ファイルシステムあたりの最大マウントターゲット数 / 上限（32）
+  - クォータ使用率が 80% 以上に達している場合は、`VLT-EFS-QUOTA-WARNING` 警告診断が出力されます。
+
 ## 診断の制限事項 (Diagnostic Limitations)
 
 ネットワークACL、DNSの挙動、一時的なサービス障害、アプリケーションレベルでのファイルロック、およびPOSIXの詳細な挙動については、関数の実行前に100%確実に検証することはできません。接続診断は、安易に成功を保証するのではなく、検証されたエビデンス（証拠）と確信度をレポートとして出力します。
