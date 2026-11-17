@@ -49,6 +49,16 @@
 ### `veltrunode efs verify NAME`
 アクセスポイント、VPC、マウントターゲット、ルート設定、セキュリティグループ、NFS（ポート2049）、IAM権限、マウントパス、および期待されるPOSIX属性をチェックします。
 
+### `veltrunode efs quota [NAME]`
+EFS API（`DescribeFileSystems` / `DescribeAccessPoints`）を呼び出し、ファイルシステムのサイズ（Total / Standard / IA / Archive）と最大容量制限値、およびリージョン内の EFS アカウントクォータ（ファイルシステム数、マウントターゲット数）を表形式で出力します。`--format json` による構造化 JSON 出力にも対応しています。
+
+- **引数**:
+  - `NAME`（任意）: `Veltrunodefile` 内のマウント名（例: `shared_data`）またはファイルシステム ID（例: `fs-0123456789abcdef0`）。省略時はリージョン内の全 EFS ファイルシステムを一覧表示します。
+- **オプション**:
+  - `--format <text|json>`: 出力形式（デフォルト: `text`）
+  - `--region <region>`: AWS リージョン
+  - `--file <path>`: カスタム `Veltrunodefile` のパス
+
 ### `veltrunode layer inspect NAME`
 ソースのハッシュ値、生成されたサイズ、互換性のあるランタイムおよびアーキテクチャ、発行履歴、および再利用の判定結果を表示します。
 
