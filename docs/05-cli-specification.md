@@ -59,6 +59,16 @@ EFS API（`DescribeFileSystems` / `DescribeAccessPoints`）を呼び出し、フ
   - `--region <region>`: AWS リージョン
   - `--file <path>`: カスタム `Veltrunodefile` のパス
 
+### `veltrunode efs bench <function_name>`
+対象 Lambda 関数の VPC・EFS マウント構成を引き継ぐ一時的なベンチマーク関数を呼び出し、EFS 上での 4KB ランダム I/O および 1MB シーケンシャル I/O のレイテンシ・IOPS・スループットを測定して結果を表示します。測定に使用された一時テストファイルおよび一時関数は `ensure` により自動的にクリーンアップされます。
+
+- **引数**:
+  - `function_name`: EFS マウントが設定された対象 Lambda 関数名
+- **オプション**:
+  - `--format <text|json>`: 出力形式（デフォルト: `text`）
+  - `--region <region>`: AWS リージョン
+  - `--file <path>`: カスタム `Veltrunodefile` のパス
+
 ### `veltrunode layer inspect NAME`
 ソースのハッシュ値、生成されたサイズ、互換性のあるランタイムおよびアーキテクチャ、発行履歴、および再利用の判定結果を表示します。
 
