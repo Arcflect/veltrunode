@@ -78,6 +78,8 @@ module Veltrunode
           execute_efs_verify
         elsif match_command?('efs quota')
           execute_efs_quota
+        elsif match_command?('efs bench')
+          execute_efs_bench
         elsif match_command?('layer inspect')
           execute_layer_inspect
         elsif match_command?('layer prune') || match_command?('layer cleanup')
@@ -1072,6 +1074,115 @@ module Veltrunode
         $stdout.puts '=' * 124
       end
 
+      def execute_efs_bench
+        @current_command = 'efs bench'
+        fn_name = @argv.first
+        if fn_name.nil? || fn_name.strip.empty?
+          return handle_error('Function name is required for efs bench.', EXIT_INVALID_INPUT)
+        end
+
+        application = nil
+        begin
+          application = load_application!
+        rescue StandardError
+          # Veltrunodefile がない場合でも直接指定された関数名で実行可能
+        end
+
+        if application.respond_to?(:functions) && !application.functions.empty?
+          fn = application.functions.find { |f| f.logical_name == fn_name }
+          if fn && Array(fn.mounts).empty?
+            return handle_error(
+              "Function '#{fn_name}' does not have any EFS mounts configured.",
+              EXIT_VALIDATION_FAILED
+            )
+          end
+        end
+
+        report = Veltrunode::AWS::EfsBenchmarker.run(
+          application,
+          function_name: fn_name,
+          aws_region: @options[:region]
+        )
+
+        if @options[:format] == :json
+          status_str = report.success? ? 'success' : 'error'
+          output_json(
+            command: 'efs bench',
+            status: status_str,
+            diagnostics: report.diagnostics,
+            data: report.to_h
+          )
+        else
+          print_efs_bench_text_report(report)
+        end
+
+        return EXIT_SUCCESS if report.success?
+        return EXIT_AWS_AUTH_FAILED if report.diagnostics.any? { |d| d.code == 'VLT-AWS-AUTH-001' }
+
+        EXIT_VALIDATION_FAILED
+      end
+
+      def print_efs_bench_text_report(report)
+        $stdout.puts '=' * 96
+        $stdout.puts '  Veltrunode EFS I/O Benchmark Report'
+        $stdout.puts '=' * 96
+        $stdout.puts "Function:            #{report.function_name}"
+        $stdout.puts "Mount Path:          #{report.mount_path}"
+        $stdout.puts "Region:              #{report.region}"
+        $stdout.puts "Temp File Cleanup:   #{report.cleaned_up? ? 'COMPLETED' : 'FAILED'}"
+
+        r4k = report.random_4kb || {}
+        s1m = report.sequential_1mb || {}
+
+        $stdout.puts "\nBenchmark Results:"
+        headers = [
+          'Workload'.ljust(28),
+          'Write Latency'.rjust(16),
+          'Read Latency'.rjust(16),
+          'Write Speed / IOPS'.rjust(20),
+          'Read Speed / IOPS'.rjust(20)
+        ].join(' ')
+        $stdout.puts headers
+        $stdout.puts '-' * 96
+
+        r4k_w_lat = format('%.3f ms', r4k['write_latency_ms'].to_f)
+        r4k_r_lat = format('%.3f ms', r4k['read_latency_ms'].to_f)
+        r4k_w_spd = format('%.2f MB/s (%.0f IOPS)', r4k['write_throughput_mbps'].to_f, r4k['write_iops'].to_f)
+        r4k_r_spd = format('%.2f MB/s (%.0f IOPS)', r4k['read_throughput_mbps'].to_f, r4k['read_iops'].to_f)
+
+        $stdout.puts [
+          '4KB Random I/O'.ljust(28),
+          r4k_w_lat.rjust(16),
+          r4k_r_lat.rjust(16),
+          r4k_w_spd.rjust(20),
+          r4k_r_spd.rjust(20)
+        ].join(' ')
+
+        s1m_w_lat = format('%.3f ms', s1m['write_latency_ms'].to_f)
+        s1m_r_lat = format('%.3f ms', s1m['read_latency_ms'].to_f)
+        s1m_w_spd = format('%.2f MB/s', s1m['write_throughput_mbps'].to_f)
+        s1m_r_spd = format('%.2f MB/s', s1m['read_throughput_mbps'].to_f)
+
+        $stdout.puts [
+          '1MB Sequential I/O'.ljust(28),
+          s1m_w_lat.rjust(16),
+          s1m_r_lat.rjust(16),
+          s1m_w_spd.rjust(20),
+          s1m_r_spd.rjust(20)
+        ].join(' ')
+
+        unless report.diagnostics.empty?
+          $stdout.puts "\nDiagnostics:"
+          report.diagnostics.each do |diag|
+            prefix = diag.severity == :error ? '[ERROR]' : '[WARN]'
+            $stdout.puts "  #{prefix} #{diag.code}: #{diag.summary}"
+            $stdout.puts "         Suggested action: #{diag.suggested_action}"
+          end
+        end
+
+        $stdout.puts '=' * 96
+      end
+
       def execute_layer_inspect
         @current_command = 'layer inspect'
         name = @argv.first
@@ -1594,6 +1705,7 @@ module Veltrunode
             destroy                    # Destroy application stack
             efs verify NAME            # Verify EFS access and configuration
             efs quota [NAME]           # Display EFS storage breakdown (Standard / IA) and regional quotas
+            efs bench NAME             # Run EFS 4KB random and 1MB sequential I/O benchmark via Lambda
             layer inspect NAME         # Inspect Lambda Layer version
             layer prune NAME           # Prune old Lambda Layer versions
             schedule preview NAME      # Preview future run times for schedule
@@ -1613,6 +1725,8 @@ module Veltrunode
             { name: 'efs verify NAME', description: 'Verify EFS access and configuration' },
             { name: 'efs quota [NAME]',
               description: 'Display EFS storage breakdown (Standard / IA) and regional quotas' },
+            { name: 'efs bench NAME',
+              description: 'Run EFS 4KB random and 1MB sequential I/O benchmark via Lambda' },
             { name: 'layer inspect NAME', description: 'Inspect Lambda Layer version' },
             { name: 'layer prune NAME', description: 'Prune old Lambda Layer versions' },
             { name: 'schedule preview NAME', description: 'Preview future run times for schedule' },
