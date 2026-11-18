@@ -1147,8 +1147,16 @@ module Veltrunode
 
         r4k_w_lat = format('%.3f ms', r4k['write_latency_ms'].to_f)
         r4k_r_lat = format('%.3f ms', r4k['read_latency_ms'].to_f)
-        r4k_w_spd = format('%.2f MB/s (%.0f IOPS)', r4k['write_throughput_mbps'].to_f, r4k['write_iops'].to_f)
-        r4k_r_spd = format('%.2f MB/s (%.0f IOPS)', r4k['read_throughput_mbps'].to_f, r4k['read_iops'].to_f)
+        r4k_w_spd = format(
+          '%<mbps>.2f MB/s (%<iops>.0f IOPS)',
+          mbps: r4k['write_throughput_mbps'].to_f,
+          iops: r4k['write_iops'].to_f
+        )
+        r4k_r_spd = format(
+          '%<mbps>.2f MB/s (%<iops>.0f IOPS)',
+          mbps: r4k['read_throughput_mbps'].to_f,
+          iops: r4k['read_iops'].to_f
+        )
 
         $stdout.puts [
           '4KB Random I/O'.ljust(28),
