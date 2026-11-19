@@ -1981,5 +1981,60 @@ RSpec.describe Veltrunode::Compiler::CloudFormation::TemplateCompiler do
       expect(io_alarm['Properties']['ComparisonOperator']).to eq('GreaterThanOrEqualToThreshold')
       expect(io_alarm['Properties']['AlarmActions']).to eq([{ 'Ref' => 'EfsAlertTopic' }])
     end
+
+    it 'compiles EFS customer-managed KMS key encryption (Encrypted, KmsKeyId) and attaches KMS IAM permissions' do
+      kms_arn = 'arn:aws:kms:ap-northeast-1:123456789012:key/12345678-1234-1234-1234-123456789012'
+      dsl_code = <<~RUBY
+        Veltrunode.application "efs-cmk-service" do
+          aws region: "ap-northeast-1", account: "123456789012"
+          runtime ruby: "3.3"
+
+          efs_mount :cmk_data, local_path: "/mnt/cmk", encrypted: true, kms_key_id: "#{kms_arn}" do
+            managed_access_point do
+              posix_user uid: 1000, gid: 1000
+            end
+          end
+
+          efs_mount :ref_cmk_data, local_path: "/mnt/ref_cmk", encrypted: true, kms_key_id: ref(:efs_cmk_arn) do
+            managed_access_point do
+              posix_user uid: 1000, gid: 1000
+            end
+          end
+
+          function :worker do
+            handler "worker.handler"
+            vpc_reference subnet_ids: ["subnet-11112222"], security_group_ids: ["sg-11112222"]
+            efs_mount :cmk_data, local_path: "/mnt/cmk"
+            efs_mount :ref_cmk_data, local_path: "/mnt/ref_cmk"
+          end
+        end
+      RUBY
+
+      app = Veltrunode.parse(dsl_code)
+      result = described_class.compile(app)
+      resources = result['Resources']
+      params = result['Parameters']
+
+      expect(params).to have_key('EfsCmkArn')
+      expect(params['EfsCmkArn']['Type']).to eq('String')
+
+      cmk_fs = resources['CmkDataFileSystem']
+      expect(cmk_fs).not_to be_nil
+      expect(cmk_fs['Type']).to eq('AWS::EFS::FileSystem')
+      expect(cmk_fs['Properties']['Encrypted']).to be(true)
+      expect(cmk_fs['Properties']['KmsKeyId']).to eq(kms_arn)
+
+      ref_fs = resources['RefCmkDataFileSystem']
+      expect(ref_fs).not_to be_nil
+      expect(ref_fs['Type']).to eq('AWS::EFS::FileSystem')
+      expect(ref_fs['Properties']['Encrypted']).to be(true)
+      expect(ref_fs['Properties']['KmsKeyId']).to eq({ 'Ref' => 'EfsCmkArn' })
+
+      role = resources['WorkerFunctionRole']
+      stmts = role['Properties']['Policies'].first['PolicyDocument']['Statement']
+      kms_stmt = stmts.find { |s| Array(s['Action']).include?('kms:Decrypt') }
+      expect(kms_stmt).not_to be_nil
+      expect(kms_stmt['Resource']).to eq([kms_arn, { 'Ref' => 'EfsCmkArn' }])
+    end
   end
 end
