@@ -193,6 +193,32 @@ end
   - `AWS::CloudWatch::Alarm`（論理ID: `#{MountName}BurstCreditBalanceAlarm` および `#{MountName}PercentIOLimitAlarm`、`Dimensions: [{ Name: 'FileSystemId', Value: ... }]`）。
   - `topic` にパラメータ参照（`ref(:efs_alert_topic)` 等）が指定された場合、CloudFormation の `Parameters` に SNS トピック ARN パラメータが自動登録されます。
 
+### EFS KMS カスタマーマネージドキー暗号化 (KMS Customer-Managed Key Encryption at Rest)
+
+コンプライアンス要件により AWS マネージドキーではなく顧客管理の KMS キー（CMK）による保存時暗号化が必須となるケースに対応するため、`efs_mount` または `managed_access_point` 定義内で `encrypted: true` および `kms_key_id`（エイリアス: `kms_key`, `kms_key_arn`）を指定できます。
+
+```ruby
+# 1. efs_mount での KMS カスタマーマネージドキー ARN 指定
+efs_mount :cmk_data,
+          local_path: "/mnt/cmk",
+          encrypted: true,
+          kms_key_id: "arn:aws:kms:ap-northeast-1:123456789012:key/12345678-1234-1234-1234-123456789012"
+
+# 2. パラメータ参照（ref）やブロック構文での指定
+managed_access_point :secure_storage do
+  local_path "/mnt/secure"
+  encrypted true
+  kms_key_id ref(:efs_cmk_arn)
+  posix_user uid: 1000, gid: 1000
+end
+```
+
+- **`encrypted`**: 保存時暗号化の有効/無効（`true` / `false`）。`kms_key_id` を指定した場合、`encrypted` が未指定でも自動的に `true` に設定されます（`encrypted: false` と `kms_key_id` の同時指定は `ValidationError` となります）。
+- **`kms_key_id`（エイリアス: `kms_key`, `kms_key_arn`）**: KMS カスタマーマネージドキーの ARN（`arn:aws:kms:...`）、キー ID（UUID）、エイリアス（`alias/...`）、またはパラメータ参照（`ref(:...)`）。不正な形式の文字列はモデル初期化時に `ValidationError` として検証されます。
+- **CloudFormation `AWS::EFS::FileSystem` および IAM ロールへの反映**:
+  - `AWS::EFS::FileSystem` の `Properties.Encrypted` および `Properties.KmsKeyId` に出力されます。
+  - 当該 EFS をマウントする Lambda 関数の実行ロール（`AWS::IAM::Role`）に対し、指定された KMS キーへの暗号化・復号権限（`kms:Decrypt`, `kms:DescribeKey`, `kms:Encrypt`, `kms:GenerateDataKey*`, `kms:ReEncrypt*`）が最小特権で自動追加されます。
+
 ## 静的チェック項目 (Static Checks)
 
 - ローカルのマウントパスが `/mnt/` で始まっていること。
