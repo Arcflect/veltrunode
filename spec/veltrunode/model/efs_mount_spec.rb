@@ -275,4 +275,33 @@ RSpec.describe Veltrunode::Model::EfsMount do
       expect(mount_custom.percent_io_limit_threshold).to eq(90)
     end
   end
+
+  describe 'encryption and kms_key_id configuration' do
+    let(:valid_kms_arn) { 'arn:aws:kms:ap-northeast-1:123456789012:key/12345678-1234-1234-1234-123456789012' }
+
+    it 'supports encrypted: true and kms_key_id directly on EfsMount and via managed_access_point' do
+      mount_direct = described_class.new(
+        symbolic_name: 'encrypted_efs',
+        local_path: '/mnt/encrypted',
+        encrypted: true,
+        kms_key_id: valid_kms_arn
+      )
+      expect(mount_direct.encrypted?).to be(true)
+      expect(mount_direct.kms_key?).to be(true)
+      expect(mount_direct.kms_key_id).to eq(valid_kms_arn)
+      expect(mount_direct.file_system_configuration?).to be(true)
+
+      mount_ap = described_class.new(
+        symbolic_name: 'ap_encrypted_efs',
+        local_path: '/mnt/ap_encrypted',
+        managed_access_point: {
+          file_system_id: 'fs-0123456789abcdef0',
+          encrypted: true,
+          kms_key_id: valid_kms_arn
+        }
+      )
+      expect(mount_ap.encrypted?).to be(true)
+      expect(mount_ap.kms_key_id).to eq(valid_kms_arn)
+    end
+  end
 end

@@ -23,6 +23,10 @@ module Veltrunode
         throughput_mode: nil,
         provisioned_throughput_in_mibps: nil,
         provisioned_throughput: nil,
+        encrypted: nil,
+        kms_key_id: nil,
+        kms_key: nil,
+        kms_key_arn: nil,
         backup: nil,
         backup_policy: nil,
         backup_plan: nil,
@@ -55,6 +59,8 @@ module Veltrunode
                                            else
                                              provisioned_throughput_in_mibps
                                            end
+        @encrypted = encrypted
+        @kms_key_id = kms_key_id || kms_key || kms_key_arn
         @backup = nil
         raw_backup = if !backup.nil?
                        backup
@@ -100,6 +106,10 @@ module Veltrunode
         throughput_mode: nil,
         provisioned_throughput_in_mibps: nil,
         provisioned_throughput: nil,
+        encrypted: nil,
+        kms_key_id: nil,
+        kms_key: nil,
+        kms_key_arn: nil,
         backup: nil,
         backup_policy: nil,
         backup_plan: nil,
@@ -123,6 +133,16 @@ module Veltrunode
                       else
                         @provisioned_throughput_in_mibps
                       end
+        resolved_enc = encrypted.nil? ? @encrypted : encrypted
+        resolved_kms = if !kms_key_id.nil?
+                         kms_key_id
+                       elsif !kms_key.nil?
+                         kms_key
+                       elsif !kms_key_arn.nil?
+                         kms_key_arn
+                       else
+                         @kms_key_id
+                       end
         resolved_backup = if !backup.nil?
                             backup
                           elsif !backup_policy.nil?
@@ -155,6 +175,8 @@ module Veltrunode
           transition_to_primary_storage_class: transition_to_primary_storage_class,
           throughput_mode: throughput_mode || @throughput_mode,
           provisioned_throughput_in_mibps: resolved_pt,
+          encrypted: resolved_enc,
+          kms_key_id: resolved_kms,
           backup: resolved_backup,
           alarms: resolved_alarms,
           burst_credit_balance: burst_credit_balance,
@@ -221,6 +243,19 @@ module Veltrunode
         @provisioned_throughput_in_mibps = val
       end
       alias provisioned_throughput provisioned_throughput_in_mibps
+
+      def encrypted(val = true, kms_key_id: nil, kms_key: nil, kms_key_arn: nil) # rubocop:disable Style/OptionalBooleanParameter
+        @encrypted = val
+        kms = kms_key_id || kms_key || kms_key_arn
+        @kms_key_id = kms unless kms.nil?
+      end
+      alias encryption encrypted
+
+      def kms_key_id(val)
+        @kms_key_id = val
+      end
+      alias kms_key kms_key_id
+      alias kms_key_arn kms_key_id
 
       def backup(
         val = :__unset__,
@@ -316,6 +351,7 @@ module Veltrunode
         !@access_point_source.nil? || !@managed_access_point.nil? ||
           !@security_group_helper.nil? || !@lifecycle_policies.empty? ||
           !@throughput_mode.nil? || !@provisioned_throughput_in_mibps.nil? ||
+          !@encrypted.nil? || !@kms_key_id.nil? ||
           (!@backup.nil? && @backup != false) || (!@alarms.nil? && @alarms != false) ||
           !@vpc_expectations.empty? || !@posix_expectations.empty?
       end
@@ -356,6 +392,7 @@ module Veltrunode
         lifecycle = @lifecycle_policies.empty? ? nil : @lifecycle_policies
         has_fs_config = !lifecycle.nil? || !@throughput_mode.nil? ||
                         !@provisioned_throughput_in_mibps.nil? ||
+                        !@encrypted.nil? || !@kms_key_id.nil? ||
                         (!@backup.nil? && @backup != false) ||
                         (!@alarms.nil? && @alarms != false)
         resolved_local_path = @local_path || (@managed_access_point || has_fs_config ? "/mnt/#{@symbolic_name}" : nil)
@@ -367,6 +404,8 @@ module Veltrunode
           lifecycle_policies: lifecycle,
           throughput_mode: @throughput_mode,
           provisioned_throughput_in_mibps: @provisioned_throughput_in_mibps,
+          encrypted: @encrypted,
+          kms_key_id: @kms_key_id,
           backup: @backup,
           alarms: @alarms,
           local_path: resolved_local_path,

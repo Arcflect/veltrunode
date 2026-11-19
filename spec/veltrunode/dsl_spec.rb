@@ -721,5 +721,45 @@ RSpec.describe Veltrunode::DSL do
       expect(m3.percent_io_limit_threshold).to eq(90)
       expect(m3.alarm_topic).to eq(Veltrunode::DSL::Reference.new(:ops_topic))
     end
+
+    it 'supports encrypted and kms_key_id in efs_mount and managed_access_point' do
+      kms_arn = 'arn:aws:kms:ap-northeast-1:123456789012:key/12345678-1234-1234-1234-123456789012'
+      code = <<~RUBY
+        Veltrunode.application "efs-kms-app" do
+          efs_mount :cmk_storage, local_path: "/mnt/cmk", encrypted: true, kms_key_id: "#{kms_arn}"
+
+          managed_access_point :ref_kms_storage do
+            local_path "/mnt/ref_kms"
+            encrypted true
+            kms_key_id ref(:custom_kms_key)
+          end
+
+          efs_mount :nested_kms_storage do
+            local_path "/mnt/nested_kms"
+            managed_access_point do
+              kms_key_arn "#{kms_arn}"
+            end
+          end
+        end
+      RUBY
+
+      app = Veltrunode.parse(code)
+      expect(app.mounts.size).to eq(3)
+
+      m1 = app.mounts.find { |m| m.symbolic_name == 'cmk_storage' }
+      expect(m1.encrypted?).to be(true)
+      expect(m1.kms_key_id).to eq(kms_arn)
+      expect(m1.customer_managed_kms_key?).to be(true)
+
+      m2 = app.mounts.find { |m| m.symbolic_name == 'ref_kms_storage' }
+      expect(m2.encrypted?).to be(true)
+      expect(m2.kms_key_id).to eq(Veltrunode::DSL::Reference.new(:custom_kms_key))
+      expect(m2.customer_managed_kms_key?).to be(true)
+
+      m3 = app.mounts.find { |m| m.symbolic_name == 'nested_kms_storage' }
+      expect(m3.encrypted?).to be(true)
+      expect(m3.kms_key_id).to eq(kms_arn)
+      expect(m3.customer_managed_kms_key?).to be(true)
+    end
   end
 end

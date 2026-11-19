@@ -65,6 +65,10 @@ module Veltrunode
           props['ThroughputMode'] = tp_mode if tp_mode
           props['ProvisionedThroughputInMibps'] = prov_tp unless prov_tp.nil?
 
+          enc_val, kms_val = format_encryption_config
+          props['Encrypted'] = enc_val unless enc_val.nil?
+          props['KmsKeyId'] = kms_val unless kms_val.nil?
+
           props
         end
 
@@ -96,6 +100,69 @@ module Veltrunode
             throughput_mode: raw_mode,
             provisioned_throughput_in_mibps: raw_prov
           )
+        end
+
+        def format_encryption_config
+          raw_enc = extract_encrypted
+          raw_kms = extract_kms_key_id
+          return [nil, nil] if raw_enc.nil? && raw_kms.nil?
+
+          enc, kms = Model::ManagedAccessPoint.normalize_encryption_config(
+            encrypted: raw_enc,
+            kms_key_id: raw_kms
+          )
+          [enc, format_kms_key_value(kms)]
+        end
+
+        def format_kms_key_value(kms)
+          return nil if kms.nil?
+
+          if kms.is_a?(Hash)
+            ref_sym = kms[:ref] || kms['ref']
+            return { 'Ref' => LogicalId.pascalize(ref_sym) } if ref_sym
+
+            ref_lit = kms[:Ref] || kms['Ref']
+            return { 'Ref' => ref_lit.to_s } if ref_lit
+
+            return kms
+          end
+
+          return { 'Ref' => LogicalId.pascalize(kms.name) } if !kms.is_a?(Symbol) && kms.respond_to?(:name)
+          return { 'Ref' => LogicalId.pascalize(kms) } if kms.is_a?(Symbol)
+
+          kms.to_s
+        end
+
+        def extract_encrypted
+          if mount.respond_to?(:encrypted) && !mount.encrypted.nil?
+            mount.encrypted
+          elsif mount.respond_to?(:managed_access_point) && !mount.managed_access_point&.encrypted.nil?
+            mount.managed_access_point.encrypted
+          elsif mount.is_a?(Hash)
+            extract_hash_encrypted(mount)
+          end
+        end
+
+        def extract_hash_encrypted(hash)
+          %i[encrypted Encrypted].each do |k|
+            return hash[k] if hash.key?(k)
+            return hash[k.to_s] if hash.key?(k.to_s)
+          end
+          extract_hash_ap_field(hash, :encrypted, 'encrypted')
+        end
+
+        def extract_kms_key_id
+          if mount.respond_to?(:kms_key_id) && !mount.kms_key_id.nil?
+            mount.kms_key_id
+          elsif mount.respond_to?(:managed_access_point) && !mount.managed_access_point&.kms_key_id.nil?
+            mount.managed_access_point.kms_key_id
+          elsif mount.is_a?(Hash)
+            mount[:kms_key_id] || mount['kms_key_id'] ||
+              mount[:kms_key] || mount['kms_key'] ||
+              mount[:kms_key_arn] || mount['kms_key_arn'] ||
+              mount[:KmsKeyId] || mount['KmsKeyId'] ||
+              extract_hash_ap_field(mount, :kms_key_id, 'kms_key_id')
+          end
         end
 
         def extract_throughput_mode

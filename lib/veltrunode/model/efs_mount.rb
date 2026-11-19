@@ -18,12 +18,16 @@ module Veltrunode
                   :lifecycle_policies,
                   :throughput_mode,
                   :provisioned_throughput_in_mibps,
+                  :encrypted,
+                  :kms_key_id,
                   :backup,
                   :alarms
 
       alias name symbolic_name
       alias lifecycle_policy lifecycle_policies
       alias provisioned_throughput provisioned_throughput_in_mibps
+      alias kms_key kms_key_id
+      alias kms_key_arn kms_key_id
       alias backup_policy backup
       alias backup_plan backup
       alias efs_alarms alarms
@@ -105,6 +109,10 @@ module Veltrunode
         throughput_mode: nil,
         provisioned_throughput_in_mibps: nil,
         provisioned_throughput: nil,
+        encrypted: nil,
+        kms_key_id: nil,
+        kms_key: nil,
+        kms_key_arn: nil,
         backup: nil,
         backup_policy: nil,
         backup_plan: nil,
@@ -133,6 +141,12 @@ module Veltrunode
           throughput_mode: throughput_mode,
           provisioned_throughput_in_mibps: provisioned_throughput_in_mibps,
           provisioned_throughput: provisioned_throughput
+        )
+        explicit_enc, explicit_kms = ManagedAccessPoint.normalize_encryption_config(
+          encrypted: encrypted,
+          kms_key_id: kms_key_id,
+          kms_key: kms_key,
+          kms_key_arn: kms_key_arn
         )
         raw_backup = if !backup.nil?
                        backup
@@ -163,15 +177,20 @@ module Veltrunode
           explicit_tp_mode,
           explicit_prov_tp,
           explicit_backup,
-          explicit_alarms
+          explicit_alarms,
+          explicit_enc,
+          explicit_kms
         )
         resolved_lifecycle = explicit_lifecycle || normalized_map&.lifecycle_policies
         resolved_tp_mode = explicit_tp_mode || normalized_map&.throughput_mode
         resolved_prov_tp = explicit_prov_tp || normalized_map&.provisioned_throughput_in_mibps
+        resolved_enc = explicit_enc.nil? ? normalized_map&.encrypted : explicit_enc
+        resolved_kms = explicit_kms || normalized_map&.kms_key_id
         resolved_backup = explicit_backup || normalized_map&.backup
         resolved_alarms = explicit_alarms || normalized_map&.alarms
         has_fs_config = !resolved_lifecycle.nil? || !resolved_tp_mode.nil? ||
-                        !resolved_prov_tp.nil? || !resolved_backup.nil? || !resolved_alarms.nil?
+                        !resolved_prov_tp.nil? || !resolved_enc.nil? || !resolved_kms.nil? ||
+                        !resolved_backup.nil? || !resolved_alarms.nil?
         resolved_source = access_point_source ||
                           (normalized_map || has_fs_config ? symbolic_name : nil)
         validate!(
@@ -190,6 +209,8 @@ module Veltrunode
         @lifecycle_policies = resolved_lifecycle
         @throughput_mode = resolved_tp_mode
         @provisioned_throughput_in_mibps = resolved_prov_tp
+        @encrypted = resolved_enc
+        @kms_key_id = resolved_kms
         @backup = resolved_backup
         @alarms = resolved_alarms
         @vpc_expectations = freeze_value(vpc_expectations)
@@ -213,6 +234,19 @@ module Veltrunode
 
       def throughput_configuration?
         !@throughput_mode.nil? || !@provisioned_throughput_in_mibps.nil?
+      end
+
+      def encrypted?
+        @encrypted == true || !@kms_key_id.nil?
+      end
+
+      def kms_key?
+        !@kms_key_id.nil?
+      end
+      alias customer_managed_kms_key? kms_key?
+
+      def encryption_configuration?
+        !@encrypted.nil? || !@kms_key_id.nil?
       end
 
       def backup?
@@ -251,7 +285,7 @@ module Veltrunode
       end
 
       def file_system_configuration?
-        lifecycle_policies? || throughput_configuration? ||
+        lifecycle_policies? || throughput_configuration? || encryption_configuration? ||
           ((backup? || alarms?) && (@managed_access_point.nil? || @managed_access_point.file_system_id.nil?))
       end
 
@@ -287,7 +321,9 @@ module Veltrunode
         explicit_tp_mode = nil,
         explicit_prov_tp = nil,
         explicit_backup = nil,
-        explicit_alarms = nil
+        explicit_alarms = nil,
+        explicit_enc = nil,
+        explicit_kms = nil
       )
         return nil if map.nil?
         return map if map.is_a?(ManagedAccessPoint)
@@ -299,6 +335,8 @@ module Veltrunode
           opts[:provisioned_throughput_in_mibps] ||= explicit_prov_tp if explicit_prov_tp
           opts[:backup] ||= explicit_backup if explicit_backup
           opts[:alarms] ||= explicit_alarms if explicit_alarms
+          opts[:encrypted] = explicit_enc if opts[:encrypted].nil? && !explicit_enc.nil?
+          opts[:kms_key_id] ||= explicit_kms if explicit_kms
           return ManagedAccessPoint.new(**opts)
         end
 

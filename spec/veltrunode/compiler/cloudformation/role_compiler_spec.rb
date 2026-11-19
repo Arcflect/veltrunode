@@ -179,6 +179,51 @@ RSpec.describe Veltrunode::Compiler::CloudFormation::RoleCompiler do
       expect(efs_stmt['Resource']).to eq([{ 'Fn::GetAtt' => %w[SharedStorageAccessPoint Arn] }])
     end
 
+    it 'automatically attaches KMS key permissions when mounting an EFS encrypted with a customer-managed KMS key' do
+      kms_arn = 'arn:aws:kms:ap-northeast-1:123456789012:key/12345678-1234-1234-1234-123456789012'
+      fn = Veltrunode::Model::Function.new(
+        logical_name: 'cmk_mount_worker',
+        handler: 'functions/worker.handler',
+        runtime: 'ruby3.3',
+        mounts: %i[cmk_storage ref_cmk_storage]
+      )
+      cmk_mount = Veltrunode::Model::EfsMount.new(
+        symbolic_name: 'cmk_storage',
+        local_path: '/mnt/cmk',
+        encrypted: true,
+        kms_key_id: kms_arn
+      )
+      ref_cmk_mount = Veltrunode::Model::EfsMount.new(
+        symbolic_name: 'ref_cmk_storage',
+        local_path: '/mnt/ref_cmk',
+        kms_key_id: Veltrunode::DSL::Reference.new(:custom_kms_key)
+      )
+
+      result = described_class.compile_lambda_role(
+        fn,
+        mount_map: {
+          'cmk_storage' => cmk_mount,
+          'ref_cmk_storage' => ref_cmk_mount
+        }
+      )
+      policy_stmts = result['CmkMountWorkerFunctionRole']['Properties']['Policies'].first['PolicyDocument']['Statement']
+      kms_stmt = policy_stmts.find { |s| Array(s['Action']).include?('kms:Decrypt') }
+
+      expect(kms_stmt).not_to be_nil
+      expect(kms_stmt['Action']).to eq(
+        %w[
+          kms:Decrypt
+          kms:DescribeKey
+          kms:Encrypt
+          kms:GenerateDataKey
+          kms:GenerateDataKeyWithoutPlaintext
+          kms:ReEncryptFrom
+          kms:ReEncryptTo
+        ]
+      )
+      expect(kms_stmt['Resource']).to eq([kms_arn, { 'Ref' => 'CustomKmsKey' }])
+    end
+
     it 'automatically attaches IAM permissions for async_invoke destinations (SQS, SNS)' do
       fn = Veltrunode::Model::Function.new(
         logical_name: 'async_worker',

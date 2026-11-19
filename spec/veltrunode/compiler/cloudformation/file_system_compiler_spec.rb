@@ -64,5 +64,31 @@ RSpec.describe Veltrunode::Compiler::CloudFormation::FileSystemCompiler do
       expect(props['ThroughputMode']).to eq('provisioned')
       expect(props['ProvisionedThroughputInMibps']).to eq(500)
     end
+
+    it 'compiles Encrypted and KmsKeyId for customer-managed KMS key ARN and Ref' do
+      kms_arn = 'arn:aws:kms:ap-northeast-1:123456789012:key/12345678-1234-1234-1234-123456789012'
+      cmk_mount = Veltrunode::Model::EfsMount.new(
+        symbolic_name: 'cmk_efs',
+        local_path: '/mnt/cmk',
+        encrypted: true,
+        kms_key_id: kms_arn
+      )
+
+      result = described_class.compile(cmk_mount)
+      props = result['CmkEfsFileSystem']['Properties']
+      expect(props['Encrypted']).to be(true)
+      expect(props['KmsKeyId']).to eq(kms_arn)
+
+      ref_mount = Veltrunode::Model::EfsMount.new(
+        symbolic_name: 'ref_cmk_efs',
+        local_path: '/mnt/ref_cmk',
+        kms_key_id: Veltrunode::DSL::Reference.new(:custom_efs_kms_key)
+      )
+
+      ref_result = described_class.compile(ref_mount)
+      ref_props = ref_result['RefCmkEfsFileSystem']['Properties']
+      expect(ref_props['Encrypted']).to be(true)
+      expect(ref_props['KmsKeyId']).to eq({ 'Ref' => 'CustomEfsKmsKey' })
+    end
   end
 end

@@ -153,7 +153,7 @@ module Veltrunode
             statements.concat(expanded)
           end
 
-          # EFSマウント時: elasticfilesystem:ClientMount, ClientWrite 権限を追加
+          # EFSマウント時: elasticfilesystem:ClientMount, ClientWrite 権限および KMS 暗号化キー利用権限を追加
           mounts = extract_val(target, :mounts) || []
           if mounts && !mounts.empty?
             mount_arns = format_mount_arns(mounts)
@@ -162,6 +162,23 @@ module Veltrunode
                 'Effect' => 'Allow',
                 'Action' => ['elasticfilesystem:ClientMount', 'elasticfilesystem:ClientWrite'],
                 'Resource' => mount_arns
+              }
+            end
+
+            kms_key_arns = format_mount_kms_key_arns(mounts)
+            unless kms_key_arns.empty?
+              statements << {
+                'Effect' => 'Allow',
+                'Action' => [
+                  'kms:Decrypt',
+                  'kms:DescribeKey',
+                  'kms:Encrypt',
+                  'kms:GenerateDataKey',
+                  'kms:GenerateDataKeyWithoutPlaintext',
+                  'kms:ReEncryptFrom',
+                  'kms:ReEncryptTo'
+                ],
+                'Resource' => kms_key_arns
               }
             end
           end
@@ -634,6 +651,86 @@ module Veltrunode
           else
             { 'Fn::GetAtt' => ["#{self.class.pascalize(val_str)}AccessPoint", 'Arn'] }
           end
+        end
+
+        def format_mount_kms_key_arns(mounts)
+          Array(mounts).map do |mount_entry|
+            raw_kms = extract_mount_kms_key(mount_entry)
+            format_kms_key_arn_or_ref(raw_kms)
+          end.compact.uniq
+        end
+
+        def extract_mount_kms_key(mount_entry)
+          if mount_entry.respond_to?(:kms_key_id) && mount_entry.kms_key_id
+            mount_entry.kms_key_id
+          elsif mount_entry.respond_to?(:managed_access_point) && mount_entry.managed_access_point&.kms_key_id
+            mount_entry.managed_access_point.kms_key_id
+          elsif mount_entry.is_a?(Hash)
+            extract_hash_mount_kms_key(mount_entry)
+          else
+            extract_string_mount_kms_key(mount_entry)
+          end
+        end
+
+        def extract_hash_mount_kms_key(mount_entry)
+          raw = mount_entry[:kms_key_id] || mount_entry['kms_key_id'] ||
+                mount_entry[:kms_key] || mount_entry['kms_key'] ||
+                mount_entry[:kms_key_arn] || mount_entry['kms_key_arn'] ||
+                mount_entry[:KmsKeyId] || mount_entry['KmsKeyId']
+          return raw if raw
+
+          ap = mount_entry[:managed_access_point] || mount_entry['managed_access_point']
+          if ap
+            return ap.kms_key_id if ap.respond_to?(:kms_key_id) && ap.kms_key_id
+
+            if ap.is_a?(Hash)
+              ap_kms = ap[:kms_key_id] || ap['kms_key_id'] || ap[:kms_key] || ap['kms_key'] ||
+                       ap[:kms_key_arn] || ap['kms_key_arn']
+              return ap_kms if ap_kms
+            end
+          end
+
+          name = mount_entry[:name] || mount_entry['name'] ||
+                 mount_entry[:symbolic_name] || mount_entry['symbolic_name'] ||
+                 mount_entry[:mount] || mount_entry['mount']
+          return nil unless name && resolved_mount_map.key?(name.to_s)
+
+          extract_mount_kms_key(resolved_mount_map[name.to_s])
+        end
+
+        def extract_string_mount_kms_key(mount_entry)
+          entry_str = mount_entry.to_s
+          mount_name = entry_str.include?(':') ? entry_str.split(':', 2).first : entry_str
+          return nil unless resolved_mount_map.key?(mount_name)
+
+          extract_mount_kms_key(resolved_mount_map[mount_name])
+        end
+
+        def format_kms_key_arn_or_ref(raw_kms)
+          return nil if raw_kms.nil?
+
+          if raw_kms.is_a?(Hash)
+            ref_sym = raw_kms[:ref] || raw_kms['ref']
+            return { 'Ref' => LogicalId.pascalize(ref_sym) } if ref_sym
+
+            ref_lit = raw_kms[:Ref] || raw_kms['Ref']
+            return { 'Ref' => ref_lit.to_s } if ref_lit
+
+            return raw_kms
+          end
+
+          return { 'Ref' => LogicalId.pascalize(raw_kms.name) } if !raw_kms.is_a?(Symbol) && raw_kms.respond_to?(:name)
+          return { 'Ref' => LogicalId.pascalize(raw_kms) } if raw_kms.is_a?(Symbol)
+
+          kms_str = raw_kms.to_s.strip
+          return nil if kms_str.empty?
+          return kms_str if kms_str.start_with?('arn:')
+
+          if kms_str.start_with?('alias/')
+            return { 'Fn::Sub' => "arn:${AWS::Partition}:kms:${AWS::Region}:${AWS::AccountId}:#{kms_str}" }
+          end
+
+          { 'Fn::Sub' => "arn:${AWS::Partition}:kms:${AWS::Region}:${AWS::AccountId}:key/#{kms_str}" }
         end
 
         def extract_val(obj, method_name)

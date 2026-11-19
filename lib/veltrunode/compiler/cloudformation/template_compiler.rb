@@ -279,9 +279,18 @@ module Veltrunode
             }
           end
 
-          # Include referenced SNS topic ARN parameters from EFS alarms
+          # Include referenced SNS topic ARN parameters from EFS alarms and KMS key parameters from EFS encryption
           mount_nodes = extract_collection(:mounts)
           mount_nodes.each do |mount|
+            kms_key = mount.respond_to?(:kms_key_id) ? mount.kms_key_id : nil
+            kms_param = resolve_kms_key_param_key(kms_key)
+            if kms_param && !params.key?(kms_param)
+              params[kms_param] = {
+                'Description' => "KMS key ARN for #{kms_param}",
+                'Type' => 'String'
+              }
+            end
+
             next unless mount.respond_to?(:alarms?) && mount.alarms?
 
             topic = mount.respond_to?(:alarm_topic) ? mount.alarm_topic : nil
@@ -935,6 +944,21 @@ module Veltrunode
             return nil if str.start_with?('arn:')
 
             str
+          end
+        end
+
+        def resolve_kms_key_param_key(kms_key)
+          return nil if kms_key.nil?
+
+          if kms_key.is_a?(Hash)
+            return kms_key['Ref'].to_s if kms_key['Ref']
+            return kms_key[:Ref].to_s if kms_key[:Ref]
+            return LogicalId.pascalize(kms_key[:ref] || kms_key['ref']) if kms_key[:ref] || kms_key['ref']
+
+            nil
+          elsif kms_key.respond_to?(:name) || kms_key.is_a?(Symbol)
+            name = kms_key.respond_to?(:name) ? kms_key.name : kms_key
+            LogicalId.pascalize(name)
           end
         end
 

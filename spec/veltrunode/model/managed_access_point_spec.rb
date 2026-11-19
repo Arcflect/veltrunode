@@ -334,5 +334,40 @@ RSpec.describe Veltrunode::Model::ManagedAccessPoint do
         end.to raise_error(Veltrunode::ValidationError, /Invalid EFS alarm percent_io_limit threshold/)
       end
     end
+
+    context 'encryption and kms_key_id configuration' do
+      let(:valid_kms_arn) { 'arn:aws:kms:ap-northeast-1:123456789012:key/12345678-1234-1234-1234-123456789012' }
+
+      it 'supports encrypted: true and kms_key_id with KMS key ARN' do
+        ap = described_class.new(
+          file_system_id: valid_fs_id,
+          encrypted: true,
+          kms_key_id: valid_kms_arn
+        )
+        expect(ap.encrypted).to be(true)
+        expect(ap.encrypted?).to be(true)
+        expect(ap.kms_key?).to be(true)
+        expect(ap.kms_key_id).to eq(valid_kms_arn)
+        expect(ap.encryption_configuration?).to be(true)
+        expect(ap.file_system_configuration?).to be(true)
+      end
+
+      it 'automatically enables encrypted when kms_key_id is specified' do
+        ap = described_class.new(file_system_id: valid_fs_id, kms_key_id: valid_kms_arn)
+        expect(ap.encrypted).to be(true)
+        expect(ap.encrypted?).to be(true)
+        expect(ap.kms_key_id).to eq(valid_kms_arn)
+      end
+
+      it 'raises ValidationError when kms_key_id is invalid or encrypted is false with kms_key_id' do
+        expect do
+          described_class.new(file_system_id: valid_fs_id, encrypted: false, kms_key_id: valid_kms_arn)
+        end.to raise_error(Veltrunode::ValidationError, /cannot be specified when encrypted is false/)
+
+        expect do
+          described_class.new(file_system_id: valid_fs_id, kms_key_id: 'arn:aws:s3:::invalid-arn')
+        end.to raise_error(Veltrunode::ValidationError, /Invalid EFS kms_key_id ARN/)
+      end
+    end
   end
 end

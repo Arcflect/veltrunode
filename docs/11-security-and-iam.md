@@ -132,6 +132,22 @@ EFS マウント定義（`efs_mount` / `managed_access_point`）で `backup: tru
 - **リソース選択 (`AWS::Backup::BackupSelection`) のスコープ**:
   - バックアップ対象リソース（`Resources`）はワイルドカードを使用せず、該当する EFS ファイルシステム ARN（`Fn::GetAtt: [#{MountName}FileSystem, Arn]` または `arn:aws:elasticfilesystem:${AWS::Region}:${AWS::AccountId}:file-system/fs-xxxx`）のみに厳密に限定されます。
 
+## EFS KMS カスタマーマネージドキー暗号化と IAM 権限 (EFS Customer-Managed KMS Key & IAM Permissions)
+
+EFS マウント定義（`efs_mount` / `managed_access_point`）で顧客管理の KMS キー（`kms_key_id: "arn:aws:kms:..."` 等）が指定された場合、当該 EFS をマウントする Lambda 関数の実行ロール（`AWS::IAM::Role`）に必要な KMS 操作権限が最小特権で自動付与されます。
+
+- **自動付与される KMS アクション**:
+  - `kms:Decrypt`
+  - `kms:DescribeKey`
+  - `kms:Encrypt`
+  - `kms:GenerateDataKey`
+  - `kms:GenerateDataKeyWithoutPlaintext`
+  - `kms:ReEncryptFrom`
+  - `kms:ReEncryptTo`
+- **最小特権のリソーススコープ (`Resource`)**:
+  - ワイルドカード（`*`）は一切使用せず、マウント定義で指定された KMS キー ARN（または CloudFormation パラメータ参照 `Ref`）のみにスコープが限定されます。
+  - ワイルドカードアクション（`kms:*`）も使用しないため、本番ポリシーパックの `deny_wildcard_actions` にも完全準拠します。
+
 ## 認証情報 (Credentials)
 
 Veltrunode は、標準の AWS SDK 資格情報チェーン（Credential Chain）を使用します。ツール自体が認証情報を収集したり、プロキシしたりすることはありません。リソースの変更操作（`deploy` 等）を行う前に、呼び出し元の AWS アカウントおよびリージョンが正しいかを事前検証（`AccountRegionGuard`）します。

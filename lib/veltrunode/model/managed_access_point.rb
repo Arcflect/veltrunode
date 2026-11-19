@@ -36,6 +36,7 @@ module Veltrunode
       DEFAULT_PERCENT_IO_LIMIT_THRESHOLD = 80
       DEFAULT_ALARM_PERIOD = 300
       DEFAULT_ALARM_EVALUATION_PERIODS = 1
+      KMS_ARN_PATTERN = %r{\Aarn:aws[a-z-]*:kms:[a-z0-9-]+:\d{12}:(key/[a-f0-9-]+|alias/[a-zA-Z0-9:/_-]+)\z}i
       BYTE_UNIT_MULTIPLIERS = {
         'B' => 1,
         'KB' => 1_000,
@@ -55,17 +56,46 @@ module Veltrunode
                   :lifecycle_policies,
                   :throughput_mode,
                   :provisioned_throughput_in_mibps,
+                  :encrypted,
+                  :kms_key_id,
                   :backup,
                   :alarms,
                   :tags
 
       alias lifecycle_policy lifecycle_policies
       alias provisioned_throughput provisioned_throughput_in_mibps
+      alias kms_key kms_key_id
+      alias kms_key_arn kms_key_id
       alias backup_policy backup
       alias backup_plan backup
       alias efs_alarms alarms
 
       class << self
+        def normalize_encryption_config(
+          encrypted: nil,
+          kms_key_id: nil,
+          kms_key: nil,
+          kms_key_arn: nil
+        )
+          raw_kms = kms_key_id || kms_key || kms_key_arn
+          normalized_kms = raw_kms.nil? ? nil : normalize_kms_key_id!(raw_kms)
+
+          normalized_enc = if encrypted.nil?
+                             normalized_kms ? true : nil
+                           elsif [true, false].include?(encrypted)
+                             encrypted
+                           else
+                             raise ValidationError,
+                                   "Invalid EFS encrypted setting '#{encrypted}'. Must be true or false"
+                           end
+
+          if normalized_enc == false && !normalized_kms.nil?
+            raise ValidationError, 'EFS kms_key_id cannot be specified when encrypted is false'
+          end
+
+          [normalized_enc, normalized_kms]
+        end
+
         def normalize_alarms_config(
           alarms = nil,
           burst_credit_balance: nil,
@@ -571,6 +601,26 @@ module Veltrunode
           raise ValidationError,
                 "Invalid EFS alarm evaluation_periods '#{val}'. Must be at least 1"
         end
+
+        def normalize_kms_key_id!(val)
+          return val.dup.freeze if val.is_a?(Hash)
+          return val if val.respond_to?(:name) || val.is_a?(Symbol)
+
+          unless val.is_a?(String)
+            raise ValidationError, "Invalid EFS kms_key_id '#{val}'. Must be a KMS key ARN, ID, alias, or Reference"
+          end
+
+          str = val.strip
+          raise ValidationError, 'EFS kms_key_id cannot be blank' if str.empty?
+
+          if str.start_with?('arn:') && !KMS_ARN_PATTERN.match?(str)
+            raise ValidationError,
+                  "Invalid EFS kms_key_id ARN '#{str}'. " \
+                  'Must match arn:aws:kms:<region>:<account>:key/<key-id> or alias/<alias-name>'
+          end
+
+          str.freeze
+        end
       end
 
       def initialize(
@@ -586,6 +636,10 @@ module Veltrunode
         throughput_mode: nil,
         provisioned_throughput_in_mibps: nil,
         provisioned_throughput: nil,
+        encrypted: nil,
+        kms_key_id: nil,
+        kms_key: nil,
+        kms_key_arn: nil,
         backup: nil,
         backup_policy: nil,
         backup_plan: nil,
@@ -613,6 +667,12 @@ module Veltrunode
           provisioned_throughput_in_mibps: provisioned_throughput_in_mibps,
           provisioned_throughput: provisioned_throughput
         )
+        resolved_enc, resolved_kms = self.class.normalize_encryption_config(
+          encrypted: encrypted,
+          kms_key_id: kms_key_id,
+          kms_key: kms_key,
+          kms_key_arn: kms_key_arn
+        )
         raw_backup = if !backup.nil?
                        backup
                      elsif !backup_policy.nil?
@@ -637,7 +697,8 @@ module Veltrunode
           topic: alarm_topic
         )
         has_fs_config = !resolved_lifecycle.nil? || !resolved_tp_mode.nil? ||
-                        !resolved_prov_tp.nil? || !resolved_backup.nil? || !resolved_alarms.nil?
+                        !resolved_prov_tp.nil? || !resolved_enc.nil? || !resolved_kms.nil? ||
+                        !resolved_backup.nil? || !resolved_alarms.nil?
         allow_nil_fs_id = (file_system_id == :__unset__ || file_system_id.nil?) && has_fs_config
         resolved_fs_id = file_system_id == :__unset__ ? nil : file_system_id
 
@@ -661,6 +722,8 @@ module Veltrunode
         @lifecycle_policies = resolved_lifecycle
         @throughput_mode = resolved_tp_mode
         @provisioned_throughput_in_mibps = resolved_prov_tp
+        @encrypted = resolved_enc
+        @kms_key_id = resolved_kms
         @backup = resolved_backup
         @alarms = resolved_alarms
         @tags = tags ? freeze_hash(tags) : {}.freeze
@@ -674,6 +737,19 @@ module Veltrunode
 
       def throughput_configuration?
         !@throughput_mode.nil? || !@provisioned_throughput_in_mibps.nil?
+      end
+
+      def encrypted?
+        @encrypted == true || !@kms_key_id.nil?
+      end
+
+      def kms_key?
+        !@kms_key_id.nil?
+      end
+      alias customer_managed_kms_key? kms_key?
+
+      def encryption_configuration?
+        !@encrypted.nil? || !@kms_key_id.nil?
       end
 
       def backup?
@@ -712,7 +788,7 @@ module Veltrunode
       end
 
       def file_system_configuration?
-        lifecycle_policies? || throughput_configuration? ||
+        lifecycle_policies? || throughput_configuration? || encryption_configuration? ||
           ((backup? || alarms?) && @file_system_id.nil?)
       end
 
