@@ -122,6 +122,10 @@ module Veltrunode
         throughput_mode: nil,
         provisioned_throughput_in_mibps: nil,
         provisioned_throughput: nil,
+        encrypted: nil,
+        kms_key_id: nil,
+        kms_key: nil,
+        kms_key_arn: nil,
         backup: nil,
         backup_policy: nil,
         backup_plan: nil,
@@ -158,6 +162,8 @@ module Veltrunode
                                            else
                                              provisioned_throughput_in_mibps
                                            end
+        @encrypted = encrypted
+        @kms_key_id = kms_key_id || kms_key || kms_key_arn
         @backup = nil
         raw_backup = if !backup.nil?
                        backup
@@ -302,6 +308,19 @@ module Veltrunode
       end
       alias provisioned_throughput provisioned_throughput_in_mibps
 
+      def encrypted(val = true, kms_key_id: nil, kms_key: nil, kms_key_arn: nil) # rubocop:disable Style/OptionalBooleanParameter
+        @encrypted = val
+        kms = kms_key_id || kms_key || kms_key_arn
+        @kms_key_id = kms unless kms.nil?
+      end
+      alias encryption encrypted
+
+      def kms_key_id(val)
+        @kms_key_id = val
+      end
+      alias kms_key kms_key_id
+      alias kms_key_arn kms_key_id
+
       def backup(
         val = :__unset__,
         schedule: nil,
@@ -377,6 +396,7 @@ module Veltrunode
         lifecycle = @lifecycle_policies.empty? ? nil : @lifecycle_policies
         has_fs_config = !lifecycle.nil? || !@throughput_mode.nil? ||
                         !@provisioned_throughput_in_mibps.nil? ||
+                        !@encrypted.nil? || !@kms_key_id.nil? ||
                         (!@backup.nil? && @backup != false) ||
                         (!@alarms.nil? && @alarms != false)
         opts = {
@@ -386,6 +406,8 @@ module Veltrunode
           lifecycle_policies: lifecycle,
           throughput_mode: @throughput_mode,
           provisioned_throughput_in_mibps: @provisioned_throughput_in_mibps,
+          encrypted: @encrypted,
+          kms_key_id: @kms_key_id,
           backup: @backup,
           alarms: @alarms,
           tags: @tags.empty? ? nil : @tags
