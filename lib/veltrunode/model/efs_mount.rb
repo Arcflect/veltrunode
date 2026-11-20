@@ -1,6 +1,8 @@
 # frozen_string_literal: true
 
 require_relative 'managed_access_point'
+require_relative 'managed_file_system'
+require_relative 'security_group_helper'
 
 module Veltrunode
   module Model
@@ -14,6 +16,7 @@ module Veltrunode
                   :posix_expectations,
                   :diagnostic_policy,
                   :managed_access_point,
+                  :managed_file_system,
                   :security_group_helper,
                   :lifecycle_policies,
                   :throughput_mode,
@@ -21,7 +24,9 @@ module Veltrunode
                   :encrypted,
                   :kms_key_id,
                   :backup,
-                  :alarms
+                  :alarms,
+                  :deletion_policy,
+                  :update_replace_policy
 
       alias name symbolic_name
       alias lifecycle_policy lifecycle_policies
@@ -97,10 +102,18 @@ module Veltrunode
 
       def initialize(
         symbolic_name:,
-        local_path:,
+        local_path: nil,
         access_point_source: nil,
         managed_access_point: nil,
+        managed_file_system: nil,
         security_group_helper: nil,
+        vpc_id: nil,
+        subnet_ids: nil,
+        subnets: nil,
+        security_group_ids: nil,
+        deletion_policy: nil,
+        update_replace_policy: nil,
+        deletion_protection: nil,
         lifecycle_policies: nil,
         lifecycle_policy: nil,
         transition_to_ia: nil,
@@ -171,24 +184,70 @@ module Veltrunode
           io_limit_threshold: io_limit_threshold,
           topic: alarm_topic
         )
+        normalized_mfs = normalize_managed_file_system(
+          managed_file_system,
+          symbolic_name: symbolic_name,
+          vpc_id: vpc_id,
+          subnet_ids: subnet_ids || subnets,
+          security_group_ids: security_group_ids,
+          deletion_policy: deletion_policy,
+          update_replace_policy: update_replace_policy,
+          deletion_protection: deletion_protection,
+          explicit_lifecycle: explicit_lifecycle,
+          explicit_tp_mode: explicit_tp_mode,
+          explicit_prov_tp: explicit_prov_tp,
+          explicit_backup: explicit_backup,
+          explicit_alarms: explicit_alarms,
+          explicit_enc: explicit_enc,
+          explicit_kms: explicit_kms
+        )
+        resolved_lifecycle = explicit_lifecycle || normalized_mfs&.lifecycle_policies
+        resolved_tp_mode = explicit_tp_mode || normalized_mfs&.throughput_mode
+        resolved_prov_tp = explicit_prov_tp || normalized_mfs&.provisioned_throughput_in_mibps
+        resolved_enc = explicit_enc.nil? ? normalized_mfs&.encrypted : explicit_enc
+        resolved_kms = explicit_kms || normalized_mfs&.kms_key_id
+        resolved_backup = explicit_backup || normalized_mfs&.backup
+        resolved_alarms = explicit_alarms || normalized_mfs&.alarms
+
         normalized_map = normalize_managed_access_point(
           managed_access_point,
-          explicit_lifecycle,
-          explicit_tp_mode,
-          explicit_prov_tp,
-          explicit_backup,
-          explicit_alarms,
-          explicit_enc,
-          explicit_kms
+          resolved_lifecycle,
+          resolved_tp_mode,
+          resolved_prov_tp,
+          resolved_backup,
+          resolved_alarms,
+          resolved_enc,
+          resolved_kms,
+          managed_file_system: normalized_mfs,
+          posix_expectations: posix_expectations
         )
-        resolved_lifecycle = explicit_lifecycle || normalized_map&.lifecycle_policies
-        resolved_tp_mode = explicit_tp_mode || normalized_map&.throughput_mode
-        resolved_prov_tp = explicit_prov_tp || normalized_map&.provisioned_throughput_in_mibps
-        resolved_enc = explicit_enc.nil? ? normalized_map&.encrypted : explicit_enc
-        resolved_kms = explicit_kms || normalized_map&.kms_key_id
-        resolved_backup = explicit_backup || normalized_map&.backup
-        resolved_alarms = explicit_alarms || normalized_map&.alarms
-        has_fs_config = !resolved_lifecycle.nil? || !resolved_tp_mode.nil? ||
+        resolved_lifecycle ||= normalized_map&.lifecycle_policies
+        resolved_tp_mode ||= normalized_map&.throughput_mode
+        resolved_prov_tp ||= normalized_map&.provisioned_throughput_in_mibps
+        resolved_enc = normalized_map&.encrypted if resolved_enc.nil?
+        resolved_kms ||= normalized_map&.kms_key_id
+        resolved_backup ||= normalized_map&.backup
+        resolved_alarms ||= normalized_map&.alarms
+
+        resolved_del_policy, resolved_upd_policy = resolve_deletion_policies(
+          normalized_mfs,
+          deletion_policy: deletion_policy,
+          update_replace_policy: update_replace_policy,
+          deletion_protection: deletion_protection
+        )
+        resolved_sg_helper = resolve_security_group_helper(
+          security_group_helper,
+          normalized_mfs,
+          symbolic_name: symbolic_name
+        )
+        resolved_vpc_expectations = merge_mfs_vpc_expectations(vpc_expectations, normalized_mfs)
+        resolved_local_path = if local_path.nil? && normalized_mfs && !blank?(symbolic_name)
+                                "/mnt/#{symbolic_name}"
+                              else
+                                local_path
+                              end
+
+        has_fs_config = !normalized_mfs.nil? || !resolved_lifecycle.nil? || !resolved_tp_mode.nil? ||
                         !resolved_prov_tp.nil? || !resolved_enc.nil? || !resolved_kms.nil? ||
                         !resolved_backup.nil? || !resolved_alarms.nil?
         resolved_source = access_point_source ||
@@ -196,16 +255,17 @@ module Veltrunode
         validate!(
           symbolic_name: symbolic_name,
           access_point_source: resolved_source,
-          local_path: local_path,
+          local_path: resolved_local_path,
           managed_access_point: normalized_map,
           has_fs_config: has_fs_config
         )
 
         @symbolic_name = symbolic_name.to_s.freeze
         @access_point_source = freeze_value(resolved_source)
-        @local_path = local_path.to_s.freeze
+        @local_path = resolved_local_path.to_s.freeze
         @managed_access_point = normalized_map
-        @security_group_helper = security_group_helper
+        @managed_file_system = normalized_mfs
+        @security_group_helper = resolved_sg_helper
         @lifecycle_policies = resolved_lifecycle
         @throughput_mode = resolved_tp_mode
         @provisioned_throughput_in_mibps = resolved_prov_tp
@@ -213,7 +273,9 @@ module Veltrunode
         @kms_key_id = resolved_kms
         @backup = resolved_backup
         @alarms = resolved_alarms
-        @vpc_expectations = freeze_value(vpc_expectations)
+        @deletion_policy = resolved_del_policy
+        @update_replace_policy = resolved_upd_policy
+        @vpc_expectations = freeze_value(resolved_vpc_expectations)
         @posix_expectations = freeze_value(posix_expectations)
         @diagnostic_policy = freeze_value(diagnostic_policy)
 
@@ -222,6 +284,40 @@ module Veltrunode
 
       def managed_access_point?
         !@managed_access_point.nil?
+      end
+
+      def managed_file_system?
+        !@managed_file_system.nil?
+      end
+
+      def subnet_ids
+        if @managed_file_system
+          @managed_file_system.subnet_ids
+        elsif @vpc_expectations.is_a?(Hash) && @vpc_expectations['subnet_ids']
+          Array(@vpc_expectations['subnet_ids'])
+        else
+          [].freeze
+        end
+      end
+      alias subnets subnet_ids
+
+      def vpc_id
+        @managed_file_system&.vpc_id || @security_group_helper&.vpc_id ||
+          (@vpc_expectations.is_a?(Hash) ? @vpc_expectations['vpc_id'] : nil)
+      end
+
+      def security_group_ids
+        if @managed_file_system && !@managed_file_system.security_group_ids.empty?
+          @managed_file_system.security_group_ids
+        elsif @vpc_expectations.is_a?(Hash) && @vpc_expectations['security_group_ids']
+          Array(@vpc_expectations['security_group_ids'])
+        else
+          [].freeze
+        end
+      end
+
+      def deletion_protection?
+        @deletion_policy == 'Retain' && @update_replace_policy == 'Retain'
       end
 
       def security_group_helper?
@@ -285,7 +381,8 @@ module Veltrunode
       end
 
       def file_system_configuration?
-        lifecycle_policies? || throughput_configuration? || encryption_configuration? ||
+        managed_file_system? || lifecycle_policies? || throughput_configuration? || encryption_configuration? ||
+          !@deletion_policy.nil? || !@update_replace_policy.nil? ||
           ((backup? || alarms?) && (@managed_access_point.nil? || @managed_access_point.file_system_id.nil?))
       end
 
@@ -315,6 +412,45 @@ module Veltrunode
         validate_access_point_source!(access_point_source) if access_point_source
       end
 
+      def normalize_managed_file_system(
+        mfs,
+        symbolic_name:,
+        vpc_id:,
+        subnet_ids:,
+        security_group_ids:,
+        deletion_policy:,
+        update_replace_policy:,
+        deletion_protection:,
+        explicit_lifecycle:,
+        explicit_tp_mode:,
+        explicit_prov_tp:,
+        explicit_backup:,
+        explicit_alarms:,
+        explicit_enc:,
+        explicit_kms:
+      )
+        return mfs if mfs.is_a?(ManagedFileSystem)
+        return nil if mfs.nil? && subnet_ids.nil?
+
+        opts = mfs.is_a?(Hash) ? mfs.dup : {}
+        opts[:symbolic_name] ||= symbolic_name
+        opts[:vpc_id] ||= vpc_id if vpc_id
+        opts[:subnet_ids] ||= subnet_ids if subnet_ids
+        opts[:security_group_ids] ||= security_group_ids if security_group_ids
+        opts[:deletion_policy] ||= deletion_policy unless deletion_policy.nil?
+        opts[:update_replace_policy] ||= update_replace_policy unless update_replace_policy.nil?
+        opts[:deletion_protection] = deletion_protection if opts[:deletion_protection].nil? && !deletion_protection.nil?
+        opts[:lifecycle_policies] ||= explicit_lifecycle if explicit_lifecycle
+        opts[:throughput_mode] ||= explicit_tp_mode if explicit_tp_mode
+        opts[:provisioned_throughput_in_mibps] ||= explicit_prov_tp if explicit_prov_tp
+        opts[:backup] ||= explicit_backup if explicit_backup
+        opts[:alarms] ||= explicit_alarms if explicit_alarms
+        opts[:encrypted] = explicit_enc if opts[:encrypted].nil? && !explicit_enc.nil?
+        opts[:kms_key_id] ||= explicit_kms if explicit_kms
+
+        ManagedFileSystem.new(**opts)
+      end
+
       def normalize_managed_access_point(
         map,
         explicit_lifecycle = nil,
@@ -323,24 +459,66 @@ module Veltrunode
         explicit_backup = nil,
         explicit_alarms = nil,
         explicit_enc = nil,
-        explicit_kms = nil
+        explicit_kms = nil,
+        managed_file_system: nil,
+        posix_expectations: {}
       )
-        return nil if map.nil?
         return map if map.is_a?(ManagedAccessPoint)
+        return nil if map.nil? && managed_file_system.nil?
 
-        if map.is_a?(Hash)
-          opts = map.dup
-          opts[:lifecycle_policies] ||= explicit_lifecycle if explicit_lifecycle
-          opts[:throughput_mode] ||= explicit_tp_mode if explicit_tp_mode
-          opts[:provisioned_throughput_in_mibps] ||= explicit_prov_tp if explicit_prov_tp
-          opts[:backup] ||= explicit_backup if explicit_backup
-          opts[:alarms] ||= explicit_alarms if explicit_alarms
-          opts[:encrypted] = explicit_enc if opts[:encrypted].nil? && !explicit_enc.nil?
-          opts[:kms_key_id] ||= explicit_kms if explicit_kms
-          return ManagedAccessPoint.new(**opts)
+        opts = map.is_a?(Hash) ? map.dup : {}
+        if managed_file_system && !opts.key?(:posix_user) && !opts.key?('posix_user') &&
+           !opts.key?(:uid) && !opts.key?('uid')
+          p_uid = posix_expectations[:uid] || posix_expectations['uid'] || 1000
+          p_gid = posix_expectations[:gid] || posix_expectations['gid'] || 1000
+          opts[:posix_user] = { uid: p_uid, gid: p_gid }
         end
+        opts[:lifecycle_policies] ||= explicit_lifecycle if explicit_lifecycle
+        opts[:throughput_mode] ||= explicit_tp_mode if explicit_tp_mode
+        opts[:provisioned_throughput_in_mibps] ||= explicit_prov_tp if explicit_prov_tp
+        opts[:backup] ||= explicit_backup if explicit_backup
+        opts[:alarms] ||= explicit_alarms if explicit_alarms
+        opts[:encrypted] = explicit_enc if opts[:encrypted].nil? && !explicit_enc.nil?
+        opts[:kms_key_id] ||= explicit_kms if explicit_kms
+        opts[:tags] ||= managed_file_system.tags if managed_file_system && !managed_file_system.tags.empty?
+        ManagedAccessPoint.new(**opts)
+      end
 
-        map
+      def resolve_deletion_policies(mfs, deletion_policy:, update_replace_policy:, deletion_protection:)
+        if mfs
+          [mfs.deletion_policy, mfs.update_replace_policy]
+        elsif !deletion_policy.nil? || !update_replace_policy.nil? || !deletion_protection.nil?
+          [
+            ManagedFileSystem.normalize_deletion_policy(deletion_policy, deletion_protection: deletion_protection),
+            ManagedFileSystem.normalize_update_replace_policy(
+              update_replace_policy,
+              deletion_protection: deletion_protection
+            )
+          ]
+        else
+          [nil, nil]
+        end
+      end
+
+      def resolve_security_group_helper(sg_helper, mfs, symbolic_name:)
+        return sg_helper unless sg_helper.nil?
+        return nil unless mfs&.vpc_id
+
+        SecurityGroupHelper.new(
+          symbolic_name: symbolic_name,
+          vpc_id: mfs.vpc_id,
+          tags: mfs.tags
+        )
+      end
+
+      def merge_mfs_vpc_expectations(vpc_expectations, mfs)
+        base = vpc_expectations.is_a?(Hash) ? vpc_expectations.dup : {}
+        return base unless mfs
+
+        base['subnet_ids'] ||= mfs.subnet_ids unless mfs.subnet_ids.empty?
+        base['vpc_id'] ||= mfs.vpc_id if mfs.vpc_id
+        base['security_group_ids'] ||= mfs.security_group_ids unless mfs.security_group_ids.empty?
+        base
       end
 
       def validate_local_path!(path)

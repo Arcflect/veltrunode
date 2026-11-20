@@ -88,6 +88,11 @@ module Veltrunode
         !@rest_api.nil?
       end
 
+      def managed_file_systems
+        @mounts.select { |m| m.respond_to?(:managed_file_system?) && m.managed_file_system? }
+      end
+      alias file_systems managed_file_systems
+
       def cache
         @cache_config
       end

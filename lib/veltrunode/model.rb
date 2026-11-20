@@ -23,6 +23,7 @@ require_relative 'model/capability_expander'
 require_relative 'model/stage_policy'
 require_relative 'model/policy_pack'
 require_relative 'model/managed_access_point'
+require_relative 'model/managed_file_system'
 require_relative 'model/security_group_helper'
 require_relative 'model/dashboard'
 require_relative 'model/event_source'
@@ -44,6 +45,7 @@ module Veltrunode
   StagePolicy = Model::StagePolicy
   PolicyPack = Model::PolicyPack
   ManagedAccessPoint = Model::ManagedAccessPoint
+  ManagedFileSystem = Model::ManagedFileSystem
   SecurityGroupHelper = Model::SecurityGroupHelper
   Dashboard = Model::Dashboard
   EventSource = Model::EventSource
