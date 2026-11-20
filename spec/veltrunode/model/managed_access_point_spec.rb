@@ -369,5 +369,44 @@ RSpec.describe Veltrunode::Model::ManagedAccessPoint do
         end.to raise_error(Veltrunode::ValidationError, /Invalid EFS kms_key_id ARN/)
       end
     end
+
+    context 'replication configuration (Cross-Region DR)' do
+      let(:dest_kms_arn) { 'arn:aws:kms:us-west-2:123456789012:key/12345678-1234-1234-1234-123456789012' }
+
+      it 'supports replication with destination_region and destination kms_key_id' do
+        ap = described_class.new(
+          file_system_id: valid_fs_id,
+          replication: {
+            destination_region: 'us-west-2',
+            kms_key_id: dest_kms_arn
+          }
+        )
+        expect(ap.replication?).to be(true)
+        expect(ap.replication_destination_region).to eq('us-west-2')
+        expect(ap.replication_kms_key_id).to eq(dest_kms_arn)
+      end
+
+      it 'raises ValidationError when destination_region is invalid, KMS region mismatches, or encrypted is false' do
+        expect do
+          described_class.new(file_system_id: valid_fs_id, replication: { destination_region: 'invalid_region' })
+        end.to raise_error(Veltrunode::ValidationError, /Invalid EFS replication destination_region/)
+
+        wrong_region_kms = 'arn:aws:kms:ap-northeast-1:123456789012:key/12345678-1234-1234-1234-123456789012'
+        expect do
+          described_class.new(
+            file_system_id: valid_fs_id,
+            replication: { destination_region: 'us-west-2', kms_key_id: wrong_region_kms }
+          )
+        end.to raise_error(Veltrunode::ValidationError, /KMS key ARN region \('ap-northeast-1'\) does not match/)
+
+        expect do
+          described_class.new(
+            file_system_id: valid_fs_id,
+            encrypted: false,
+            replication: { destination_region: 'us-west-2' }
+          )
+        end.to raise_error(Veltrunode::ValidationError, /encrypted cannot be false when replication is configured/)
+      end
+    end
   end
 end

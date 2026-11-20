@@ -197,7 +197,36 @@ module Veltrunode
           end
         end
 
+        validate_efs_replication_invariants(diagnostics)
+
         diagnostics
+      end
+
+      def validate_efs_replication_invariants(diagnostics)
+        app_region = application.respond_to?(:region) ? application.region.to_s.strip : nil
+        return if app_region.nil? || app_region.empty?
+
+        Array(application.mounts).each do |mount|
+          next unless mount.respond_to?(:replication?) && mount.replication?
+
+          dest_region = mount.replication_destination_region
+          az_name = mount.replication['availability_zone_name']
+          next unless dest_region && dest_region == app_region && (az_name.nil? || az_name.empty?)
+
+          diagnostics << Diagnostics::Diagnostic.new(
+            code: 'VLT-EFS-REPLICATION-REGION',
+            severity: :error,
+            summary: "EFS mount '#{mount.symbolic_name}' replication destination_region ('#{dest_region}') " \
+                     "cannot be the same as application region ('#{app_region}') without availability_zone_name.",
+            suggested_action: "Specify a different destination_region (e.g. 'us-west-2') for cross-region DR " \
+                              'replication, or specify availability_zone_name for One Zone replication.',
+            evidence: {
+              'mount' => mount.symbolic_name,
+              'application_region' => app_region,
+              'destination_region' => dest_region
+            }
+          )
+        end
       end
 
       def validate_iam_capabilities

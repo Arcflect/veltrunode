@@ -37,6 +37,7 @@ module Veltrunode
       DEFAULT_ALARM_PERIOD = 300
       DEFAULT_ALARM_EVALUATION_PERIODS = 1
       KMS_ARN_PATTERN = %r{\Aarn:aws[a-z-]*:kms:[a-z0-9-]+:\d{12}:(key/[a-f0-9-]+|alias/[a-zA-Z0-9:/_-]+)\z}i
+      AWS_REGION_PATTERN = /\A[a-z]{2}(?:-[a-z]+)+-\d+\z/
       BYTE_UNIT_MULTIPLIERS = {
         'B' => 1,
         'KB' => 1_000,
@@ -60,6 +61,7 @@ module Veltrunode
                   :kms_key_id,
                   :backup,
                   :alarms,
+                  :replication,
                   :tags
 
       alias lifecycle_policy lifecycle_policies
@@ -69,8 +71,89 @@ module Veltrunode
       alias backup_policy backup
       alias backup_plan backup
       alias efs_alarms alarms
+      alias replication_configuration replication
 
       class << self
+        def normalize_replication_config(
+          replication = nil,
+          destination_region: nil,
+          kms_key_id: nil,
+          availability_zone_name: nil,
+          file_system_id: nil,
+          role_arn: nil
+        )
+          has_kwargs = !destination_region.nil? || !kms_key_id.nil? || !availability_zone_name.nil? ||
+                       !file_system_id.nil? || !role_arn.nil?
+          return nil if replication.nil? && !has_kwargs
+          return nil if replication == false
+
+          raw = if replication.is_a?(Hash)
+                  replication
+                elsif replication.is_a?(String) || replication.is_a?(Symbol)
+                  { destination_region: replication.to_s }
+                elsif replication.nil?
+                  {}
+                else
+                  raise ValidationError,
+                        "Invalid EFS replication configuration '#{replication}'. " \
+                        'Must be a Hash (e.g. { destination_region: "us-west-2" }) or region String'
+                end
+          return nil if raw[:enabled] == false || raw['enabled'] == false
+
+          raw_region = destination_region || raw[:destination_region] || raw['destination_region'] ||
+                       raw[:region] || raw['region'] || raw[:Region] || raw['Region']
+          raw_kms = kms_key_id || raw[:kms_key_id] || raw['kms_key_id'] ||
+                    raw[:destination_kms_key_id] || raw['destination_kms_key_id'] ||
+                    raw[:kms_key] || raw['kms_key'] || raw[:kms_key_arn] || raw['kms_key_arn'] ||
+                    raw[:KmsKeyId] || raw['KmsKeyId']
+          raw_az = availability_zone_name || raw[:availability_zone_name] || raw['availability_zone_name'] ||
+                   raw[:AvailabilityZoneName] || raw['AvailabilityZoneName']
+          raw_fs_id = file_system_id || raw[:file_system_id] || raw['file_system_id'] ||
+                      raw[:destination_file_system_id] || raw['destination_file_system_id'] ||
+                      raw[:FileSystemId] || raw['FileSystemId']
+          raw_role = role_arn || raw[:role_arn] || raw['role_arn'] || raw[:RoleArn] || raw['RoleArn']
+
+          if raw_region.nil? && raw_az.nil? && raw_fs_id.nil?
+            raise ValidationError,
+                  'EFS replication requires destination_region (e.g. destination_region: "us-west-2")'
+          end
+
+          result = {}
+          if raw_region
+            reg_str = raw_region.to_s.strip
+            unless AWS_REGION_PATTERN.match?(reg_str)
+              raise ValidationError,
+                    "Invalid EFS replication destination_region '#{reg_str}'. " \
+                    'Must be a valid AWS region (e.g. "us-west-2")'
+            end
+            result['destination_region'] = reg_str.freeze
+          end
+
+          if raw_kms
+            norm_kms = normalize_kms_key_id!(raw_kms)
+            validate_replication_kms_region!(norm_kms, result['destination_region'])
+            result['kms_key_id'] = norm_kms
+          end
+
+          result['availability_zone_name'] = raw_az.to_s.strip.freeze if raw_az && !raw_az.to_s.strip.empty?
+          result['file_system_id'] = raw_fs_id.to_s.strip.freeze if raw_fs_id && !raw_fs_id.to_s.strip.empty?
+          result['role_arn'] = raw_role.to_s.strip.freeze if raw_role && !raw_role.to_s.strip.empty?
+
+          result.freeze
+        end
+
+        def validate_replication_kms_region!(kms_key, dest_region)
+          return unless kms_key.is_a?(String) && kms_key.start_with?('arn:') && dest_region
+
+          parts = kms_key.split(':')
+          kms_region = parts[3]
+          return if kms_region.nil? || kms_region.empty? || kms_region == dest_region
+
+          raise ValidationError,
+                "EFS replication KMS key ARN region ('#{kms_region}') does not match " \
+                "destination_region ('#{dest_region}')"
+        end
+
         def normalize_encryption_config(
           encrypted: nil,
           kms_key_id: nil,
@@ -654,6 +737,10 @@ module Veltrunode
         percent_io_limit_threshold: nil,
         io_limit_threshold: nil,
         alarm_topic: nil,
+        replication: nil,
+        replication_configuration: nil,
+        replication_destination_region: nil,
+        replication_kms_key_id: nil,
         managed_file_system: false,
         tags: nil
       )
@@ -697,10 +784,20 @@ module Veltrunode
           io_limit_threshold: io_limit_threshold,
           topic: alarm_topic
         )
+        raw_rep = replication.nil? ? replication_configuration : replication
+        resolved_replication = self.class.normalize_replication_config(
+          raw_rep,
+          destination_region: replication_destination_region,
+          kms_key_id: replication_kms_key_id
+        )
+        if resolved_enc == false && !resolved_replication.nil?
+          raise ValidationError,
+                'EFS replication requires encryption at rest; encrypted cannot be false when replication is configured'
+        end
         has_fs_config = (!managed_file_system.nil? && managed_file_system != false) ||
                         !resolved_lifecycle.nil? || !resolved_tp_mode.nil? ||
                         !resolved_prov_tp.nil? || !resolved_enc.nil? || !resolved_kms.nil? ||
-                        !resolved_backup.nil? || !resolved_alarms.nil?
+                        !resolved_backup.nil? || !resolved_alarms.nil? || !resolved_replication.nil?
         allow_nil_fs_id = (file_system_id == :__unset__ || file_system_id.nil?) && has_fs_config
         resolved_fs_id = file_system_id == :__unset__ ? nil : file_system_id
 
@@ -728,6 +825,7 @@ module Veltrunode
         @kms_key_id = resolved_kms
         @backup = resolved_backup
         @alarms = resolved_alarms
+        @replication = resolved_replication
         @tags = tags ? freeze_hash(tags) : {}.freeze
 
         freeze
@@ -763,6 +861,19 @@ module Veltrunode
       end
       alias efs_alarms? alarms?
 
+      def replication?
+        !@replication.nil? && !@replication.empty?
+      end
+      alias replication_configuration? replication?
+
+      def replication_destination_region
+        @replication&.fetch('destination_region', nil)
+      end
+
+      def replication_kms_key_id
+        @replication&.fetch('kms_key_id', nil)
+      end
+
       def burst_credit_balance_threshold
         @alarms&.dig('burst_credit_balance', 'threshold')
       end
@@ -791,7 +902,7 @@ module Veltrunode
 
       def file_system_configuration?
         lifecycle_policies? || throughput_configuration? || encryption_configuration? ||
-          ((backup? || alarms?) && @file_system_id.nil?)
+          ((backup? || alarms? || replication?) && @file_system_id.nil?)
       end
 
       def transition_to_ia
