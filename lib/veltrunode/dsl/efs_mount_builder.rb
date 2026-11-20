@@ -15,6 +15,23 @@ module Veltrunode
         local_path: nil,
         arn: nil,
         access_point_source: nil,
+        vpc_id: nil,
+        vpc: nil,
+        subnet_ids: nil,
+        subnets: nil,
+        security_group_ids: nil,
+        security_groups: nil,
+        deletion_policy: nil,
+        update_replace_policy: nil,
+        deletion_protection: nil,
+        root_directory: nil,
+        path: nil,
+        posix_user: nil,
+        uid: nil,
+        gid: nil,
+        secondary_gids: nil,
+        creation_info: nil,
+        tags: nil,
         lifecycle_policies: nil,
         lifecycle_policy: nil,
         transition_to_ia: nil,
@@ -44,8 +61,33 @@ module Veltrunode
         @symbolic_name = symbolic_name.to_s
         @access_point_source = access_point_source || arn
         @managed_access_point = nil
+        @managed_file_system_enabled = false
         @security_group_helper = nil
         @local_path = local_path&.to_s
+        @vpc_id = nil
+        @subnet_ids = nil
+        @security_group_ids = nil
+        vpc_id(
+          vpc_id || vpc,
+          subnet_ids: subnet_ids,
+          subnets: subnets,
+          security_group_ids: security_group_ids,
+          security_groups: security_groups
+        )
+        @deletion_policy = deletion_policy
+        @update_replace_policy = update_replace_policy
+        @deletion_protection = deletion_protection
+        @ap_options = {}
+        apply_direct_ap_options(
+          root_directory: root_directory,
+          path: path,
+          posix_user: posix_user,
+          uid: uid,
+          gid: gid,
+          secondary_gids: secondary_gids,
+          creation_info: creation_info,
+          tags: tags
+        )
         @lifecycle_policies = {}
         merge_lifecycle_policies!(
           lifecycle_policies || lifecycle_policy,
@@ -203,6 +245,193 @@ module Veltrunode
 
         @managed_access_point
       end
+      alias access_point managed_access_point
+
+      def managed_file_system(
+        vpc_id: nil,
+        vpc: nil,
+        subnet_ids: nil,
+        subnets: nil,
+        security_group_ids: nil,
+        security_groups: nil,
+        deletion_policy: nil,
+        update_replace_policy: nil,
+        deletion_protection: nil,
+        local_path: nil,
+        root_directory: nil,
+        path: nil,
+        posix_user: nil,
+        uid: nil,
+        gid: nil,
+        secondary_gids: nil,
+        creation_info: nil,
+        lifecycle_policies: nil,
+        lifecycle_policy: nil,
+        transition_to_ia: nil,
+        transition_to_archive: nil,
+        transition_to_primary_storage_class: nil,
+        throughput_mode: nil,
+        provisioned_throughput_in_mibps: nil,
+        provisioned_throughput: nil,
+        encrypted: nil,
+        kms_key_id: nil,
+        kms_key: nil,
+        kms_key_arn: nil,
+        backup: nil,
+        backup_policy: nil,
+        backup_plan: nil,
+        alarms: nil,
+        efs_alarms: nil,
+        burst_credit_balance: nil,
+        burst_credit_balance_threshold: nil,
+        burst_credit_threshold: nil,
+        percent_io_limit: nil,
+        percent_io_limit_threshold: nil,
+        io_limit_threshold: nil,
+        alarm_topic: nil,
+        tags: nil,
+        &
+      )
+        @managed_file_system_enabled = true
+        self.vpc_id(
+          vpc_id || vpc,
+          subnet_ids: subnet_ids,
+          subnets: subnets,
+          security_group_ids: security_group_ids,
+          security_groups: security_groups
+        )
+        @deletion_policy = deletion_policy unless deletion_policy.nil?
+        @update_replace_policy = update_replace_policy unless update_replace_policy.nil?
+        @deletion_protection = deletion_protection unless deletion_protection.nil?
+        @local_path = local_path.to_s if local_path
+        apply_direct_ap_options(
+          root_directory: root_directory,
+          path: path,
+          posix_user: posix_user,
+          uid: uid,
+          gid: gid,
+          secondary_gids: secondary_gids,
+          creation_info: creation_info,
+          tags: tags
+        )
+        merge_lifecycle_policies!(
+          lifecycle_policies || lifecycle_policy,
+          transition_to_ia: transition_to_ia,
+          transition_to_archive: transition_to_archive,
+          transition_to_primary_storage_class: transition_to_primary_storage_class
+        )
+        @throughput_mode = throughput_mode unless throughput_mode.nil?
+        pt = provisioned_throughput_in_mibps.nil? ? provisioned_throughput : provisioned_throughput_in_mibps
+        @provisioned_throughput_in_mibps = pt unless pt.nil?
+        @encrypted = encrypted unless encrypted.nil?
+        kms = kms_key_id || kms_key || kms_key_arn
+        @kms_key_id = kms unless kms.nil?
+        raw_backup = if !backup.nil?
+                       backup
+                     elsif !backup_policy.nil?
+                       backup_policy
+                     else
+                       backup_plan
+                     end
+        merge_backup!(raw_backup) unless raw_backup.nil?
+        raw_alarms = alarms.nil? ? efs_alarms : alarms
+        has_alarm_kwargs = !burst_credit_balance.nil? || !burst_credit_balance_threshold.nil? ||
+                           !burst_credit_threshold.nil? || !percent_io_limit.nil? ||
+                           !percent_io_limit_threshold.nil? || !io_limit_threshold.nil? ||
+                           !alarm_topic.nil?
+        if !raw_alarms.nil? || has_alarm_kwargs
+          merge_alarms!(
+            raw_alarms.nil? ? :__unset__ : raw_alarms,
+            burst_credit_balance: burst_credit_balance || burst_credit_balance_threshold || burst_credit_threshold,
+            percent_io_limit: percent_io_limit || percent_io_limit_threshold || io_limit_threshold,
+            topic: alarm_topic
+          )
+        end
+        instance_eval(&) if block_given?
+        self
+      end
+
+      def vpc_id(val = nil, subnet_ids: nil, subnets: nil, security_group_ids: nil, security_groups: nil)
+        if val.is_a?(Hash) && (val.key?(:id) || val.key?('id') || val.key?(:vpc_id) || val.key?('vpc_id') ||
+                               val.key?(:subnet_ids) || val.key?('subnet_ids') ||
+                               val.key?(:subnets) || val.key?('subnets'))
+          v = val[:id] || val['id'] || val[:vpc_id] || val['vpc_id']
+          @vpc_id = v if v
+          s = val[:subnet_ids] || val['subnet_ids'] || val[:subnets] || val['subnets']
+          @subnet_ids = Array(s).flatten.compact if s
+          sg = val[:security_group_ids] || val['security_group_ids'] ||
+               val[:security_groups] || val['security_groups']
+          @security_group_ids = Array(sg).flatten.compact if sg
+        elsif !val.nil?
+          @vpc_id = val
+        end
+        @subnet_ids = Array(subnet_ids || subnets).flatten.compact if subnet_ids || subnets
+        @security_group_ids = Array(security_group_ids || security_groups).flatten.compact if security_group_ids ||
+                                                                                              security_groups
+      end
+      alias vpc vpc_id
+
+      def subnet_ids(*vals)
+        @subnet_ids = vals.flatten.compact
+      end
+      alias subnets subnet_ids
+
+      def security_group_ids(*vals)
+        @security_group_ids = vals.flatten.compact
+      end
+      alias security_groups security_group_ids
+
+      def deletion_policy(val)
+        @deletion_policy = val
+      end
+
+      def update_replace_policy(val)
+        @update_replace_policy = val
+      end
+
+      def deletion_protection(val = true) # rubocop:disable Style/OptionalBooleanParameter
+        @deletion_protection = val
+      end
+
+      def root_directory(path_or_opts = nil, path: nil, owner_uid: nil, owner_gid: nil, permissions: nil,
+                         creation_info: nil)
+        apply_direct_ap_options(
+          root_directory: path_or_opts,
+          path: path,
+          creation_info: creation_info || build_inline_creation_info(owner_uid, owner_gid, permissions)
+        )
+      end
+
+      def path(val)
+        @ap_options[:path] = val.to_s
+      end
+
+      def posix_user(opts = nil, uid: nil, gid: nil, secondary_gids: nil)
+        apply_direct_ap_options(posix_user: opts, uid: uid, gid: gid, secondary_gids: secondary_gids)
+      end
+
+      def uid(val)
+        @ap_options[:uid] = val
+        @posix_expectations[:uid] ||= val
+      end
+
+      def gid(val)
+        @ap_options[:gid] = val
+        @posix_expectations[:gid] ||= val
+      end
+
+      def secondary_gids(*vals)
+        @ap_options[:secondary_gids] = vals.flatten.compact
+      end
+
+      def creation_info(opts = nil, owner_uid: nil, owner_gid: nil, permissions: nil)
+        info = opts || build_inline_creation_info(owner_uid, owner_gid, permissions)
+        @ap_options[:creation_info] = info if info
+      end
+
+      def tags(hash)
+        @ap_options[:tags] = (@ap_options[:tags] || {}).merge(hash) if hash.is_a?(Hash)
+      end
 
       def lifecycle_policies(
         policies = nil,
@@ -349,11 +578,13 @@ module Veltrunode
 
       def inline_mount_definition?
         !@access_point_source.nil? || !@managed_access_point.nil? ||
+          @managed_file_system_enabled || !@subnet_ids.nil? || !@vpc_id.nil? ||
           !@security_group_helper.nil? || !@lifecycle_policies.empty? ||
           !@throughput_mode.nil? || !@provisioned_throughput_in_mibps.nil? ||
           !@encrypted.nil? || !@kms_key_id.nil? ||
+          !@deletion_policy.nil? || !@update_replace_policy.nil? || !@deletion_protection.nil? ||
           (!@backup.nil? && @backup != false) || (!@alarms.nil? && @alarms != false) ||
-          !@vpc_expectations.empty? || !@posix_expectations.empty?
+          !@vpc_expectations.empty? || !@posix_expectations.empty? || !@ap_options.empty?
       end
 
       def expect_posix(uid: nil, gid: nil)
@@ -374,12 +605,12 @@ module Veltrunode
         builder = if name.is_a?(Hash)
                     opts = name
                     target_name = @symbolic_name
-                    target_vpc_id = opts[:vpc_id] || opts['vpc_id']
+                    target_vpc_id = opts[:vpc_id] || opts['vpc_id'] || @vpc_id
                     extra_opts = opts.reject { |k, _| k.to_s == 'vpc_id' }
                     SecurityGroupHelperBuilder.new(target_name, vpc_id: target_vpc_id, **extra_opts)
                   else
                     target_name = name || @symbolic_name
-                    SecurityGroupHelperBuilder.new(target_name, vpc_id: vpc_id, **)
+                    SecurityGroupHelperBuilder.new(target_name, vpc_id: vpc_id || @vpc_id, **)
                   end
         builder.instance_eval(&) if block_given?
         @security_group_helper = builder.build
@@ -390,17 +621,39 @@ module Veltrunode
 
       def build
         lifecycle = @lifecycle_policies.empty? ? nil : @lifecycle_policies
-        has_fs_config = !lifecycle.nil? || !@throughput_mode.nil? ||
+        is_mfs = @managed_file_system_enabled || !@subnet_ids.nil?
+        mfs_config = if is_mfs
+                       {
+                         symbolic_name: @symbolic_name,
+                         vpc_id: @vpc_id,
+                         subnet_ids: @subnet_ids,
+                         security_group_ids: @security_group_ids,
+                         deletion_policy: @deletion_policy,
+                         update_replace_policy: @update_replace_policy,
+                         deletion_protection: @deletion_protection,
+                         tags: @ap_options[:tags]
+                       }
+                     end
+        resolved_map = @managed_access_point || (@ap_options.empty? ? nil : @ap_options)
+        has_fs_config = is_mfs || !lifecycle.nil? || !@throughput_mode.nil? ||
                         !@provisioned_throughput_in_mibps.nil? ||
                         !@encrypted.nil? || !@kms_key_id.nil? ||
+                        !@deletion_policy.nil? || !@update_replace_policy.nil? || !@deletion_protection.nil? ||
                         (!@backup.nil? && @backup != false) ||
                         (!@alarms.nil? && @alarms != false)
-        resolved_local_path = @local_path || (@managed_access_point || has_fs_config ? "/mnt/#{@symbolic_name}" : nil)
+        resolved_local_path = @local_path || (resolved_map || has_fs_config ? "/mnt/#{@symbolic_name}" : nil)
         Model::EfsMount.new(
           symbolic_name: @symbolic_name,
           access_point_source: @access_point_source || @symbolic_name,
-          managed_access_point: @managed_access_point,
+          managed_access_point: resolved_map,
+          managed_file_system: mfs_config,
           security_group_helper: @security_group_helper,
+          vpc_id: @vpc_id,
+          subnet_ids: @subnet_ids,
+          security_group_ids: @security_group_ids,
+          deletion_policy: @deletion_policy,
+          update_replace_policy: @update_replace_policy,
+          deletion_protection: @deletion_protection,
           lifecycle_policies: lifecycle,
           throughput_mode: @throughput_mode,
           provisioned_throughput_in_mibps: @provisioned_throughput_in_mibps,
@@ -416,6 +669,42 @@ module Veltrunode
       end
 
       private
+
+      def apply_direct_ap_options(
+        root_directory: nil,
+        path: nil,
+        posix_user: nil,
+        uid: nil,
+        gid: nil,
+        secondary_gids: nil,
+        creation_info: nil,
+        tags: nil
+      )
+        @ap_options[:root_directory] = root_directory if root_directory
+        @ap_options[:path] = path.to_s if path
+        @ap_options[:posix_user] = posix_user if posix_user
+        if uid
+          @ap_options[:uid] = uid
+          @posix_expectations[:uid] ||= uid
+        end
+        if gid
+          @ap_options[:gid] = gid
+          @posix_expectations[:gid] ||= gid
+        end
+        @ap_options[:secondary_gids] = Array(secondary_gids).flatten.compact if secondary_gids
+        @ap_options[:creation_info] = creation_info if creation_info
+        @ap_options[:tags] = (@ap_options[:tags] || {}).merge(tags) if tags.is_a?(Hash)
+      end
+
+      def build_inline_creation_info(owner_uid, owner_gid, permissions)
+        return nil if owner_uid.nil? && owner_gid.nil? && permissions.nil?
+
+        info = {}
+        info[:owner_uid] = owner_uid unless owner_uid.nil?
+        info[:owner_gid] = owner_gid unless owner_gid.nil?
+        info[:permissions] = permissions unless permissions.nil?
+        info
+      end
 
       def merge_alarms!(
         val = :__unset__,

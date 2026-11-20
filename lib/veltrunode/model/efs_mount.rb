@@ -467,12 +467,13 @@ module Veltrunode
         return nil if map.nil? && managed_file_system.nil?
 
         opts = map.is_a?(Hash) ? map.dup : {}
-        if managed_file_system && !opts.key?(:posix_user) && !opts.key?('posix_user') &&
-           !opts.key?(:uid) && !opts.key?('uid')
+        normalize_ap_hash_shortcuts!(opts)
+        if managed_file_system && !opts.key?(:posix_user) && !opts.key?('posix_user')
           p_uid = posix_expectations[:uid] || posix_expectations['uid'] || 1000
           p_gid = posix_expectations[:gid] || posix_expectations['gid'] || 1000
           opts[:posix_user] = { uid: p_uid, gid: p_gid }
         end
+        opts[:managed_file_system] = true if managed_file_system
         opts[:lifecycle_policies] ||= explicit_lifecycle if explicit_lifecycle
         opts[:throughput_mode] ||= explicit_tp_mode if explicit_tp_mode
         opts[:provisioned_throughput_in_mibps] ||= explicit_prov_tp if explicit_prov_tp
@@ -482,6 +483,35 @@ module Veltrunode
         opts[:kms_key_id] ||= explicit_kms if explicit_kms
         opts[:tags] ||= managed_file_system.tags if managed_file_system && !managed_file_system.tags.empty?
         ManagedAccessPoint.new(**opts)
+      end
+
+      def normalize_ap_hash_shortcuts!(opts)
+        rd = opts.delete(:root_directory) || opts.delete('root_directory')
+        if rd.is_a?(String)
+          opts[:root_directory_path] ||= rd
+        elsif rd.is_a?(Hash)
+          opts[:root_directory_path] ||= rd[:path] || rd['path'] if rd[:path] || rd['path']
+          if rd[:owner_uid] || rd['owner_uid'] || rd[:owner_gid] || rd['owner_gid']
+            opts[:creation_info] ||= {
+              owner_uid: rd[:owner_uid] || rd['owner_uid'],
+              owner_gid: rd[:owner_gid] || rd['owner_gid'],
+              permissions: rd[:permissions] || rd['permissions'] || '0755'
+            }
+          end
+        end
+        path_val = opts.delete(:path) || opts.delete('path')
+        opts[:root_directory_path] ||= path_val if path_val
+
+        uid_val = opts.delete(:uid) || opts.delete('uid')
+        gid_val = opts.delete(:gid) || opts.delete('gid')
+        sec_val = opts.delete(:secondary_gids) || opts.delete('secondary_gids')
+        return unless uid_val || gid_val || sec_val
+
+        p_hash = (opts[:posix_user] || opts['posix_user'] || {}).dup
+        p_hash[:uid] ||= uid_val if uid_val
+        p_hash[:gid] ||= gid_val if gid_val
+        p_hash[:secondary_gids] ||= sec_val if sec_val
+        opts[:posix_user] = p_hash
       end
 
       def resolve_deletion_policies(mfs, deletion_policy:, update_replace_policy:, deletion_protection:)

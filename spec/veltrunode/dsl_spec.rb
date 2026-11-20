@@ -761,5 +761,65 @@ RSpec.describe Veltrunode::DSL do
       expect(m3.kms_key_id).to eq(kms_arn)
       expect(m3.customer_managed_kms_key?).to be(true)
     end
+
+    it 'supports managed_file_system DSL with vpc_id, subnet_ids, deletion policies, and access point config' do
+      code = <<~RUBY
+        Veltrunode.application "managed-fs-app" do
+          managed_file_system :shared_storage do
+            vpc_id "vpc-0123456789abcdef0"
+            subnet_ids ["subnet-11112222", "subnet-33334444"]
+            local_path "/mnt/shared"
+            posix_user uid: 1001, gid: 1001
+            root_directory path: "/shared", owner_uid: 1001, owner_gid: 1001, permissions: "0755"
+            throughput_mode :elastic
+            encrypted true
+            deletion_policy :retain
+            update_replace_policy :retain
+          end
+
+          efs_mount :nested_fs do
+            local_path "/mnt/nested"
+            managed_file_system vpc_id: ref(:vpc_id), subnets: [ref(:subnet_a), ref(:subnet_b)] do
+              deletion_protection false
+            end
+          end
+
+          function :worker do
+            handler "worker.handler"
+            mount :shared_storage
+          end
+        end
+      RUBY
+
+      app = Veltrunode.parse(code)
+      expect(app.mounts.size).to eq(2)
+      expect(app.managed_file_systems.size).to eq(2)
+      expect(app.security_groups.size).to eq(2)
+
+      m1 = app.mounts.find { |m| m.symbolic_name == 'shared_storage' }
+      expect(m1.managed_file_system?).to be(true)
+      expect(m1.managed_access_point?).to be(true)
+      expect(m1.security_group_helper?).to be(true)
+      expect(m1.local_path).to eq('/mnt/shared')
+      expect(m1.vpc_id).to eq('vpc-0123456789abcdef0')
+      expect(m1.subnet_ids).to eq(%w[subnet-11112222 subnet-33334444])
+      expect(m1.deletion_policy).to eq('Retain')
+      expect(m1.update_replace_policy).to eq('Retain')
+      expect(m1.throughput_mode).to eq('elastic')
+      expect(m1.encrypted?).to be(true)
+      expect(m1.managed_access_point.uid).to eq(1001)
+      expect(m1.managed_access_point.gid).to eq(1001)
+      expect(m1.managed_access_point.root_directory_path).to eq('/shared')
+
+      m2 = app.mounts.find { |m| m.symbolic_name == 'nested_fs' }
+      expect(m2.managed_file_system?).to be(true)
+      expect(m2.vpc_id).to eq(Veltrunode::DSL::Reference.new(:vpc_id))
+      expect(m2.subnet_ids).to eq([
+                                    Veltrunode::DSL::Reference.new(:subnet_a),
+                                    Veltrunode::DSL::Reference.new(:subnet_b)
+                                  ])
+      expect(m2.deletion_policy).to eq('Delete')
+      expect(m2.update_replace_policy).to eq('Delete')
+    end
   end
 end
