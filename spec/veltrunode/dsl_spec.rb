@@ -821,5 +821,39 @@ RSpec.describe Veltrunode::DSL do
       expect(m2.deletion_policy).to eq('Delete')
       expect(m2.update_replace_policy).to eq('Delete')
     end
+
+    it 'supports cross-region EFS replication DSL with destination_region and kms_key_id' do
+      dest_kms_arn = 'arn:aws:kms:us-west-2:123456789012:key/12345678-1234-1234-1234-123456789012'
+      code = <<~RUBY
+        Veltrunode.application "efs-dr-app" do
+          efs_mount :dr_storage,
+                    local_path: "/mnt/dr",
+                    replication: { destination_region: "us-west-2", kms_key_id: "#{dest_kms_arn}" }
+
+          managed_file_system :full_dr_storage do
+            vpc_id "vpc-0123456789abcdef0"
+            subnet_ids ["subnet-11112222"]
+            local_path "/mnt/full_dr"
+            replication do
+              destination_region "us-east-1"
+              kms_key_id ref(:dr_kms_key)
+            end
+          end
+        end
+      RUBY
+
+      app = Veltrunode.parse(code)
+      expect(app.mounts.size).to eq(2)
+
+      m1 = app.mounts.find { |m| m.symbolic_name == 'dr_storage' }
+      expect(m1.replication?).to be(true)
+      expect(m1.replication_destination_region).to eq('us-west-2')
+      expect(m1.replication_kms_key_id).to eq(dest_kms_arn)
+
+      m2 = app.mounts.find { |m| m.symbolic_name == 'full_dr_storage' }
+      expect(m2.replication?).to be(true)
+      expect(m2.replication_destination_region).to eq('us-east-1')
+      expect(m2.replication_kms_key_id).to eq(Veltrunode::DSL::Reference.new(:dr_kms_key))
+    end
   end
 end

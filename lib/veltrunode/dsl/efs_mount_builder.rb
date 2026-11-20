@@ -55,7 +55,9 @@ module Veltrunode
         percent_io_limit: nil,
         percent_io_limit_threshold: nil,
         io_limit_threshold: nil,
-        alarm_topic: nil
+        alarm_topic: nil,
+        replication: nil,
+        replication_configuration: nil
       )
         super()
         @symbolic_name = symbolic_name.to_s
@@ -126,6 +128,9 @@ module Veltrunode
             topic: alarm_topic
           )
         end
+        @replication = nil
+        raw_rep = replication.nil? ? replication_configuration : replication
+        merge_replication!(raw_rep) unless raw_rep.nil?
         @vpc_expectations = {}
         @posix_expectations = {}
         @diagnostic_policy = {}
@@ -164,6 +169,8 @@ module Veltrunode
         percent_io_limit_threshold: nil,
         io_limit_threshold: nil,
         alarm_topic: nil,
+        replication: nil,
+        replication_configuration: nil,
         local_path: nil,
         tags: nil,
         &
@@ -201,6 +208,13 @@ module Veltrunode
                           else
                             @alarms
                           end
+        resolved_rep = if !replication.nil?
+                         replication
+                       elsif !replication_configuration.nil?
+                         replication_configuration
+                       else
+                         @replication
+                       end
         builder = ManagedAccessPointBuilder.new(
           file_system_id,
           root_directory: root_directory,
@@ -228,6 +242,7 @@ module Veltrunode
           percent_io_limit_threshold: percent_io_limit_threshold,
           io_limit_threshold: io_limit_threshold,
           alarm_topic: alarm_topic,
+          replication: resolved_rep,
           local_path: local_path,
           tags: tags
         )
@@ -289,6 +304,8 @@ module Veltrunode
         percent_io_limit_threshold: nil,
         io_limit_threshold: nil,
         alarm_topic: nil,
+        replication: nil,
+        replication_configuration: nil,
         tags: nil,
         &
       )
@@ -347,6 +364,8 @@ module Veltrunode
             topic: alarm_topic
           )
         end
+        raw_rep = replication.nil? ? replication_configuration : replication
+        merge_replication!(raw_rep) unless raw_rep.nil?
         instance_eval(&) if block_given?
         self
       end
@@ -556,6 +575,32 @@ module Veltrunode
         merge_alarms!(topic: val)
       end
 
+      def replication(
+        val = :__unset__,
+        destination_region: nil,
+        region: nil,
+        kms_key_id: nil,
+        destination_kms_key_id: nil,
+        kms_key: nil,
+        kms_key_arn: nil,
+        availability_zone_name: nil,
+        file_system_id: nil,
+        destination_file_system_id: nil,
+        role_arn: nil,
+        &
+      )
+        merge_replication!(
+          val,
+          destination_region: destination_region || region,
+          kms_key_id: kms_key_id || destination_kms_key_id || kms_key || kms_key_arn,
+          availability_zone_name: availability_zone_name,
+          file_system_id: file_system_id || destination_file_system_id,
+          role_arn: role_arn,
+          &
+        )
+      end
+      alias replication_configuration replication
+
       def existing_access_point(arn: nil)
         @access_point_source = arn if arn
       end
@@ -584,6 +629,7 @@ module Veltrunode
           !@encrypted.nil? || !@kms_key_id.nil? ||
           !@deletion_policy.nil? || !@update_replace_policy.nil? || !@deletion_protection.nil? ||
           (!@backup.nil? && @backup != false) || (!@alarms.nil? && @alarms != false) ||
+          (!@replication.nil? && @replication != false) ||
           !@vpc_expectations.empty? || !@posix_expectations.empty? || !@ap_options.empty?
       end
 
@@ -640,7 +686,8 @@ module Veltrunode
                         !@encrypted.nil? || !@kms_key_id.nil? ||
                         !@deletion_policy.nil? || !@update_replace_policy.nil? || !@deletion_protection.nil? ||
                         (!@backup.nil? && @backup != false) ||
-                        (!@alarms.nil? && @alarms != false)
+                        (!@alarms.nil? && @alarms != false) ||
+                        (!@replication.nil? && @replication != false)
         resolved_local_path = @local_path || (resolved_map || has_fs_config ? "/mnt/#{@symbolic_name}" : nil)
         Model::EfsMount.new(
           symbolic_name: @symbolic_name,
@@ -661,6 +708,7 @@ module Veltrunode
           kms_key_id: @kms_key_id,
           backup: @backup,
           alarms: @alarms,
+          replication: @replication,
           local_path: resolved_local_path,
           vpc_expectations: @vpc_expectations,
           posix_expectations: @posix_expectations,
@@ -669,6 +717,43 @@ module Veltrunode
       end
 
       private
+
+      def merge_replication!(
+        val = :__unset__,
+        destination_region: nil,
+        kms_key_id: nil,
+        availability_zone_name: nil,
+        file_system_id: nil,
+        role_arn: nil,
+        &
+      )
+        if val == false
+          @replication = false
+          return
+        end
+
+        @replication = @replication.is_a?(Hash) ? @replication.dup : {}
+        if val.is_a?(Hash)
+          @replication.merge!(val)
+        elsif val.is_a?(String) || val.is_a?(Symbol)
+          @replication[:destination_region] = val.to_s unless val == :__unset__
+        elsif val != :__unset__ && !val.nil?
+          @replication = val
+          return
+        end
+
+        @replication[:destination_region] = destination_region if destination_region
+        @replication[:kms_key_id] = kms_key_id if kms_key_id
+        @replication[:availability_zone_name] = availability_zone_name if availability_zone_name
+        @replication[:file_system_id] = file_system_id if file_system_id
+        @replication[:role_arn] = role_arn if role_arn
+
+        return unless block_given?
+
+        block_builder = ManagedAccessPointBuilder::ReplicationBlockBuilder.new(@replication)
+        block_builder.instance_eval(&)
+        @replication = block_builder.config
+      end
 
       def apply_direct_ap_options(
         root_directory: nil,
