@@ -90,5 +90,31 @@ RSpec.describe Veltrunode::Compiler::CloudFormation::FileSystemCompiler do
       expect(ref_props['Encrypted']).to be(true)
       expect(ref_props['KmsKeyId']).to eq({ 'Ref' => 'CustomEfsKmsKey' })
     end
+
+    it 'applies DeletionPolicy and UpdateReplacePolicy (Retain by default for managed_file_system)' do
+      mfs_mount = Veltrunode::Model::EfsMount.new(
+        symbolic_name: 'shared_storage',
+        vpc_id: 'vpc-0123456789abcdef0',
+        subnet_ids: ['subnet-11112222'],
+        encrypted: true
+      )
+
+      result = described_class.compile(mfs_mount)
+      fs = result['SharedStorageFileSystem']
+      expect(fs['DeletionPolicy']).to eq('Retain')
+      expect(fs['UpdateReplacePolicy']).to eq('Retain')
+
+      del_mount = Veltrunode::Model::EfsMount.new(
+        symbolic_name: 'temp_storage',
+        vpc_id: 'vpc-0123456789abcdef0',
+        subnet_ids: ['subnet-11112222'],
+        deletion_protection: false
+      )
+
+      del_result = described_class.compile(del_mount)
+      del_fs = del_result['TempStorageFileSystem']
+      expect(del_fs['DeletionPolicy']).to eq('Delete')
+      expect(del_fs['UpdateReplacePolicy']).to eq('Delete')
+    end
   end
 end

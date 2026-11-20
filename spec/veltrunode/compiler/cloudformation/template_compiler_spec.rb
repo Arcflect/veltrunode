@@ -2036,5 +2036,109 @@ RSpec.describe Veltrunode::Compiler::CloudFormation::TemplateCompiler do
       expect(kms_stmt).not_to be_nil
       expect(kms_stmt['Resource']).to eq([kms_arn, { 'Ref' => 'EfsCmkArn' }])
     end
+
+    it 'compiles managed_file_system with FileSystem, MountTargets, SecurityGroups, and automated Lambda wiring' do
+      dsl_code = <<~RUBY
+        Veltrunode.application "managed-fs-service" do
+          aws region: "ap-northeast-1", account: "123456789012"
+          runtime ruby: "3.3"
+
+          managed_file_system :shared_storage do
+            vpc_id ref(:vpc_id)
+            subnet_ids ["subnet-11112222", ref(:private_subnet_b)]
+            local_path "/mnt/shared"
+            posix_user uid: 1000, gid: 1000
+            root_directory path: "/shared", owner_uid: 1000, owner_gid: 1000, permissions: "0755"
+            throughput_mode :elastic
+            encrypted true
+          end
+
+          function :worker do
+            handler "worker.handler"
+            mount :shared_storage
+          end
+        end
+      RUBY
+
+      app = Veltrunode.parse(dsl_code)
+      result = described_class.compile(app)
+      resources = result['Resources']
+      params = result['Parameters']
+      outputs = result['Outputs']
+
+      # 1. Parameters (VpcId and PrivateSubnetB auto-discovered)
+      expect(params['VpcId']).to eq(
+        'Description' => 'VPC ID for EFS and Lambda security groups',
+        'Type' => 'AWS::EC2::VPC::Id'
+      )
+      expect(params['PrivateSubnetB']).to eq(
+        'Description' => 'Subnet ID for PrivateSubnetB',
+        'Type' => 'AWS::EC2::Subnet::Id'
+      )
+
+      # 2. AWS::EFS::FileSystem with DeletionPolicy & UpdateReplacePolicy
+      fs = resources['SharedStorageFileSystem']
+      expect(fs).not_to be_nil
+      expect(fs['Type']).to eq('AWS::EFS::FileSystem')
+      expect(fs['DeletionPolicy']).to eq('Retain')
+      expect(fs['UpdateReplacePolicy']).to eq('Retain')
+      expect(fs['Properties']['Encrypted']).to be(true)
+      expect(fs['Properties']['ThroughputMode']).to eq('elastic')
+
+      # 3. AWS::EFS::MountTarget for each subnet
+      mt1 = resources['SharedStorageSubnet11112222MountTarget']
+      expect(mt1).not_to be_nil
+      expect(mt1['Type']).to eq('AWS::EFS::MountTarget')
+      expect(mt1['Properties']).to eq(
+        'FileSystemId' => { 'Ref' => 'SharedStorageFileSystem' },
+        'SecurityGroups' => [{ 'Ref' => 'SharedStorageEfsSecurityGroup' }],
+        'SubnetId' => 'subnet-11112222'
+      )
+
+      mt2 = resources['SharedStoragePrivateSubnetBMountTarget']
+      expect(mt2).not_to be_nil
+      expect(mt2['Type']).to eq('AWS::EFS::MountTarget')
+      expect(mt2['Properties']).to eq(
+        'FileSystemId' => { 'Ref' => 'SharedStorageFileSystem' },
+        'SecurityGroups' => [{ 'Ref' => 'SharedStorageEfsSecurityGroup' }],
+        'SubnetId' => { 'Ref' => 'PrivateSubnetB' }
+      )
+
+      # 4. Security Groups and TCP 2049 Ingress/Egress rules
+      expect(resources).to have_key('SharedStorageLambdaSecurityGroup')
+      expect(resources).to have_key('SharedStorageEfsSecurityGroup')
+      expect(resources).to have_key('SharedStorageEfsSecurityGroupIngress')
+      expect(resources).to have_key('SharedStorageLambdaSecurityGroupEgress')
+
+      # 5. AWS::EFS::AccessPoint referencing SharedStorageFileSystem
+      ap = resources['SharedStorageAccessPoint']
+      expect(ap).not_to be_nil
+      expect(ap['Type']).to eq('AWS::EFS::AccessPoint')
+      expect(ap['Properties']['FileSystemId']).to eq({ 'Ref' => 'SharedStorageFileSystem' })
+
+      # 6. Automated Lambda Function wiring (VpcConfig, FileSystemConfigs, DependsOn)
+      fn = resources['WorkerFunction']
+      expect(fn['Properties']['VpcConfig']).to eq(
+        'SecurityGroupIds' => [{ 'Ref' => 'SharedStorageLambdaSecurityGroup' }],
+        'SubnetIds' => ['subnet-11112222', { 'Ref' => 'PrivateSubnetB' }]
+      )
+      expect(fn['Properties']['FileSystemConfigs']).to eq(
+        [
+          {
+            'Arn' => { 'Fn::GetAtt' => %w[SharedStorageAccessPoint Arn] },
+            'LocalMountPath' => '/mnt/shared'
+          }
+        ]
+      )
+      expect(fn['DependsOn']).to include(
+        'SharedStorageAccessPoint',
+        'SharedStorageSubnet11112222MountTarget',
+        'SharedStoragePrivateSubnetBMountTarget'
+      )
+
+      # 7. Outputs
+      expect(outputs).to have_key('SharedStorageFileSystemId')
+      expect(outputs).to have_key('SharedStorageAccessPointArn')
+    end
   end
 end
