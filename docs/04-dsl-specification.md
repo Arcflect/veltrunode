@@ -700,6 +700,40 @@ end
 - **`topic`**: アラーム発報時の通知先 SNS トピック ARN または `ref(...)` 参照。
 - **統一プレフィックス規約**: 生成されるアラームの `AlarmName` には、スタック名に基づいたプレフィックス `{ 'Fn::Sub' => "${AWS::StackName}-#{LogicalId}" }` が自動適用されます。
 
+## EFS フルマネージドファイルシステム (`managed_file_system`)
+
+アクセスポイントだけでなく、EFS ファイルシステム本体（`AWS::EFS::FileSystem`）、VPC サブネットごとのマウントターゲット（`AWS::EFS::MountTarget`）、および NFS 通信用セキュリティグループ群を一括でコード管理する場合、`managed_file_system` DSL を使用します。
+
+```ruby
+Veltrunode.application "stateful-pipeline" do
+  managed_file_system :shared_storage do
+    vpc_id ref(:vpc_id)
+    subnet_ids ["subnet-11112222", ref(:private_subnet_b)]
+    local_path "/mnt/shared"
+    posix_user uid: 1000, gid: 1000
+    root_directory path: "/shared", owner_uid: 1000, owner_gid: 1000, permissions: "0755"
+    throughput_mode :elastic
+    encrypted true
+    deletion_policy :retain
+    update_replace_policy :retain
+  end
+
+  function :worker do
+    handler "worker.handler"
+    # vpc_reference を個別指定しなくても、managed_file_system のサブネット・セキュリティグループおよび
+    # AccessPoint / MountTarget への DependsOn・IAM 権限が自動的に関連付けられます
+    mount :shared_storage
+  end
+end
+```
+
+### パラメータ仕様
+
+- **`vpc_id` / `vpc`**: ファイルシステムおよびセキュリティグループを作成する VPC ID（`vpc-xxxx` または `ref(:vpc_id)`）。指定時は Lambda 用・EFS 用セキュリティグループおよび TCP 2049 ルールが自動生成されます。
+- **`subnet_ids` / `subnets`**: `AWS::EFS::MountTarget` を展開するサブネット ID の配列（`subnet-xxxx` または `ref(:subnet_a)`）。指定されたすべてのサブネットに対してマウントターゲットが自動展開されます。
+- **`deletion_policy` / `update_replace_policy` / `deletion_protection`**: `AWS::EFS::FileSystem` の削除保護設定。デフォルトで `DeletionPolicy: 'Retain'` および `UpdateReplacePolicy: 'Retain'` が適用され、スタック削除や置換による意図しないデータ消失を防止します（`deletion_protection: false` または `:delete`, `:snapshot` で変更可能）。
+- **Lambda 関数との自動関連付け**: `function` 内で `mount :shared_storage` を宣言するだけで、`FileSystemConfigs`、`VpcConfig`（`SubnetIds` / `SecurityGroupIds`）、`DependsOn`（アクセスポイントおよび全マウントターゲット）、および IAM 実行ロール権限が完全自動で配線されます。
+
 ## エスケープハッチ (Escape Hatch)
 
 初期フェーズ以降に、管理された `cloudformation_patch` 機能が導入される予定です（設計方針の詳細は [ADR-0003](adr/0003-cloudformation-patch-escape-hatch.md) を参照）。これは、既存の論理リソースをターゲットにし、スキーマ検証およびセキュリティポリシー検証を通過する必要があります。テンプレート全体の任意の置き換えはサポートされません。

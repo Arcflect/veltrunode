@@ -371,6 +371,23 @@ Application レベルで `rest_api` を設定した場合、`Veltrunode::Compile
 - **セキュリティグループおよびルールの集約**:
   - 各 `efs_mount` に `security_group_helper` が設定されている場合、それぞれの Lambda 用・EFS 用セキュリティグループおよび NFS（TCP 2049）の Ingress / Egress ルールが生成され、対象 Lambda 関数の `Properties.VpcConfig.SecurityGroupIds` にはマウント対象のすべての Lambda セキュリティグループ参照（例: `Ref: CommonLibsLambdaSecurityGroup`, `Ref: WorkDataLambdaSecurityGroup`）が重複なく集約されます。
 
+## フルマネージド EFS ファイルシステムとマウントターゲットのコンパイル (`managed_file_system` Compilation)
+
+Application レベルまたは `efs_mount` 内で `managed_file_system` を定義した場合、`FileSystemCompiler`、`MountTargetCompiler`、`AccessPointCompiler`、`SecurityGroupCompiler`、`FunctionCompiler`、および `TemplateCompiler` により以下の CloudFormation リソース群が一括生成・関連付けされます。
+
+- **`AWS::EFS::FileSystem` と削除保護 (`FileSystemCompiler`)**:
+  - 論理ID: `#{MountName}FileSystem`（例: `SharedStorageFileSystem`）
+  - **削除保護のデフォルト適用**: `DeletionPolicy: 'Retain'` および `UpdateReplacePolicy: 'Retain'` が標準で出力されます（`deletion_protection: false` や `deletion_policy: :delete` 指定時は `'Delete'` 等へ変更可能）。
+- **サブネットごとの `AWS::EFS::MountTarget` 自動展開 (`MountTargetCompiler`)**:
+  - 論理ID: `#{MountName}#{SubnetIdentifier}MountTarget`（例: `SharedStorageSubnet11112222MountTarget`, `SharedStoragePrivateSubnetBMountTarget`）
+  - `FileSystemId`: `{ 'Ref' => "#{MountName}FileSystem" }`
+  - `SubnetId`: 各サブネット ID または `{ 'Ref' => SubnetParamKey }`（`ref(:...)` 指定時は `Parameters` に `Type: 'AWS::EC2::Subnet::Id'` として自動登録）
+  - `SecurityGroups`: `[{ 'Ref' => "#{MountName}EfsSecurityGroup" }]`（または明示指定されたセキュリティグループ）
+- **Lambda 関数との関連付けの完全自動化 (`FunctionCompiler` / `TemplateCompiler` / `RoleCompiler`)**:
+  - `VpcConfig` の自動推論: 関数側で `vpc_reference` を省略しても、マウント先の `managed_file_system` から `SubnetIds` および `SecurityGroupIds`（`Ref: #{MountName}LambdaSecurityGroup`）が自動設定されます。
+  - `DependsOn` の自動構築: マウントターゲットが `available` になる前に Lambda が作成されてマウント失敗するのを防ぐため、`#{MountName}AccessPoint` に加えてすべての `AWS::EFS::MountTarget` 論理IDが関数の `DependsOn` に自動追加されます。
+  - `Outputs`: `#{MountName}FileSystemId` および `#{MountName}AccessPointArn` がスタックの `Outputs` に出力されます。
+
 ## CloudWatch メトリクスダッシュボードのコンパイルと URL 出力 (CloudWatch Dashboard Compilation & Output)
 
 Application レベルで `dashboard` を設定した場合、`Veltrunode::Compiler::CloudFormation::DashboardCompiler` により `AWS::CloudWatch::Dashboard` リソースが自動生成されます。
