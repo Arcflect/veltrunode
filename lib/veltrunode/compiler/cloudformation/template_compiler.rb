@@ -5,6 +5,7 @@ require 'yaml'
 require_relative 'access_point_compiler'
 require_relative 'file_system_compiler'
 require_relative 'mount_target_compiler'
+require_relative 'replication_compiler'
 require_relative 'backup_compiler'
 require_relative 'efs_alarm_compiler'
 require_relative 'alarm_compiler'
@@ -292,6 +293,15 @@ module Veltrunode
               }
             end
 
+            rep_kms = mount.respond_to?(:replication_kms_key_id) ? mount.replication_kms_key_id : nil
+            rep_kms_param = resolve_kms_key_param_key(rep_kms)
+            if rep_kms_param && !params.key?(rep_kms_param)
+              params[rep_kms_param] = {
+                'Description' => "KMS key ARN for #{rep_kms_param}",
+                'Type' => 'String'
+              }
+            end
+
             if mount.respond_to?(:subnet_ids) && mount.subnet_ids
               Array(mount.subnet_ids).each do |sub|
                 sub_param = resolve_kms_key_param_key(sub)
@@ -410,6 +420,11 @@ module Veltrunode
             if mount.respond_to?(:alarms?) && mount.alarms?
               alarm_res = EfsAlarmCompiler.compile(mount, context: context)
               resources.merge!(alarm_res)
+            end
+
+            if mount.respond_to?(:replication?) && mount.replication?
+              rep_res = ReplicationCompiler.compile(mount, context: context)
+              resources.merge!(rep_res)
             end
 
             next unless mount.respond_to?(:managed_access_point?) && mount.managed_access_point?

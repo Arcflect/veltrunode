@@ -2140,5 +2140,48 @@ RSpec.describe Veltrunode::Compiler::CloudFormation::TemplateCompiler do
       expect(outputs).to have_key('SharedStorageFileSystemId')
       expect(outputs).to have_key('SharedStorageAccessPointArn')
     end
+
+    it 'compiles AWS::EFS::ReplicationConfiguration with destination Region and KmsKeyId parameter' do
+      dsl_code = <<~RUBY
+        Veltrunode.application "efs-dr-service" do
+          aws region: "ap-northeast-1", account: "123456789012"
+          runtime ruby: "3.3"
+
+          managed_file_system :dr_storage do
+            vpc_id "vpc-0123456789abcdef0"
+            subnet_ids ["subnet-11112222"]
+            local_path "/mnt/dr"
+            encrypted true
+            replication destination_region: "us-west-2", kms_key_id: ref(:dr_kms_key_arn)
+          end
+
+          function :worker do
+            handler "worker.handler"
+            mount :dr_storage
+          end
+        end
+      RUBY
+
+      app = Veltrunode.parse(dsl_code)
+      result = described_class.compile(app)
+      resources = result['Resources']
+      params = result['Parameters']
+
+      expect(params).to have_key('DrKmsKeyArn')
+      expect(params['DrKmsKeyArn']['Type']).to eq('String')
+
+      rep = resources['DrStorageReplicationConfiguration']
+      expect(rep).not_to be_nil
+      expect(rep['Type']).to eq('AWS::EFS::ReplicationConfiguration')
+      expect(rep['Properties']).to eq(
+        'Destinations' => [
+          {
+            'KmsKeyId' => { 'Ref' => 'DrKmsKeyArn' },
+            'Region' => 'us-west-2'
+          }
+        ],
+        'SourceFileSystemId' => { 'Ref' => 'DrStorageFileSystem' }
+      )
+    end
   end
 end

@@ -694,5 +694,121 @@ RSpec.describe Veltrunode::AWS::Inspectors::EfsInspector do
         expect(diag).not_to be_nil
       end
     end
+
+    context 'EFS クロスリージョンレプリケーション状態の整合性検証' do
+      let(:rep_mount) do
+        Veltrunode::Model::EfsMount.new(
+          symbolic_name: 'shared_data',
+          access_point_source: 'arn:aws:elasticfilesystem:ap-northeast-1:123456789012:' \
+                               'access-point/fsap-1234567890abcdef0',
+          local_path: '/mnt/shared',
+          posix_expectations: { uid: 1000, gid: 1000 },
+          replication: { destination_region: 'us-west-2' }
+        )
+      end
+
+      let(:rep_application) do
+        Veltrunode::Model::Application.new(
+          name: 'efs-rep-app',
+          region: 'ap-northeast-1',
+          stage: 'prod',
+          mounts: [rep_mount],
+          functions: [function]
+        )
+      end
+
+      it 'レプリケーションが ENABLED かつ送信先リージョンが一致する場合に passed を返すこと' do
+        rep_resp = double(
+          'ReplicationResponse',
+          replications: [
+            double(
+              'ReplicationConfig',
+              destinations: [
+                double('Destination', region: 'us-west-2', status: 'ENABLED', file_system_id: 'fs-99998888')
+              ]
+            )
+          ]
+        )
+        allow(mock_efs_client).to receive(:describe_replication_configurations)
+          .with(file_system_id: 'fs-12345678')
+          .and_return(rep_resp)
+
+        rep_inspector = described_class.new(
+          rep_application,
+          target_name: 'shared_data',
+          efs_client: mock_efs_client,
+          ec2_client: mock_ec2_client,
+          iam_client: mock_iam_client
+        )
+
+        report = rep_inspector.inspect
+        rep_check = report.checks.find { |c| c.name == 'replication_status' }
+        expect(rep_check).not_to be_nil
+        expect(rep_check.passed?).to be(true)
+        expect(rep_check.summary).to include('ENABLED to region us-west-2')
+      end
+
+      it '送信先リージョンが異なる場合に VLT-EFS-REPLICATION-MISMATCH エラーを報告すること' do
+        rep_resp = double(
+          'ReplicationResponse',
+          replications: [
+            double(
+              'ReplicationConfig',
+              destinations: [
+                double('Destination', region: 'us-east-1', status: 'ENABLED', file_system_id: 'fs-99998888')
+              ]
+            )
+          ]
+        )
+        allow(mock_efs_client).to receive(:describe_replication_configurations)
+          .with(file_system_id: 'fs-12345678')
+          .and_return(rep_resp)
+
+        rep_inspector = described_class.new(
+          rep_application,
+          target_name: 'shared_data',
+          efs_client: mock_efs_client,
+          ec2_client: mock_ec2_client,
+          iam_client: mock_iam_client
+        )
+
+        report = rep_inspector.inspect
+        expect(report.success?).to be(false)
+        diag = report.diagnostics.find { |d| d.code == 'VLT-EFS-REPLICATION-MISMATCH' }
+        expect(diag).not_to be_nil
+        expect(diag.severity).to eq(:error)
+      end
+
+      it 'レプリケーション状態が ERROR の場合に VLT-EFS-REPLICATION-STATE エラーを報告すること' do
+        rep_resp = double(
+          'ReplicationResponse',
+          replications: [
+            double(
+              'ReplicationConfig',
+              destinations: [
+                double('Destination', region: 'us-west-2', status: 'ERROR', file_system_id: 'fs-99998888')
+              ]
+            )
+          ]
+        )
+        allow(mock_efs_client).to receive(:describe_replication_configurations)
+          .with(file_system_id: 'fs-12345678')
+          .and_return(rep_resp)
+
+        rep_inspector = described_class.new(
+          rep_application,
+          target_name: 'shared_data',
+          efs_client: mock_efs_client,
+          ec2_client: mock_ec2_client,
+          iam_client: mock_iam_client
+        )
+
+        report = rep_inspector.inspect
+        expect(report.success?).to be(false)
+        diag = report.diagnostics.find { |d| d.code == 'VLT-EFS-REPLICATION-STATE' }
+        expect(diag).not_to be_nil
+        expect(diag.severity).to eq(:error)
+      end
+    end
   end
 end

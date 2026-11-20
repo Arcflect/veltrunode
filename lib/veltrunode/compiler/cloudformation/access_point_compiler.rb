@@ -3,6 +3,7 @@
 require 'yaml'
 require_relative '../logical_id'
 require_relative 'file_system_compiler'
+require_relative 'replication_compiler'
 require_relative 'backup_compiler'
 require_relative 'efs_alarm_compiler'
 
@@ -61,6 +62,7 @@ module Veltrunode
             }
           }
           resources.merge!(FileSystemCompiler.compile(mount, context: context)) if file_system_configuration?
+          resources.merge!(ReplicationCompiler.compile(mount, context: context)) if replication_configuration?
           resources.merge!(BackupCompiler.compile(mount, context: context)) if backup_configuration?
           resources.merge!(EfsAlarmCompiler.compile(mount, context: context)) if alarms_configuration?
 
@@ -153,6 +155,15 @@ module Veltrunode
 
           map = managed_access_point_data
           return true if map.respond_to?(:alarms?) && map.alarms?
+
+          false
+        end
+
+        def replication_configuration?
+          return true if mount.respond_to?(:replication?) && mount.replication?
+
+          map = managed_access_point_data
+          return true if map.respond_to?(:replication?) && map.replication?
 
           false
         end
