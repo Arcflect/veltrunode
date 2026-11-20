@@ -3,6 +3,7 @@
 require 'yaml'
 require_relative '../logical_id'
 require_relative '../../model/managed_access_point'
+require_relative '../../model/managed_file_system'
 
 module Veltrunode
   module Compiler
@@ -44,12 +45,16 @@ module Veltrunode
         end
 
         def to_h
-          deep_sort_keys(
-            logical_id => {
-              'Type' => resource_type,
-              'Properties' => properties
-            }
-          )
+          res = {
+            'Type' => resource_type,
+            'Properties' => properties
+          }
+          del_policy = format_deletion_policy
+          upd_policy = format_update_replace_policy
+          res['DeletionPolicy'] = del_policy if del_policy
+          res['UpdateReplacePolicy'] = upd_policy if upd_policy
+
+          deep_sort_keys(logical_id => res)
         end
 
         def to_yaml
@@ -69,10 +74,85 @@ module Veltrunode
           props['Encrypted'] = enc_val unless enc_val.nil?
           props['KmsKeyId'] = kms_val unless kms_val.nil?
 
+          tags_val = format_file_system_tags
+          props['FileSystemTags'] = tags_val unless tags_val.nil? || tags_val.empty?
+
           props
         end
 
         private
+
+        def format_deletion_policy
+          raw_del = extract_deletion_policy
+          raw_prot = extract_deletion_protection
+          if !raw_del.nil? || !raw_prot.nil?
+            Model::ManagedFileSystem.normalize_deletion_policy(raw_del, deletion_protection: raw_prot)
+          elsif managed_file_system?
+            'Retain'
+          end
+        end
+
+        def format_update_replace_policy
+          raw_upd = extract_update_replace_policy
+          raw_prot = extract_deletion_protection
+          if !raw_upd.nil? || !raw_prot.nil?
+            Model::ManagedFileSystem.normalize_update_replace_policy(raw_upd, deletion_protection: raw_prot)
+          elsif managed_file_system?
+            'Retain'
+          end
+        end
+
+        def managed_file_system?
+          return true if mount.is_a?(Model::ManagedFileSystem)
+          return true if mount.respond_to?(:managed_file_system?) && mount.managed_file_system?
+
+          mount.is_a?(Hash) && !(mount[:managed_file_system] || mount['managed_file_system']).nil?
+        end
+
+        def extract_deletion_policy
+          if mount.respond_to?(:deletion_policy) && !mount.deletion_policy.nil?
+            mount.deletion_policy
+          elsif mount.respond_to?(:managed_file_system) && !mount.managed_file_system&.deletion_policy.nil?
+            mount.managed_file_system.deletion_policy
+          elsif mount.is_a?(Hash)
+            mount[:deletion_policy] || mount['deletion_policy'] ||
+              mount[:DeletionPolicy] || mount['DeletionPolicy']
+          end
+        end
+
+        def extract_update_replace_policy
+          if mount.respond_to?(:update_replace_policy) && !mount.update_replace_policy.nil?
+            mount.update_replace_policy
+          elsif mount.respond_to?(:managed_file_system) && !mount.managed_file_system&.update_replace_policy.nil?
+            mount.managed_file_system.update_replace_policy
+          elsif mount.is_a?(Hash)
+            mount[:update_replace_policy] || mount['update_replace_policy'] ||
+              mount[:UpdateReplacePolicy] || mount['UpdateReplacePolicy']
+          end
+        end
+
+        def extract_deletion_protection
+          return unless mount.is_a?(Hash)
+
+          %i[deletion_protection DeletionProtection].each do |k|
+            return mount[k] if mount.key?(k)
+            return mount[k.to_s] if mount.key?(k.to_s)
+          end
+          nil
+        end
+
+        def format_file_system_tags
+          raw_tags = if mount.respond_to?(:managed_file_system) && mount.managed_file_system&.tags
+                       mount.managed_file_system.tags
+                     elsif mount.respond_to?(:tags) && mount.tags
+                       mount.tags
+                     elsif mount.is_a?(Hash)
+                       mount[:tags] || mount['tags']
+                     end
+          return nil unless raw_tags.is_a?(Hash) && !raw_tags.empty?
+
+          raw_tags.map { |k, v| { 'Key' => k.to_s, 'Value' => v.to_s } }.sort_by { |t| t['Key'] }
+        end
 
         def mount_name
           if mount.respond_to?(:symbolic_name)

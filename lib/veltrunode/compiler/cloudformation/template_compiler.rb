@@ -4,6 +4,7 @@ require 'fileutils'
 require 'yaml'
 require_relative 'access_point_compiler'
 require_relative 'file_system_compiler'
+require_relative 'mount_target_compiler'
 require_relative 'backup_compiler'
 require_relative 'efs_alarm_compiler'
 require_relative 'alarm_compiler'
@@ -279,7 +280,7 @@ module Veltrunode
             }
           end
 
-          # Include referenced SNS topic ARN parameters from EFS alarms and KMS key parameters from EFS encryption
+          # Include referenced SNS topic ARN parameters from EFS alarms and KMS key / Subnet parameters from EFS
           mount_nodes = extract_collection(:mounts)
           mount_nodes.each do |mount|
             kms_key = mount.respond_to?(:kms_key_id) ? mount.kms_key_id : nil
@@ -289,6 +290,18 @@ module Veltrunode
                 'Description' => "KMS key ARN for #{kms_param}",
                 'Type' => 'String'
               }
+            end
+
+            if mount.respond_to?(:subnet_ids) && mount.subnet_ids
+              Array(mount.subnet_ids).each do |sub|
+                sub_param = resolve_kms_key_param_key(sub)
+                next if sub_param.nil? || params.key?(sub_param)
+
+                params[sub_param] = {
+                  'Description' => "Subnet ID for #{sub_param}",
+                  'Type' => 'AWS::EC2::Subnet::Id'
+                }
+              end
             end
 
             next unless mount.respond_to?(:alarms?) && mount.alarms?
@@ -381,6 +394,12 @@ module Veltrunode
             if has_fs
               fs_res = FileSystemCompiler.compile(mount, context: context)
               resources.merge!(fs_res)
+            end
+
+            if (mount.respond_to?(:managed_file_system?) && mount.managed_file_system?) ||
+               (mount.respond_to?(:subnet_ids) && !Array(mount.subnet_ids).empty?)
+              mt_res = MountTargetCompiler.compile(mount, context: context)
+              resources.merge!(mt_res)
             end
 
             if mount.respond_to?(:backup?) && mount.backup?
@@ -619,12 +638,22 @@ module Veltrunode
             }
           end
 
-          # EFS Access Point Outputs
+          # EFS Access Point and Managed FileSystem Outputs
           mount_nodes = extract_collection(:mounts)
           mount_nodes.each do |mount|
+            mount_name = extract_name(mount)
+
+            if mount.respond_to?(:managed_file_system?) && mount.managed_file_system?
+              fs_id = FileSystemCompiler.logical_id_for(mount_name)
+              outputs["#{fs_id}Id"] = {
+                'Description' => "File system ID of #{mount_name} managed EFS file system",
+                'Value' => { 'Ref' => fs_id },
+                'Export' => { 'Name' => { 'Fn::Sub' => "${AWS::StackName}-#{fs_id}Id" } }
+              }
+            end
+
             next unless mount.respond_to?(:managed_access_point?) && mount.managed_access_point?
 
-            mount_name = extract_name(mount)
             ap_id = AccessPointCompiler.logical_id_for(mount_name)
 
             outputs["#{ap_id}Arn"] = {
@@ -702,6 +731,9 @@ module Veltrunode
             mount_obj = mount_map[m_name.to_s]
             if mount_obj.respond_to?(:managed_access_point?) && mount_obj.managed_access_point?
               deps << AccessPointCompiler.logical_id_for(m_name)
+            end
+            if mount_obj.respond_to?(:managed_file_system?) && mount_obj.managed_file_system?
+              deps.concat(MountTargetCompiler.logical_ids_for(mount_obj))
             end
           end
 

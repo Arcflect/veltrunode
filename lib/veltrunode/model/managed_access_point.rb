@@ -654,6 +654,7 @@ module Veltrunode
         percent_io_limit_threshold: nil,
         io_limit_threshold: nil,
         alarm_topic: nil,
+        managed_file_system: false,
         tags: nil
       )
         resolved_lifecycle = self.class.normalize_lifecycle_policies(
@@ -696,7 +697,8 @@ module Veltrunode
           io_limit_threshold: io_limit_threshold,
           topic: alarm_topic
         )
-        has_fs_config = !resolved_lifecycle.nil? || !resolved_tp_mode.nil? ||
+        has_fs_config = (!managed_file_system.nil? && managed_file_system != false) ||
+                        !resolved_lifecycle.nil? || !resolved_tp_mode.nil? ||
                         !resolved_prov_tp.nil? || !resolved_enc.nil? || !resolved_kms.nil? ||
                         !resolved_backup.nil? || !resolved_alarms.nil?
         allow_nil_fs_id = (file_system_id == :__unset__ || file_system_id.nil?) && has_fs_config

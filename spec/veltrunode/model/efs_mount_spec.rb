@@ -304,4 +304,31 @@ RSpec.describe Veltrunode::Model::EfsMount do
       expect(mount_ap.kms_key_id).to eq(valid_kms_arn)
     end
   end
+
+  describe 'managed_file_system configuration (Mode 3: Fully Managed)' do
+    it 'automatically configures ManagedFileSystem, ManagedAccessPoint, SecurityGroupHelper, and deletion policies' do
+      mount = described_class.new(
+        symbolic_name: 'shared_storage',
+        vpc_id: 'vpc-0123456789abcdef0',
+        subnet_ids: %w[subnet-11112222 subnet-33334444],
+        throughput_mode: :elastic,
+        encrypted: true
+      )
+
+      expect(mount.managed_file_system?).to be(true)
+      expect(mount.managed_access_point?).to be(true)
+      expect(mount.security_group_helper?).to be(true)
+      expect(mount.file_system_configuration?).to be(true)
+      expect(mount.local_path).to eq('/mnt/shared_storage')
+      expect(mount.vpc_id).to eq('vpc-0123456789abcdef0')
+      expect(mount.subnet_ids).to eq(%w[subnet-11112222 subnet-33334444])
+      expect(mount.deletion_policy).to eq('Retain')
+      expect(mount.update_replace_policy).to eq('Retain')
+      expect(mount.deletion_protection?).to be(true)
+      expect(mount.managed_access_point.uid).to eq(1000)
+      expect(mount.managed_access_point.gid).to eq(1000)
+      expect(mount.security_group_helper.vpc_id).to eq('vpc-0123456789abcdef0')
+      expect(mount.vpc_expectations['subnet_ids']).to eq(%w[subnet-11112222 subnet-33334444])
+    end
+  end
 end

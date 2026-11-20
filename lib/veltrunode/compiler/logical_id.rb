@@ -155,6 +155,8 @@ module Veltrunode
           for_access_point(name)
         when :file_system, :efs_file_system
           for_file_system(name)
+        when :mount_target, :efs_mount_target
+          for_mount_target(name)
         when :backup_vault
           for_backup_vault(name)
         when :backup_plan
@@ -249,6 +251,34 @@ module Veltrunode
         "#{base}FileSystem"
       end
       alias for_efs_file_system for_file_system
+
+      # EFS MountTarget (AWS::EFS::MountTarget) の論理IDを生成します（サフィックス: MountTarget）
+      #
+      # @param mount_name [String, Symbol, nil] ファイルシステムまたはマウント名 (例: :shared_storage)
+      # @param subnet_identifier [String, Symbol, Object, nil] サブネットIDまたは参照 (例: 'subnet-11112222', :subnet_a)
+      # @return [String] 論理ID (例: "SharedStorageSubnet11112222MountTarget")
+      def for_mount_target(mount_name, subnet_identifier = nil)
+        base = pascalize(mount_name)
+        base = 'Efs' if base.empty? || base == 'Default'
+        base = base.sub(/(?:FileSystem|MountTarget)\z/, '') unless %w[FileSystem MountTarget].include?(base)
+
+        sub_raw = if subnet_identifier.is_a?(Hash)
+                    subnet_identifier['Ref'] || subnet_identifier[:Ref] ||
+                      subnet_identifier[:ref] || subnet_identifier['ref']
+                  elsif !subnet_identifier.is_a?(Symbol) && subnet_identifier.respond_to?(:name)
+                    subnet_identifier.name
+                  else
+                    subnet_identifier
+                  end
+
+        if sub_raw && !sub_raw.to_s.strip.empty?
+          sub_part = pascalize(sub_raw)
+          "#{base}#{sub_part}MountTarget"
+        else
+          base.end_with?('MountTarget') ? base : "#{base}MountTarget"
+        end
+      end
+      alias for_efs_mount_target for_mount_target
 
       # AWS Backup Vault (AWS::Backup::BackupVault) の論理IDを生成します（サフィックス: BackupVault）
       #

@@ -4,7 +4,38 @@
 
 1. **モード1 (Existing Access Point)**: 既存のアクセスポイントおよび既存のネットワークリソースを使用するモード。
 2. **モード2 (Managed Access Point)**: 既存のファイルシステムを使用し、アクセスポイント（`AWS::EFS::AccessPoint`）はVeltrunode側で自動管理・生成するモード。
-3. **モード3 (Fully Managed)**: 完全に管理されたEFSおよびネットワーク設定を新規生成するモード（初期フェーズ以降に計画）。
+3. **モード3 (Fully Managed)**: `managed_file_system` DSL により、EFS ファイルシステム本体（`AWS::EFS::FileSystem`）、各サブネットのマウントターゲット（`AWS::EFS::MountTarget`）、アクセスポイント（`AWS::EFS::AccessPoint`）、およびセキュリティグループ群を一括生成・自動関連付けするモード。
+
+### モード3: フルマネージドファイルシステム (Managed File System) の定義
+
+`managed_file_system` DSL を使用すると、EFS ファイルシステム本体、指定 VPC のサブネット一覧に対する `AWS::EFS::MountTarget`、NFS 通信用セキュリティグループ（TCP 2049）、およびアクセスポイントを一括生成し、Lambda 関数へ完全自動で関連付けることができます。
+
+```ruby
+managed_file_system :shared_storage do
+  vpc_id ref(:vpc_id)
+  subnet_ids ["subnet-11112222", "subnet-33334444"]
+  local_path "/mnt/shared"
+  posix_user uid: 1000, gid: 1000
+  root_directory path: "/shared", owner_uid: 1000, owner_gid: 1000, permissions: "0755"
+  throughput_mode :elastic
+  encrypted true
+  deletion_policy :retain
+  update_replace_policy :retain
+end
+
+function :worker do
+  handler "worker.handler"
+  mount :shared_storage
+end
+```
+
+コンパイル時に以下が自動実行されます：
+- `AWS::EFS::FileSystem` リソースの生成（デフォルトで削除保護 `DeletionPolicy: Retain` / `UpdateReplacePolicy: Retain` を適用）
+- 指定された `subnet_ids` の各サブネットに対する `AWS::EFS::MountTarget` リソースの自動展開
+- Lambda 用・EFS 用セキュリティグループ（`AWS::EC2::SecurityGroup`）および TCP 2049 Ingress/Egress ルールの自動生成
+- `AWS::EFS::AccessPoint` リソースの生成（`FileSystemId: { Ref: SharedStorageFileSystem }`）
+- Lambda 関数への `FileSystemConfigs`、`VpcConfig`（`SubnetIds` / `SecurityGroupIds` の自動推論）、`DependsOn`（アクセスポイント＋全マウントターゲット）、および IAM 実行ロール権限の完全自動配線
+- CloudFormation スタックの `Outputs` への FileSystem ID（`SharedStorageFileSystemId`）および AccessPoint ARN の出力
 
 ### モード2: 管理対象アクセスポイント (Managed Access Point) の定義
 

@@ -72,6 +72,9 @@ module Veltrunode
           if present?(function.vpc_reference)
             vpc_cfg = format_vpc_config(function.vpc_reference)
             props['VpcConfig'] = vpc_cfg if vpc_cfg && !vpc_cfg.empty?
+          elsif present?(function.mounts)
+            vpc_cfg = infer_vpc_config_from_mounts
+            props['VpcConfig'] = vpc_cfg if vpc_cfg && !vpc_cfg.empty?
           end
 
           layers_to_attach = Array(function.layers).dup
@@ -200,10 +203,38 @@ module Veltrunode
             combined_sgs = (explicit_sgs + mount_sgs).uniq
             cfg['SecurityGroupIds'] = combined_sgs unless combined_sgs.empty?
           end
-          if sub_ids
-            cfg['SubnetIds'] = sub_ids.is_a?(Hash) ? sub_ids : Array(sub_ids).map(&:to_s)
-          end
+          cfg['SubnetIds'] = format_subnet_ids(sub_ids) if sub_ids
           cfg
+        end
+
+        def infer_vpc_config_from_mounts
+          sub_ids = collect_mount_subnet_ids
+          return {} if sub_ids.empty?
+
+          sg_ids = collect_mount_security_group_ids(include_context_sgs: true)
+          return {} if sg_ids.empty?
+
+          {
+            'SecurityGroupIds' => sg_ids,
+            'SubnetIds' => sub_ids
+          }
+        end
+
+        def format_subnet_ids(sub_ids)
+          return sub_ids if sub_ids.is_a?(Hash)
+
+          Array(sub_ids).map do |sub|
+            if sub.is_a?(Hash)
+              ref_sym = sub[:ref] || sub['ref']
+              ref_sym ? { 'Ref' => LogicalId.pascalize(ref_sym) } : sub
+            elsif !sub.is_a?(Symbol) && sub.respond_to?(:name)
+              { 'Ref' => LogicalId.pascalize(sub.name) }
+            elsif sub.is_a?(Symbol)
+              { 'Ref' => LogicalId.pascalize(sub) }
+            else
+              sub.to_s
+            end
+          end
         end
 
         def collect_mount_security_group_ids(include_context_sgs: true)
@@ -266,15 +297,19 @@ module Veltrunode
           mounts_list = function.respond_to?(:mounts) ? Array(function.mounts) : []
           mounts_list.each do |mount_entry|
             m_name = extract_mount_entry_name(mount_entry)
-            mount_obj = if mount_entry.respond_to?(:vpc_expectations)
+            mount_obj = if mount_entry.respond_to?(:vpc_expectations) || mount_entry.respond_to?(:subnet_ids)
                           mount_entry
                         elsif m_name
                           mount_map[m_name]
                         end
-            next unless mount_obj.respond_to?(:vpc_expectations) && mount_obj.vpc_expectations.is_a?(Hash)
+            next unless mount_obj
 
-            exp_subs = mount_obj.vpc_expectations['subnet_ids'] || mount_obj.vpc_expectations[:subnet_ids]
-            subs.concat(Array(exp_subs).map(&:to_s)) if exp_subs
+            raw_subs = if mount_obj.respond_to?(:subnet_ids) && !Array(mount_obj.subnet_ids).empty?
+                         mount_obj.subnet_ids
+                       elsif mount_obj.respond_to?(:vpc_expectations) && mount_obj.vpc_expectations.is_a?(Hash)
+                         mount_obj.vpc_expectations['subnet_ids'] || mount_obj.vpc_expectations[:subnet_ids]
+                       end
+            subs.concat(format_subnet_ids(raw_subs)) if raw_subs
           end
           subs.uniq
         end
@@ -332,7 +367,9 @@ module Veltrunode
         end
 
         def format_file_system_configs(mounts_array)
-          if mounts_array && !mounts_array.empty? && (function.vpc_reference.nil? || function.vpc_reference.empty?)
+          if mounts_array && !mounts_array.empty? &&
+             (function.vpc_reference.nil? || function.vpc_reference.empty?) &&
+             infer_vpc_config_from_mounts.empty?
             raise ValidationError,
                   "Function '#{function.logical_name}' has EFS mounts configured but does not specify a VpcConfig " \
                   '(vpc_reference). Lambda requires VpcConfig to mount EFS.'

@@ -104,6 +104,14 @@ module Veltrunode
         @efs_mount_builders << builder
       end
 
+      def managed_file_system(name, **, &)
+        builder = EfsMountBuilder.new(name)
+        builder.managed_file_system(**, &)
+        @efs_mount_builders << builder
+      end
+      alias efs_file_system managed_file_system
+      alias file_system managed_file_system
+
       def security_group_helper(name = nil, vpc_id: nil, **, &)
         builder = if name.is_a?(Hash)
                     opts = name
