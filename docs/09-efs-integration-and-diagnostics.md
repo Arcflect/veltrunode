@@ -250,6 +250,40 @@ end
   - `AWS::EFS::FileSystem` の `Properties.Encrypted` および `Properties.KmsKeyId` に出力されます。
   - 当該 EFS をマウントする Lambda 関数の実行ロール（`AWS::IAM::Role`）に対し、指定された KMS キーへの暗号化・復号権限（`kms:Decrypt`, `kms:DescribeKey`, `kms:Encrypt`, `kms:GenerateDataKey*`, `kms:ReEncrypt*`）が最小特権で自動追加されます。
 
+### EFS クロスリージョンレプリケーション (Cross-Region Replication for Disaster Recovery)
+
+ディザスタリカバリ（DR）計画のために別リージョンの EFS への自動データレプリケーションを構成する場合、`efs_mount`、`managed_access_point`、または `managed_file_system` 定義内で `replication`（エイリアス: `replication_configuration`）を指定できます。
+
+```ruby
+# 1. ハッシュ形式での送信先リージョンおよび KMS キー指定
+efs_mount :dr_storage,
+          local_path: "/mnt/dr",
+          replication: {
+            destination_region: "us-west-2",
+            kms_key_id: "arn:aws:kms:us-west-2:123456789012:key/12345678-1234-1234-1234-123456789012"
+          }
+
+# 2. managed_file_system 内でのブロック構文とパラメータ参照
+managed_file_system :shared_storage do
+  vpc_id ref(:vpc_id)
+  subnet_ids ["subnet-11112222"]
+  local_path "/mnt/shared"
+  encrypted true
+  replication do
+    destination_region "us-west-2"
+    kms_key_id ref(:dr_kms_key_arn)
+  end
+end
+```
+
+- **`destination_region`（エイリアス: `region`）**: レプリケーション送信先の AWS リージョン（例: `'us-west-2'`, `'us-east-1'`）。有効な AWS リージョン形式であるかが検証されます。
+- **`kms_key_id`（エイリアス: `destination_kms_key_id`, `kms_key`, `kms_key_arn`）**: 送信先リージョンでレプリカ EFS の暗号化に使用する KMS キー ARN、キー ID、エイリアス、またはパラメータ参照（`ref(:...)`）。KMS キー ARN が指定された場合、ARN 内のリージョンが `destination_region` と一致しているかが自動検証されます。
+- **生成される CloudFormation リソース（`Veltrunode::Compiler::CloudFormation::ReplicationCompiler`）**:
+  - `AWS::EFS::ReplicationConfiguration`（論理ID: `#{MountName}ReplicationConfiguration`、`SourceFileSystemId` および `Destinations: [{ Region: ..., KmsKeyId: ... }]` を出力）。
+- **レプリケーション状態の整合性検証**:
+  - **静的検証**: `encrypted: false` とレプリケーションの同時指定禁止、送信先 KMS キー ARN リージョンと `destination_region` の一致検証、およびアプリケーションリージョンと同一の `destination_region` 指定時のエラー検出（`VLT-EFS-REPLICATION-REGION`）を実施します。
+  - **AWS 接続診断 (`veltrunode efs verify`)**: `DescribeReplicationConfigurations` API により実環境のレプリケーション有無（`VLT-EFS-REPLICATION-MISSING`）、送信先リージョンの一致（`VLT-EFS-REPLICATION-MISMATCH`）、およびレプリケーションステータス（`ENABLED` / `ERROR` 等、`VLT-EFS-REPLICATION-STATE`）を検証します。
+
 ## 静的チェック項目 (Static Checks)
 
 - ローカルのマウントパスが `/mnt/` で始まっていること。
@@ -272,6 +306,7 @@ end
 - Lambda 実行ロールにおける EFS クライアントのIAM操作権限。
 - 暗号化設定およびバックアップ設定に関する警告メッセージ。
 - EFS CloudWatch アラーム（`BurstCreditBalance` / `PercentIOLimit`）の設定有無およびアラーム状態（`OK` / `ALARM`）の確認（`VLT-EFS-ALARM-STATE`, `VLT-EFS-ALARM-MISSING`）。
+- EFS クロスリージョンレプリケーション設定の有無、送信先リージョンの整合性、およびレプリケーション状態（`ENABLED` / `ERROR`）の確認（`VLT-EFS-REPLICATION-MISSING`, `VLT-EFS-REPLICATION-MISMATCH`, `VLT-EFS-REPLICATION-STATE`）。
 
 ## EFS ストレージサイズ・クォータ確認 (`veltrunode efs quota`)
 

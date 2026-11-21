@@ -157,6 +157,8 @@ module Veltrunode
           for_file_system(name)
         when :mount_target, :efs_mount_target
           for_mount_target(name)
+        when :replication_configuration, :efs_replication_configuration, :replication
+          for_replication_configuration(name)
         when :backup_vault
           for_backup_vault(name)
         when :backup_plan
@@ -279,6 +281,20 @@ module Veltrunode
         end
       end
       alias for_efs_mount_target for_mount_target
+
+      # EFS ReplicationConfiguration (AWS::EFS::ReplicationConfiguration) の論理IDを生成します
+      #
+      # @param name [String, Symbol, nil] ファイルシステムまたはマウント名 (例: :shared_data)
+      # @return [String] 論理ID (例: "SharedDataReplicationConfiguration")
+      def for_replication_configuration(name = nil)
+        base = pascalize(name)
+        return 'ReplicationConfiguration' if base.empty? || base == 'Default'
+        return base if base.end_with?('ReplicationConfiguration')
+
+        "#{base.sub(/FileSystem\z/, '')}ReplicationConfiguration"
+      end
+      alias for_efs_replication_configuration for_replication_configuration
+      alias for_replication for_replication_configuration
 
       # AWS Backup Vault (AWS::Backup::BackupVault) の論理IDを生成します（サフィックス: BackupVault）
       #

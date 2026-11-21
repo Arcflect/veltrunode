@@ -25,6 +25,7 @@ module Veltrunode
                   :kms_key_id,
                   :backup,
                   :alarms,
+                  :replication,
                   :deletion_policy,
                   :update_replace_policy
 
@@ -36,6 +37,7 @@ module Veltrunode
       alias backup_policy backup
       alias backup_plan backup
       alias efs_alarms alarms
+      alias replication_configuration replication
 
       class << self
         def validate_unique_local_paths!(mounts, mount_map: {})
@@ -140,6 +142,10 @@ module Veltrunode
         percent_io_limit_threshold: nil,
         io_limit_threshold: nil,
         alarm_topic: nil,
+        replication: nil,
+        replication_configuration: nil,
+        replication_destination_region: nil,
+        replication_kms_key_id: nil,
         vpc_expectations: {},
         posix_expectations: {},
         diagnostic_policy: {}
@@ -184,6 +190,12 @@ module Veltrunode
           io_limit_threshold: io_limit_threshold,
           topic: alarm_topic
         )
+        raw_rep = replication.nil? ? replication_configuration : replication
+        explicit_replication = ManagedAccessPoint.normalize_replication_config(
+          raw_rep,
+          destination_region: replication_destination_region,
+          kms_key_id: replication_kms_key_id
+        )
         normalized_mfs = normalize_managed_file_system(
           managed_file_system,
           symbolic_name: symbolic_name,
@@ -199,7 +211,8 @@ module Veltrunode
           explicit_backup: explicit_backup,
           explicit_alarms: explicit_alarms,
           explicit_enc: explicit_enc,
-          explicit_kms: explicit_kms
+          explicit_kms: explicit_kms,
+          explicit_replication: explicit_replication
         )
         resolved_lifecycle = explicit_lifecycle || normalized_mfs&.lifecycle_policies
         resolved_tp_mode = explicit_tp_mode || normalized_mfs&.throughput_mode
@@ -208,6 +221,7 @@ module Veltrunode
         resolved_kms = explicit_kms || normalized_mfs&.kms_key_id
         resolved_backup = explicit_backup || normalized_mfs&.backup
         resolved_alarms = explicit_alarms || normalized_mfs&.alarms
+        resolved_replication = explicit_replication || normalized_mfs&.replication
 
         normalized_map = normalize_managed_access_point(
           managed_access_point,
@@ -218,6 +232,7 @@ module Veltrunode
           resolved_alarms,
           resolved_enc,
           resolved_kms,
+          resolved_replication,
           managed_file_system: normalized_mfs,
           posix_expectations: posix_expectations
         )
@@ -228,6 +243,12 @@ module Veltrunode
         resolved_kms ||= normalized_map&.kms_key_id
         resolved_backup ||= normalized_map&.backup
         resolved_alarms ||= normalized_map&.alarms
+        resolved_replication ||= normalized_map&.replication
+
+        if resolved_enc == false && !resolved_replication.nil?
+          raise ValidationError,
+                'EFS replication requires encryption at rest; encrypted cannot be false when replication is configured'
+        end
 
         resolved_del_policy, resolved_upd_policy = resolve_deletion_policies(
           normalized_mfs,
@@ -249,7 +270,7 @@ module Veltrunode
 
         has_fs_config = !normalized_mfs.nil? || !resolved_lifecycle.nil? || !resolved_tp_mode.nil? ||
                         !resolved_prov_tp.nil? || !resolved_enc.nil? || !resolved_kms.nil? ||
-                        !resolved_backup.nil? || !resolved_alarms.nil?
+                        !resolved_backup.nil? || !resolved_alarms.nil? || !resolved_replication.nil?
         resolved_source = access_point_source ||
                           (normalized_map || has_fs_config ? symbolic_name : nil)
         validate!(
@@ -273,6 +294,7 @@ module Veltrunode
         @kms_key_id = resolved_kms
         @backup = resolved_backup
         @alarms = resolved_alarms
+        @replication = resolved_replication
         @deletion_policy = resolved_del_policy
         @update_replace_policy = resolved_upd_policy
         @vpc_expectations = freeze_value(resolved_vpc_expectations)
@@ -354,6 +376,19 @@ module Veltrunode
       end
       alias efs_alarms? alarms?
 
+      def replication?
+        !@replication.nil? && !@replication.empty?
+      end
+      alias replication_configuration? replication?
+
+      def replication_destination_region
+        @replication&.fetch('destination_region', nil)
+      end
+
+      def replication_kms_key_id
+        @replication&.fetch('kms_key_id', nil)
+      end
+
       def burst_credit_balance_threshold
         @alarms&.dig('burst_credit_balance', 'threshold')
       end
@@ -383,7 +418,8 @@ module Veltrunode
       def file_system_configuration?
         managed_file_system? || lifecycle_policies? || throughput_configuration? || encryption_configuration? ||
           !@deletion_policy.nil? || !@update_replace_policy.nil? ||
-          ((backup? || alarms?) && (@managed_access_point.nil? || @managed_access_point.file_system_id.nil?))
+          ((backup? || alarms? || replication?) &&
+           (@managed_access_point.nil? || @managed_access_point.file_system_id.nil?))
       end
 
       def transition_to_ia
@@ -427,7 +463,8 @@ module Veltrunode
         explicit_backup:,
         explicit_alarms:,
         explicit_enc:,
-        explicit_kms:
+        explicit_kms:,
+        explicit_replication: nil
       )
         return mfs if mfs.is_a?(ManagedFileSystem)
         return nil if mfs.nil? && subnet_ids.nil?
@@ -447,6 +484,7 @@ module Veltrunode
         opts[:alarms] ||= explicit_alarms if explicit_alarms
         opts[:encrypted] = explicit_enc if opts[:encrypted].nil? && !explicit_enc.nil?
         opts[:kms_key_id] ||= explicit_kms if explicit_kms
+        opts[:replication] ||= explicit_replication if explicit_replication
 
         ManagedFileSystem.new(**opts)
       end
@@ -460,6 +498,7 @@ module Veltrunode
         explicit_alarms = nil,
         explicit_enc = nil,
         explicit_kms = nil,
+        explicit_replication = nil,
         managed_file_system: nil,
         posix_expectations: {}
       )
@@ -481,6 +520,7 @@ module Veltrunode
         opts[:alarms] ||= explicit_alarms if explicit_alarms
         opts[:encrypted] = explicit_enc if opts[:encrypted].nil? && !explicit_enc.nil?
         opts[:kms_key_id] ||= explicit_kms if explicit_kms
+        opts[:replication] ||= explicit_replication if explicit_replication
         opts[:tags] ||= managed_file_system.tags if managed_file_system && !managed_file_system.tags.empty?
         ManagedAccessPoint.new(**opts)
       end

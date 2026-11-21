@@ -37,6 +37,7 @@ module Veltrunode
                   :kms_key_id,
                   :backup,
                   :alarms,
+                  :replication,
                   :tags
 
       alias name symbolic_name
@@ -49,6 +50,7 @@ module Veltrunode
       alias backup_policy backup
       alias backup_plan backup
       alias efs_alarms alarms
+      alias replication_configuration replication
 
       class << self
         def normalize_deletion_policy(policy, deletion_protection: nil)
@@ -120,6 +122,10 @@ module Veltrunode
         percent_io_limit_threshold: nil,
         io_limit_threshold: nil,
         alarm_topic: nil,
+        replication: nil,
+        replication_configuration: nil,
+        replication_destination_region: nil,
+        replication_kms_key_id: nil,
         tags: nil
       )
         raw_subnets = subnet_ids.nil? ? subnets : subnet_ids
@@ -184,6 +190,16 @@ module Veltrunode
           io_limit_threshold: io_limit_threshold,
           topic: alarm_topic
         )
+        raw_rep = replication.nil? ? replication_configuration : replication
+        normalized_replication = ManagedAccessPoint.normalize_replication_config(
+          raw_rep,
+          destination_region: replication_destination_region,
+          kms_key_id: replication_kms_key_id
+        )
+        if normalized_enc == false && !normalized_replication.nil?
+          raise ValidationError,
+                'EFS replication requires encryption at rest; encrypted cannot be false when replication is configured'
+        end
 
         @symbolic_name = (symbolic_name || :default).to_s.freeze
         @vpc_id = normalized_vpc_id
@@ -198,6 +214,7 @@ module Veltrunode
         @kms_key_id = normalized_kms
         @backup = normalized_backup
         @alarms = normalized_alarms
+        @replication = normalized_replication
         @tags = freeze_tags(tags)
 
         freeze
@@ -234,6 +251,19 @@ module Veltrunode
 
       def alarms?
         !@alarms.nil? && !@alarms.empty?
+      end
+
+      def replication?
+        !@replication.nil? && !@replication.empty?
+      end
+      alias replication_configuration? replication?
+
+      def replication_destination_region
+        @replication&.fetch('destination_region', nil)
+      end
+
+      def replication_kms_key_id
+        @replication&.fetch('kms_key_id', nil)
       end
 
       private

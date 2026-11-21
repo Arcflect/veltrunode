@@ -661,6 +661,27 @@ RSpec.describe Veltrunode::Validation::Engine do
       expect(dup_err.severity).to eq(:error)
       expect(dup_err.evidence['local_path']).to eq('/mnt/data')
     end
+
+    it 'detects EFS replication destination_region matching application region (VLT-EFS-REPLICATION-REGION)' do
+      m1 = Veltrunode::Model::EfsMount.new(
+        symbolic_name: 'dr_efs',
+        local_path: '/mnt/dr',
+        replication: { destination_region: 'ap-northeast-1' }
+      )
+      app = Veltrunode::Model::Application.new(
+        name: 'same-region-rep-app',
+        region: 'ap-northeast-1',
+        stage: 'dev',
+        mounts: [m1]
+      )
+
+      diagnostics = described_class.run(app)
+      rep_err = diagnostics.find { |d| d.code == 'VLT-EFS-REPLICATION-REGION' }
+
+      expect(rep_err).not_to be_nil
+      expect(rep_err.severity).to eq(:error)
+      expect(rep_err.evidence['destination_region']).to eq('ap-northeast-1')
+    end
   end
 
   describe '.run!' do

@@ -105,6 +105,42 @@ module Veltrunode
         end
       end
 
+      # replication { ... } ブロック用ビルダ
+      class ReplicationBlockBuilder < BaseBuilder
+        attr_reader :config
+
+        def initialize(initial = {})
+          super()
+          @config = initial.dup
+        end
+
+        def destination_region(val)
+          @config[:destination_region] = val
+        end
+        alias region destination_region
+
+        def kms_key_id(val)
+          @config[:kms_key_id] = val
+        end
+        alias destination_kms_key_id kms_key_id
+        alias kms_key kms_key_id
+        alias kms_key_arn kms_key_id
+
+        def availability_zone_name(val)
+          @config[:availability_zone_name] = val
+        end
+        alias availability_zone availability_zone_name
+
+        def file_system_id(val)
+          @config[:file_system_id] = val
+        end
+        alias destination_file_system_id file_system_id
+
+        def role_arn(val)
+          @config[:role_arn] = val
+        end
+      end
+
       def initialize(
         file_system_id = nil,
         root_directory: nil,
@@ -138,6 +174,8 @@ module Veltrunode
         percent_io_limit_threshold: nil,
         io_limit_threshold: nil,
         alarm_topic: nil,
+        replication: nil,
+        replication_configuration: nil,
         local_path: nil,
         tags: nil
       )
@@ -187,6 +225,9 @@ module Veltrunode
             topic: alarm_topic
           )
         end
+        @replication = nil
+        raw_rep = replication.nil? ? replication_configuration : replication
+        merge_replication!(raw_rep) unless raw_rep.nil?
         @tags = tags ? tags.dup : {}
         @local_path_val = local_path&.to_s
       end
@@ -391,6 +432,32 @@ module Veltrunode
         merge_alarms!(topic: val)
       end
 
+      def replication(
+        val = :__unset__,
+        destination_region: nil,
+        region: nil,
+        kms_key_id: nil,
+        destination_kms_key_id: nil,
+        kms_key: nil,
+        kms_key_arn: nil,
+        availability_zone_name: nil,
+        file_system_id: nil,
+        destination_file_system_id: nil,
+        role_arn: nil,
+        &
+      )
+        merge_replication!(
+          val,
+          destination_region: destination_region || region,
+          kms_key_id: kms_key_id || destination_kms_key_id || kms_key || kms_key_arn,
+          availability_zone_name: availability_zone_name,
+          file_system_id: file_system_id || destination_file_system_id,
+          role_arn: role_arn,
+          &
+        )
+      end
+      alias replication_configuration replication
+
       def build
         posix = @posix_user.empty? ? nil : @posix_user
         lifecycle = @lifecycle_policies.empty? ? nil : @lifecycle_policies
@@ -398,7 +465,8 @@ module Veltrunode
                         !@provisioned_throughput_in_mibps.nil? ||
                         !@encrypted.nil? || !@kms_key_id.nil? ||
                         (!@backup.nil? && @backup != false) ||
-                        (!@alarms.nil? && @alarms != false)
+                        (!@alarms.nil? && @alarms != false) ||
+                        (!@replication.nil? && @replication != false)
         opts = {
           root_directory_path: @root_directory_path,
           posix_user: posix,
@@ -410,6 +478,7 @@ module Veltrunode
           kms_key_id: @kms_key_id,
           backup: @backup,
           alarms: @alarms,
+          replication: @replication,
           tags: @tags.empty? ? nil : @tags
         }
         opts[:file_system_id] = @file_system_id unless @file_system_id.nil? && has_fs_config
@@ -417,6 +486,43 @@ module Veltrunode
       end
 
       private
+
+      def merge_replication!(
+        val = :__unset__,
+        destination_region: nil,
+        kms_key_id: nil,
+        availability_zone_name: nil,
+        file_system_id: nil,
+        role_arn: nil,
+        &
+      )
+        if val == false
+          @replication = false
+          return
+        end
+
+        @replication = @replication.is_a?(Hash) ? @replication.dup : {}
+        if val.is_a?(Hash)
+          @replication.merge!(val)
+        elsif val.is_a?(String) || val.is_a?(Symbol)
+          @replication[:destination_region] = val.to_s unless val == :__unset__
+        elsif val != :__unset__ && !val.nil?
+          @replication = val
+          return
+        end
+
+        @replication[:destination_region] = destination_region if destination_region
+        @replication[:kms_key_id] = kms_key_id if kms_key_id
+        @replication[:availability_zone_name] = availability_zone_name if availability_zone_name
+        @replication[:file_system_id] = file_system_id if file_system_id
+        @replication[:role_arn] = role_arn if role_arn
+
+        return unless block_given?
+
+        block_builder = ReplicationBlockBuilder.new(@replication)
+        block_builder.instance_eval(&)
+        @replication = block_builder.config
+      end
 
       def merge_alarms!(
         val = :__unset__,

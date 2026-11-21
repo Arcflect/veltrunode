@@ -198,6 +198,9 @@ module Veltrunode
           # 12. CloudWatch アラーム状態確認 (BurstCreditBalance / PercentIOLimit)
           check_cloudwatch_alarms(fs_id, efs_mount, checks, diagnostics)
 
+          # 13. クロスリージョンレプリケーション設定・状態の整合性確認
+          check_replication_configuration(fs_id, efs_mount, checks, diagnostics)
+
           confidence = calculate_overall_confidence(checks, diagnostics)
 
           build_report(
@@ -1233,6 +1236,161 @@ module Veltrunode
             else
               true
             end
+          end
+        end
+
+        # チェック 13: クロスリージョンレプリケーション設定・状態の整合性確認
+        def check_replication_configuration(fs_id, efs_mount, checks, diagnostics)
+          return unless efs_mount.respond_to?(:replication?) && efs_mount.replication?
+
+          expected_region = if efs_mount.respond_to?(:replication_destination_region)
+                              efs_mount.replication_destination_region
+                            end
+          client = resolve_efs_client
+          unless client.respond_to?(:describe_replication_configurations)
+            checks << CheckResult.new(
+              name: 'replication_status',
+              status: :passed,
+              confidence: CONFIDENCE_HIGH,
+              summary: "EFS cross-region replication to #{expected_region} is configured " \
+                       "for #{efs_mount.symbolic_name}.",
+              evidence: {
+                'file_system_id' => fs_id,
+                'compiler_managed' => true,
+                'destination_region' => expected_region
+              }
+            )
+            return
+          end
+
+          resp = client.describe_replication_configurations(file_system_id: fs_id)
+          replications = Array(resp.respond_to?(:replications) ? resp.replications : [])
+          destinations = replications.flat_map { |r| Array(r.respond_to?(:destinations) ? r.destinations : []) }
+
+          if destinations.empty?
+            record_missing_replication(fs_id, expected_region, checks, diagnostics)
+            return
+          end
+
+          matching = if expected_region
+                       destinations.find { |d| d.region.to_s == expected_region.to_s }
+                     else
+                       destinations.first
+                     end
+
+          if expected_region && matching.nil?
+            actual_regions = destinations.map { |d| d.region.to_s }.join(', ')
+            record_mismatched_replication_region(fs_id, expected_region, actual_regions, checks, diagnostics)
+            return
+          end
+
+          evaluate_replication_destination_state(fs_id, matching || destinations.first, checks, diagnostics)
+        rescue StandardError => e
+          record_missing_replication(fs_id, expected_region, checks, diagnostics, error_msg: e.message)
+        end
+
+        def record_missing_replication(fs_id, expected_region, checks, diagnostics, error_msg: nil)
+          ev = { 'file_system_id' => fs_id, 'expected_destination_region' => expected_region }
+          ev['error'] = error_msg if error_msg
+          diag = Diagnostics::Diagnostic.new(
+            code: 'VLT-EFS-REPLICATION-MISSING',
+            severity: :warning,
+            summary: "EFS replication is configured in DSL (destination_region: #{expected_region}), " \
+                     "but no replication configuration exists on AWS for file system #{fs_id}.",
+            suggested_action: 'Deploy the stack to create AWS::EFS::ReplicationConfiguration ' \
+                              'or verify replication status.',
+            evidence: ev
+          )
+          diagnostics << diag
+          checks << CheckResult.new(
+            name: 'replication_status',
+            status: :warning,
+            confidence: CONFIDENCE_HIGH,
+            summary: "No replication configuration found on AWS for #{fs_id}.",
+            evidence: ev,
+            diagnostic: diag
+          )
+        end
+
+        def record_mismatched_replication_region(fs_id, expected_region, actual_regions, checks, diagnostics)
+          ev = {
+            'file_system_id' => fs_id,
+            'expected_destination_region' => expected_region,
+            'actual_destination_regions' => actual_regions
+          }
+          diag = Diagnostics::Diagnostic.new(
+            code: 'VLT-EFS-REPLICATION-MISMATCH',
+            severity: :error,
+            summary: "EFS replication destination region mismatch for #{fs_id}: " \
+                     "expected '#{expected_region}', actual '#{actual_regions}'.",
+            suggested_action: "Update replication destination_region in Veltrunodefile to '#{actual_regions}' " \
+                              'or recreate the EFS replication configuration.',
+            evidence: ev
+          )
+          diagnostics << diag
+          checks << CheckResult.new(
+            name: 'replication_status',
+            status: :failed,
+            confidence: CONFIDENCE_HIGH,
+            summary: "Replication destination region mismatch (expected #{expected_region}, actual #{actual_regions}).",
+            evidence: ev,
+            diagnostic: diag
+          )
+        end
+
+        def evaluate_replication_destination_state(fs_id, dest, checks, diagnostics)
+          status = dest.respond_to?(:status) && dest.status ? dest.status.to_s.upcase : 'ENABLED'
+          dest_region = dest.respond_to?(:region) ? dest.region.to_s : nil
+          dest_fs_id = dest.respond_to?(:file_system_id) ? dest.file_system_id : nil
+          ev = {
+            'file_system_id' => fs_id,
+            'destination_region' => dest_region,
+            'destination_file_system_id' => dest_fs_id,
+            'status' => status
+          }
+
+          if status == 'ENABLED'
+            checks << CheckResult.new(
+              name: 'replication_status',
+              status: :passed,
+              confidence: CONFIDENCE_HIGH,
+              summary: "EFS replication for #{fs_id} is ENABLED to region #{dest_region}.",
+              evidence: ev
+            )
+          elsif %w[ERROR DELETING].include?(status)
+            diag = Diagnostics::Diagnostic.new(
+              code: 'VLT-EFS-REPLICATION-STATE',
+              severity: :error,
+              summary: "EFS replication for #{fs_id} to #{dest_region} is in #{status} state (expected 'ENABLED').",
+              suggested_action: 'Inspect EFS replication configuration and KMS permissions in the destination region.',
+              evidence: ev
+            )
+            diagnostics << diag
+            checks << CheckResult.new(
+              name: 'replication_status',
+              status: :failed,
+              confidence: CONFIDENCE_HIGH,
+              summary: "EFS replication for #{fs_id} is in #{status} state.",
+              evidence: ev,
+              diagnostic: diag
+            )
+          else
+            diag = Diagnostics::Diagnostic.new(
+              code: 'VLT-EFS-REPLICATION-STATE',
+              severity: :warning,
+              summary: "EFS replication for #{fs_id} to #{dest_region} is in #{status} state.",
+              suggested_action: 'Wait for EFS replication to transition to ENABLED state.',
+              evidence: ev
+            )
+            diagnostics << diag
+            checks << CheckResult.new(
+              name: 'replication_status',
+              status: :warning,
+              confidence: CONFIDENCE_HIGH,
+              summary: "EFS replication for #{fs_id} is in #{status} state.",
+              evidence: ev,
+              diagnostic: diag
+            )
           end
         end
 

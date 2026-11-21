@@ -331,4 +331,24 @@ RSpec.describe Veltrunode::Model::EfsMount do
       expect(mount.vpc_expectations['subnet_ids']).to eq(%w[subnet-11112222 subnet-33334444])
     end
   end
+
+  describe 'replication configuration (Cross-Region DR)' do
+    let(:dest_kms_arn) { 'arn:aws:kms:us-west-2:123456789012:key/12345678-1234-1234-1234-123456789012' }
+
+    it 'supports replication: { destination_region: "us-west-2", kms_key_id: ... } on EfsMount' do
+      mount = described_class.new(
+        symbolic_name: 'dr_storage',
+        local_path: '/mnt/dr',
+        replication: {
+          destination_region: 'us-west-2',
+          kms_key_id: dest_kms_arn
+        }
+      )
+
+      expect(mount.replication?).to be(true)
+      expect(mount.replication_destination_region).to eq('us-west-2')
+      expect(mount.replication_kms_key_id).to eq(dest_kms_arn)
+      expect(mount.file_system_configuration?).to be(true)
+    end
+  end
 end
