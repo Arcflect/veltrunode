@@ -158,15 +158,25 @@ module Veltrunode
             'ephemeral_storage' => extract_val(fn, :ephemeral_storage)
           }
 
+          if fn.respond_to?(:image?) && fn.image?
+            fn_info['package_type'] = 'Image'
+            img = extract_val(fn, :image)
+            fn_info['image'] = img if present?(img)
+          end
+
           if res
             ch = extract_val(res, :content_hash) || extract_val(res, :sha256)
             sha = extract_val(res, :sha256)
             zip = extract_val(res, :zip_path)
+            img_uri = extract_val(res, :image_uri)
+            img_tag = extract_val(res, :image_tag)
 
             fn_info['content_hash'] = ch if ch
             fn_info['sha256'] = sha if sha
             fn_info['artifact_hash'] = sha if sha
             fn_info['zip_path'] = File.basename(zip) if zip
+            fn_info['image_uri'] = img_uri if img_uri
+            fn_info['image_tag'] = img_tag if img_tag
           end
 
           env = extract_val(fn, :environment)

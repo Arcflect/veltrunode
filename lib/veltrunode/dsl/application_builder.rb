@@ -146,9 +146,11 @@ module Veltrunode
       def function(name, tracing: nil, insights: nil, async_invoke: nil, alarms: nil,
                    event_source: nil, event_sources: nil, rule: nil, rules: nil,
                    kinesis_stream: nil, msk: nil, mq: nil, function_url: nil,
-                   mounts: nil, efs_mounts: nil, efs_mount: nil, mount: nil, **, &)
+                   mounts: nil, efs_mounts: nil, efs_mount: nil, mount: nil,
+                   image: nil, container_image: nil, **, &)
         alarms_cfg = alarms.nil? ? @runtime_defaults[:alarms] : alarms
         fn_url_cfg = function_url.nil? ? @runtime_defaults[:function_url] : function_url
+        img_cfg = image.nil? ? container_image : image
         mounts_cfg = combine_mounts_defaults(mounts, efs_mounts, efs_mount, mount)
         es_cfg = combine_event_source_defaults(
           event_source || event_sources || @runtime_defaults[:event_sources],
@@ -167,7 +169,8 @@ module Veltrunode
           alarms_default: alarms_cfg,
           event_sources_default: es_cfg,
           function_url_default: fn_url_cfg,
-          mounts_default: mounts_cfg
+          mounts_default: mounts_cfg,
+          image_default: img_cfg
         )
         builder.instance_eval(&) if block_given?
         @function_builders << builder

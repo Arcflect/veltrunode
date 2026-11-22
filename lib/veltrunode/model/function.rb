@@ -11,9 +11,11 @@ module Veltrunode
     class Function
       attr_reader :handler, :runtime, :logical_name, :architecture, :memory, :timeout, :ephemeral_storage,
                   :environment, :vpc_reference, :layers, :mounts, :iam_capabilities, :concurrency, :logging,
-                  :alarms, :subscription_filters, :tracing, :insights, :async_invoke, :event_sources, :function_url
+                  :alarms, :subscription_filters, :tracing, :insights, :async_invoke, :event_sources, :function_url,
+                  :image
 
       alias efs_mounts mounts
+      alias container_image image
 
       def initialize(
         positional_logical_name = nil,
@@ -42,7 +44,9 @@ module Veltrunode
         event_sources: [],
         rule: nil,
         rules: [],
-        function_url: nil
+        function_url: nil,
+        image: nil,
+        container_image: nil
       )
         name_val = positional_logical_name || logical_name
         validate_logical_name!(name_val)
@@ -68,8 +72,9 @@ module Veltrunode
         @async_invoke = normalize_async_invoke(async_invoke)
         @event_sources = normalize_event_sources(event_sources, rule: rule, rules: rules)
         @function_url = normalize_function_url(function_url)
+        @image = normalize_image(image.nil? ? container_image : image)
 
-        freeze if @handler || @runtime
+        freeze if @handler || @runtime || @image
       end
 
       def handler=(h)
@@ -160,6 +165,53 @@ module Veltrunode
       end
       alias function_url_enabled? function_url?
 
+      def image?
+        !@image.nil? && !@image.empty?
+      end
+      alias container_image? image?
+
+      def package_type
+        image? ? 'Image' : 'Zip'
+      end
+
+      def image_dockerfile
+        @image&.fetch('dockerfile', nil)
+      end
+
+      def image_tag
+        @image&.fetch('tag', nil)
+      end
+
+      def image_uri
+        @image&.fetch('uri', nil)
+      end
+
+      def image_context
+        @image&.fetch('context', nil)
+      end
+
+      def image_repository
+        @image&.fetch('repository', nil)
+      end
+
+      def image_build_args
+        @image&.fetch('build_args', nil) || {}.freeze
+      end
+
+      def image_target
+        @image&.fetch('target', nil)
+      end
+
+      def image_config
+        return nil unless image?
+
+        cfg = {}
+        cfg['Command'] = @image['command'] if @image['command'] && !@image['command'].empty?
+        cfg['EntryPoint'] = @image['entry_point'] if @image['entry_point'] && !@image['entry_point'].empty?
+        cfg['WorkingDirectory'] = @image['working_directory'] if @image['working_directory']
+        cfg.empty? ? nil : cfg
+      end
+
       def validate_invariants(context = {})
         diagnostics = []
 
@@ -206,6 +258,66 @@ module Veltrunode
 
       def validate_logical_name!(name)
         raise ValidationError, 'Function logical_name is required' if name.nil? || name.to_s.strip.empty?
+      end
+
+      def normalize_image(raw_image)
+        return nil if raw_image.nil? || raw_image == false
+
+        if raw_image.is_a?(String)
+          str = raw_image.strip
+          raise ValidationError, 'Function image URI cannot be empty' if str.empty?
+
+          return freeze_hash('uri' => str)
+        end
+
+        if (!raw_image.is_a?(Symbol) && raw_image.respond_to?(:name)) || raw_image.is_a?(Symbol)
+          return freeze_hash('uri' => raw_image)
+        end
+
+        unless raw_image.is_a?(Hash)
+          raise ValidationError,
+                "Invalid function image configuration '#{raw_image}'. " \
+                'Must be a Hash (e.g. { dockerfile: "./Dockerfile", tag: "..." }) or image URI String'
+        end
+
+        dockerfile = raw_image[:dockerfile] || raw_image['dockerfile'] ||
+                     raw_image[:Dockerfile] || raw_image['Dockerfile']
+        uri = raw_image[:uri] || raw_image['uri'] || raw_image[:image_uri] || raw_image['image_uri'] ||
+              raw_image[:ImageUri] || raw_image['ImageUri']
+        if (dockerfile.nil? || dockerfile.to_s.strip.empty?) && (uri.nil? || (uri.is_a?(String) && uri.strip.empty?))
+          raise ValidationError, "Function image configuration requires either 'dockerfile' or 'uri'"
+        end
+
+        result = {}
+        result['dockerfile'] = dockerfile.to_s.strip if dockerfile && !dockerfile.to_s.strip.empty?
+        if uri
+          result['uri'] = uri.is_a?(String) ? uri.strip : uri
+        end
+        ctx = raw_image[:context] || raw_image['context']
+        result['context'] = (ctx && !ctx.to_s.strip.empty? ? ctx.to_s.strip : '.') if result['dockerfile']
+        tag = raw_image[:tag] || raw_image['tag']
+        result['tag'] = (tag && !tag.to_s.strip.empty? ? tag.to_s.strip : 'latest') if result['dockerfile'] || tag
+        repo = raw_image[:repository] || raw_image['repository']
+        result['repository'] = repo.to_s.strip if repo && !repo.to_s.strip.empty?
+        build_args = raw_image[:build_args] || raw_image['build_args']
+        if build_args.is_a?(Hash) && !build_args.empty?
+          result['build_args'] = build_args.transform_keys(&:to_s).transform_values(&:to_s)
+        end
+        target = raw_image[:target] || raw_image['target']
+        result['target'] = target.to_s.strip if target && !target.to_s.strip.empty?
+
+        cmd = raw_image[:command] || raw_image['command'] || raw_image[:Command] || raw_image['Command']
+        result['command'] = Array(cmd).flatten.map(&:to_s) if cmd
+        ep = raw_image[:entry_point] || raw_image['entry_point'] ||
+             raw_image[:entrypoint] || raw_image['entrypoint'] ||
+             raw_image[:EntryPoint] || raw_image['EntryPoint']
+        result['entry_point'] = Array(ep).flatten.map(&:to_s) if ep
+        wd = raw_image[:working_directory] || raw_image['working_directory'] ||
+             raw_image[:workdir] || raw_image['workdir'] ||
+             raw_image[:WorkingDirectory] || raw_image['WorkingDirectory']
+        result['working_directory'] = wd.to_s.strip if wd && !wd.to_s.strip.empty?
+
+        freeze_hash(result)
       end
 
       def normalize_architecture(arch)

@@ -2184,4 +2184,54 @@ RSpec.describe Veltrunode::Compiler::CloudFormation::TemplateCompiler do
       )
     end
   end
+
+  describe 'OCI Container Image Packaging (PackageType: Image)' do
+    it 'compiles container image functions with PackageType: Image, Code.ImageUri, and parameter references' do
+      dsl_code = <<~RUBY
+        Veltrunode.application "ml-inference-service" do
+          aws region: "ap-northeast-1", account: "123456789012"
+          runtime ruby: "3.3"
+
+          function :ml_inference, image: { dockerfile: "./Dockerfile", tag: "v1.2.0" } do
+            architecture :arm64
+            memory 4096
+            timeout 120
+          end
+
+          function :external_model do
+            image uri: ref(:external_model_image_uri), command: ["predict.run"]
+          end
+        end
+      RUBY
+
+      app = Veltrunode.parse(dsl_code)
+      result = described_class.compile(app)
+      resources = result['Resources']
+      params = result['Parameters']
+
+      ml_fn = resources['MlInferenceFunction']
+      expect(ml_fn).not_to be_nil
+      expect(ml_fn['Type']).to eq('AWS::Lambda::Function')
+      expect(ml_fn['Properties']['PackageType']).to eq('Image')
+      expect(ml_fn['Properties']).not_to have_key('Handler')
+      expect(ml_fn['Properties']).not_to have_key('Runtime')
+      expect(ml_fn['Properties']['Code']).to eq(
+        'ImageUri' => {
+          'Fn::Sub' => '${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/ml_inference:v1.2.0'
+        }
+      )
+
+      ext_fn = resources['ExternalModelFunction']
+      expect(ext_fn).not_to be_nil
+      expect(ext_fn['Properties']['PackageType']).to eq('Image')
+      expect(ext_fn['Properties']['Code']).to eq(
+        'ImageUri' => { 'Ref' => 'ExternalModelImageUri' }
+      )
+      expect(ext_fn['Properties']['ImageConfig']).to eq(
+        'Command' => ['predict.run']
+      )
+      expect(params).to have_key('ExternalModelImageUri')
+      expect(params['ExternalModelImageUri']['Type']).to eq('String')
+    end
+  end
 end

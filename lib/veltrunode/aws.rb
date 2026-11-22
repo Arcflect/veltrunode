@@ -22,6 +22,7 @@ module Veltrunode
 end
 
 require_relative 'aws/s3_uploader'
+require_relative 'aws/ecr_pusher'
 require_relative 'aws/account_region_guard'
 require_relative 'aws/change_set_manager'
 require_relative 'aws/stack_destroyer'

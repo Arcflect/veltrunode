@@ -431,8 +431,28 @@ module Veltrunode
         real_source_dir = File.realpath(source_dir)
         base_prefix = real_source_dir.end_with?(File::SEPARATOR) ? real_source_dir : "#{real_source_dir}#{File::SEPARATOR}"
 
-        # 1. Handler file existence
+        # 1. Handler file existence (or Dockerfile existence for container image functions)
         Array(application.functions).each do |fn|
+          if fn.respond_to?(:image?) && fn.image?
+            dockerfile_rel = fn.respond_to?(:image_dockerfile) ? fn.image_dockerfile : nil
+            next if dockerfile_rel.nil? || dockerfile_rel.to_s.strip.empty?
+
+            abs_df = File.expand_path(dockerfile_rel.to_s, real_source_dir)
+            next if File.file?(abs_df)
+
+            diagnostics << Diagnostics::Diagnostic.new(
+              code: 'VLT-BUILD-DOCKERFILE-NOT-FOUND',
+              severity: :error,
+              summary: "Dockerfile not found for function '#{fn.logical_name}': '#{dockerfile_rel}'.",
+              suggested_action: "Ensure Dockerfile '#{dockerfile_rel}' exists in source directory '#{source_dir}'.",
+              evidence: {
+                'function' => fn.logical_name,
+                'dockerfile' => dockerfile_rel.to_s
+              }
+            )
+            next
+          end
+
           handler_str = fn.respond_to?(:handler) ? fn.handler.to_s.strip : ''
           next if handler_str.empty?
 

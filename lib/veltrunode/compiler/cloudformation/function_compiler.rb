@@ -50,8 +50,16 @@ module Veltrunode
           props = {}
 
           props['FunctionName'] = function.logical_name if present?(function.logical_name)
-          props['Handler'] = function.handler if present?(function.handler)
-          props['Runtime'] = function.runtime if present?(function.runtime)
+
+          if image_function?
+            props['PackageType'] = 'Image'
+            if function.respond_to?(:image_config) && present?(function.image_config)
+              props['ImageConfig'] = function.image_config
+            end
+          else
+            props['Handler'] = function.handler if present?(function.handler)
+            props['Runtime'] = function.runtime if present?(function.runtime)
+          end
 
           props['Architectures'] = [function.architecture.to_s] if present?(function.architecture)
 
@@ -77,19 +85,21 @@ module Veltrunode
             props['VpcConfig'] = vpc_cfg if vpc_cfg && !vpc_cfg.empty?
           end
 
-          layers_to_attach = Array(function.layers).dup
-          if function.respond_to?(:adot_enabled?) && function.adot_enabled?
-            adot_arn = resolve_adot_layer_arn
-            layers_to_attach << adot_arn if adot_arn
-          end
-          if function.respond_to?(:insights_enabled?) && function.insights_enabled?
-            insights_arn = resolve_insights_layer_arn
-            layers_to_attach << insights_arn if insights_arn
-          end
+          unless image_function?
+            layers_to_attach = Array(function.layers).dup
+            if function.respond_to?(:adot_enabled?) && function.adot_enabled?
+              adot_arn = resolve_adot_layer_arn
+              layers_to_attach << adot_arn if adot_arn
+            end
+            if function.respond_to?(:insights_enabled?) && function.insights_enabled?
+              insights_arn = resolve_insights_layer_arn
+              layers_to_attach << insights_arn if insights_arn
+            end
 
-          unless layers_to_attach.empty?
-            layers_list = format_layers(layers_to_attach)
-            props['Layers'] = layers_list unless layers_list.empty?
+            unless layers_to_attach.empty?
+              layers_list = format_layers(layers_to_attach)
+              props['Layers'] = layers_list unless layers_list.empty?
+            end
           end
 
           if present?(function.mounts)
@@ -475,16 +485,60 @@ module Veltrunode
           }
         end
 
+        def image_function?
+          function.respond_to?(:image?) && function.image?
+        end
+
         def format_code
           return code if code
 
           artifact_entry = resolve_artifact_context(function.logical_name)
           return artifact_entry if artifact_entry
 
+          return format_image_code if image_function?
+
           {
             'S3Bucket' => { 'Ref' => 'ArtifactBucket' },
             'S3Key' => "artifacts/functions/#{function.logical_name}.zip"
           }
+        end
+
+        def format_image_code
+          uri = function.respond_to?(:image_uri) ? function.image_uri : nil
+          tag = function.respond_to?(:image_tag) ? function.image_tag : nil
+
+          if uri
+            if !uri.is_a?(Symbol) && uri.respond_to?(:name)
+              return { 'ImageUri' => { 'Ref' => LogicalId.pascalize(uri.name.to_s) } }
+            elsif uri.is_a?(Symbol)
+              return { 'ImageUri' => { 'Ref' => LogicalId.pascalize(uri.to_s) } }
+            elsif uri.is_a?(Hash)
+              return { 'ImageUri' => deep_stringify_keys(uri) }
+            else
+              uri_str = uri.to_s.strip
+              if tag && !uri_str.include?('@') && !uri_str.split('/').last.to_s.include?(':')
+                uri_str = "#{uri_str}:#{tag}"
+              end
+              return { 'ImageUri' => uri_str }
+            end
+          end
+
+          repo = (function.respond_to?(:image_repository) && function.image_repository) || function.logical_name
+          resolved_tag = tag || 'latest'
+          if repo.include?('.dkr.ecr.') || (repo.include?('/') && repo.split('/').first.to_s.include?('.'))
+            image_uri = if repo.include?('@') || repo.split('/').last.to_s.include?(':')
+                          repo
+                        else
+                          "#{repo}:#{resolved_tag}"
+                        end
+            { 'ImageUri' => image_uri }
+          else
+            {
+              'ImageUri' => {
+                'Fn::Sub' => "${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/#{repo}:#{resolved_tag}"
+              }
+            }
+          end
         end
 
         def resolve_artifact_context(name)
@@ -493,6 +547,9 @@ module Veltrunode
 
           entry = map[name] || map[name.to_sym]
           return nil unless entry.is_a?(Hash)
+
+          image_uri_val = entry[:image_uri] || entry['image_uri'] || entry['ImageUri']
+          return { 'ImageUri' => image_uri_val } if image_uri_val
 
           bucket_val = entry[:bucket] || entry['bucket'] || entry[:s3_bucket] || entry['S3Bucket']
           key_val = entry[:key] || entry['key'] || entry[:s3_key] || entry['S3Key']

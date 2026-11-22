@@ -11,11 +11,64 @@ require_relative '../model/function'
 module Veltrunode
   module DSL
     class FunctionBuilder < BaseBuilder
+      # image { ... } ブロック用ビルダ
+      class ImageBlockBuilder < BaseBuilder
+        attr_reader :config
+
+        def initialize(initial = {})
+          super()
+          @config = initial.dup
+        end
+
+        def dockerfile(val)
+          @config[:dockerfile] = val
+        end
+
+        def context(val)
+          @config[:context] = val
+        end
+
+        def tag(val)
+          @config[:tag] = val
+        end
+
+        def uri(val)
+          @config[:uri] = val
+        end
+        alias image_uri uri
+
+        def repository(val)
+          @config[:repository] = val
+        end
+
+        def build_args(hash)
+          @config[:build_args] = (@config[:build_args] || {}).merge(hash) if hash.is_a?(Hash)
+        end
+
+        def target(val)
+          @config[:target] = val
+        end
+
+        def command(*vals)
+          @config[:command] = vals.flatten.compact
+        end
+
+        def entry_point(*vals)
+          @config[:entry_point] = vals.flatten.compact
+        end
+        alias entrypoint entry_point
+
+        def working_directory(val)
+          @config[:working_directory] = val
+        end
+        alias workdir working_directory
+      end
+
       attr_reader :inline_mounts
 
       def initialize(logical_name, runtime_default: nil, architecture_default: :x86_64, tracing_default: nil,
                      insights_default: nil, async_invoke_default: nil, alarms_default: nil, event_sources_default: nil,
-                     function_url_default: nil, mounts_default: nil)
+                     function_url_default: nil, mounts_default: nil, image_default: nil)
         super()
         @logical_name = logical_name.to_s
         @handler = nil
@@ -42,9 +95,35 @@ module Veltrunode
         @async_invoke = async_invoke_default
         @event_sources = []
         @function_url = function_url_default
+        @image = nil
+        image(image_default) unless image_default.nil?
         apply_event_sources_default(event_sources_default) if event_sources_default
         add_mount_entries(mounts_default) if mounts_default
       end
+
+      def image(uri_or_opts = nil, **kwargs, &)
+        if uri_or_opts == false
+          @image = nil
+          return
+        end
+
+        base = @image.is_a?(Hash) ? @image.dup : {}
+        if uri_or_opts.is_a?(Hash)
+          base.merge!(uri_or_opts)
+        elsif uri_or_opts
+          base[:uri] = uri_or_opts
+        end
+        base.merge!(kwargs) unless kwargs.empty?
+
+        if block_given?
+          block_builder = ImageBlockBuilder.new(base)
+          block_builder.instance_eval(&)
+          base = block_builder.config
+        end
+
+        @image = base
+      end
+      alias container_image image
 
       def handler(h)
         @handler = h.to_s
@@ -435,7 +514,8 @@ module Veltrunode
           insights: @insights,
           async_invoke: @async_invoke,
           event_sources: @event_sources,
-          function_url: @function_url
+          function_url: @function_url,
+          image: @image
         )
       end
 
