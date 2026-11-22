@@ -230,6 +230,16 @@ module Veltrunode
               end
             end
 
+            if fn.respond_to?(:image?) && fn.image? && fn.respond_to?(:image_uri) && fn.image_uri
+              img_param = resolve_kms_key_param_key(fn.image_uri)
+              if img_param && !params.key?(img_param)
+                params[img_param] = {
+                  'Description' => "Container image URI for #{img_param}",
+                  'Type' => 'String'
+                }
+              end
+            end
+
             next unless fn.respond_to?(:subscription_filters) && fn.subscription_filters
 
             Array(fn.subscription_filters).each do |filter|

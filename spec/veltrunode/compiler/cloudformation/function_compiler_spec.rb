@@ -452,4 +452,67 @@ RSpec.describe Veltrunode::Compiler::CloudFormation::FunctionCompiler do
                                })
     end
   end
+
+  describe 'OCI Container Image Packaging (PackageType: Image)' do
+    it 'compiles PackageType: Image and Fn::Sub Code.ImageUri when dockerfile is specified' do
+      fn = Veltrunode::Model::Function.new(
+        logical_name: 'ml_inference',
+        image: { dockerfile: './Dockerfile', tag: 'v1.2.0', command: ['app.handler'], working_directory: '/var/task' },
+        architecture: :arm64,
+        memory: 2048,
+        timeout: 60
+      )
+
+      result = described_class.compile(fn)
+      props = result['MlInferenceFunction']['Properties']
+
+      expect(props['PackageType']).to eq('Image')
+      expect(props).not_to have_key('Handler')
+      expect(props).not_to have_key('Runtime')
+      expect(props).not_to have_key('Layers')
+      expect(props['Code']).to eq(
+        'ImageUri' => {
+          'Fn::Sub' => '${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/ml_inference:v1.2.0'
+        }
+      )
+      expect(props['ImageConfig']).to eq(
+        'Command' => ['app.handler'],
+        'WorkingDirectory' => '/var/task'
+      )
+    end
+
+    it 'compiles literal Code.ImageUri when explicit image URI string is specified' do
+      fn = Veltrunode::Model::Function.new(
+        logical_name: 'ml_inference',
+        image: '123456789012.dkr.ecr.ap-northeast-1.amazonaws.com/ml-inference:v2.0.0'
+      )
+
+      result = described_class.compile(fn)
+      props = result['MlInferenceFunction']['Properties']
+
+      expect(props['PackageType']).to eq('Image')
+      expect(props['Code']).to eq(
+        'ImageUri' => '123456789012.dkr.ecr.ap-northeast-1.amazonaws.com/ml-inference:v2.0.0'
+      )
+    end
+
+    it 'resolves Code.ImageUri from artifact_map in context when present' do
+      fn = Veltrunode::Model::Function.new(
+        logical_name: 'ml_inference',
+        image: { dockerfile: './Dockerfile', tag: 'v1.2.0' }
+      )
+      context = {
+        artifact_map: {
+          'ml_inference' => {
+            image_uri: '123456789012.dkr.ecr.ap-northeast-1.amazonaws.com/ml_inference:sha256-deadbeef'
+          }
+        }
+      }
+
+      compiler = described_class.new(fn, context: context)
+      expect(compiler.properties['Code']).to eq(
+        'ImageUri' => '123456789012.dkr.ecr.ap-northeast-1.amazonaws.com/ml_inference:sha256-deadbeef'
+      )
+    end
+  end
 end
