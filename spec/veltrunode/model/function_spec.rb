@@ -379,5 +379,49 @@ RSpec.describe Veltrunode::Model::Function do
         expect { fn.validate_invariants!(context) }.not_to raise_error
       end
     end
+
+    describe 'container image configuration (image)' do
+      it 'supports dockerfile, tag, context, repository, build_args, and image_config' do
+        fn = described_class.new(
+          logical_name: 'ml_inference',
+          image: {
+            dockerfile: './Dockerfile',
+            tag: 'v1.2.0',
+            context: './ml',
+            repository: 'ml-models',
+            build_args: { MODEL_VERSION: '2.0' },
+            command: ['app.handler'],
+            entry_point: ['/lambda-entrypoint.sh'],
+            working_directory: '/var/task'
+          }
+        )
+
+        expect(fn.image?).to be(true)
+        expect(fn.package_type).to eq('Image')
+        expect(fn.image_dockerfile).to eq('./Dockerfile')
+        expect(fn.image_tag).to eq('v1.2.0')
+        expect(fn.image_context).to eq('./ml')
+        expect(fn.image_repository).to eq('ml-models')
+        expect(fn.image_build_args).to eq({ 'MODEL_VERSION' => '2.0' })
+        expect(fn.image_config).to eq(
+          'Command' => ['app.handler'],
+          'EntryPoint' => ['/lambda-entrypoint.sh'],
+          'WorkingDirectory' => '/var/task'
+        )
+        expect(fn).to be_frozen
+      end
+
+      it 'supports direct ECR image URI string or hash and raises ValidationError on empty image config' do
+        ecr_uri = '123456789012.dkr.ecr.ap-northeast-1.amazonaws.com/ml-inference:v1.0.0'
+        fn = described_class.new(logical_name: 'prebuilt_ml', image: ecr_uri)
+        expect(fn.image?).to be(true)
+        expect(fn.package_type).to eq('Image')
+        expect(fn.image_uri).to eq(ecr_uri)
+
+        expect do
+          described_class.new(logical_name: 'invalid_img', image: {})
+        end.to raise_error(Veltrunode::ValidationError, /requires either 'dockerfile' or 'uri'/)
+      end
+    end
   end
 end

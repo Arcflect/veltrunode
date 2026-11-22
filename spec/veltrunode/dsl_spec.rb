@@ -855,5 +855,56 @@ RSpec.describe Veltrunode::DSL do
       expect(m2.replication_destination_region).to eq('us-east-1')
       expect(m2.replication_kms_key_id).to eq(Veltrunode::DSL::Reference.new(:dr_kms_key))
     end
+
+    it 'supports OCI container image DSL (image: { dockerfile: "./Dockerfile", tag: "..." }, block, and URI)' do
+      ecr_uri = '123456789012.dkr.ecr.ap-northeast-1.amazonaws.com/ml-repo:v1.0.0'
+      code = <<~RUBY
+        Veltrunode.application "ml-container-app" do
+          function :ml_worker, image: { dockerfile: "./Dockerfile", tag: "v1.0.0" } do
+            memory 4096
+            timeout 300
+          end
+
+          function :block_ml_worker do
+            image do
+              dockerfile "./docker/Dockerfile.gpu"
+              context "./docker"
+              tag "v2.1.0"
+              repository "ml-gpu-worker"
+              build_args TORCH_VERSION: "2.2"
+              command "inference.handler"
+              working_directory "/app"
+            end
+          end
+
+          function :prebuilt_worker do
+            image "#{ecr_uri}"
+          end
+        end
+      RUBY
+
+      app = Veltrunode.parse(code)
+      expect(app.functions.size).to eq(3)
+
+      f1 = app.functions.find { |f| f.logical_name == 'ml_worker' }
+      expect(f1.image?).to be(true)
+      expect(f1.package_type).to eq('Image')
+      expect(f1.image_dockerfile).to eq('./Dockerfile')
+      expect(f1.image_tag).to eq('v1.0.0')
+      expect(f1.image_context).to eq('.')
+
+      f2 = app.functions.find { |f| f.logical_name == 'block_ml_worker' }
+      expect(f2.image?).to be(true)
+      expect(f2.image_dockerfile).to eq('./docker/Dockerfile.gpu')
+      expect(f2.image_context).to eq('./docker')
+      expect(f2.image_tag).to eq('v2.1.0')
+      expect(f2.image_repository).to eq('ml-gpu-worker')
+      expect(f2.image_build_args).to eq({ 'TORCH_VERSION' => '2.2' })
+      expect(f2.image_config).to eq({ 'Command' => ['inference.handler'], 'WorkingDirectory' => '/app' })
+
+      f3 = app.functions.find { |f| f.logical_name == 'prebuilt_worker' }
+      expect(f3.image?).to be(true)
+      expect(f3.image_uri).to eq(ecr_uri)
+    end
   end
 end
