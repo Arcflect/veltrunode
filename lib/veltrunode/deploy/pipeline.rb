@@ -6,6 +6,7 @@ require_relative '../aws'
 require_relative '../aws/account_region_guard'
 require_relative '../aws/change_set_manager'
 require_relative '../aws/s3_uploader'
+require_relative '../aws/ecr_pusher'
 require_relative '../aws/rollback_diagnoser'
 require_relative '../compiler/logical_id'
 
@@ -129,8 +130,9 @@ module Veltrunode
         # 3. AWS アカウント・リージョンガード
         guard_diags = step_aws_guard!
 
-        # 4. S3 アップロード
+        # 4. S3 アップロードおよび ECR コンテナイメージプッシュ
         step_s3_upload!(build_result)
+        step_ecr_push!(build_result)
 
         # 5. Change Set 作成・差分表示
         manager = resolve_change_set_manager
@@ -254,6 +256,18 @@ module Veltrunode
         uploader.upload_and_update_template(build_result)
       rescue StandardError => e
         raise DeployError.new("S3 upload failed: #{e.message}", exit_code: EXIT_DEPLOY_FAILED)
+      end
+
+      def step_ecr_push!(build_result)
+        has_dockerfile_images = application.respond_to?(:functions) && Array(application.functions).any? do |fn|
+          fn.respond_to?(:image_dockerfile) && fn.image_dockerfile
+        end
+        return unless has_dockerfile_images
+
+        pusher = options[:ecr_pusher] || Veltrunode::AWS::EcrPusher.new(application: application)
+        pusher.push_and_update_template(build_result)
+      rescue StandardError => e
+        raise DeployError.new("ECR push failed: #{e.message}", exit_code: EXIT_DEPLOY_FAILED)
       end
 
       def step_plan!(manager, build_result)

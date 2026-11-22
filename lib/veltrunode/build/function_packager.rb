@@ -4,6 +4,7 @@ require 'find'
 
 require_relative 'deterministic_archiver'
 require_relative 'package_result'
+require_relative 'image_builder'
 require_relative 'secret_scanner'
 require_relative 'cache'
 require_relative '../validation'
@@ -51,6 +52,10 @@ module Veltrunode
       end
 
       def package
+        if @function.respond_to?(:image?) && @function.image?
+          return ImageBuilder.package(function: @function, source_dir: @source_dir)
+        end
+
         fn_name = extract_function_name
         handler_str = extract_handler
 

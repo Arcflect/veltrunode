@@ -122,6 +122,9 @@ module Veltrunode
 
         if build_result.respond_to?(:function_results)
           build_result.function_results.each do |fn_res|
+            next if fn_res.respond_to?(:image?) && fn_res.image?
+            next if fn_res.zip_path.nil? || fn_res.zip_path.to_s.strip.empty?
+
             results << upload_file(
               file_path: fn_res.zip_path,
               name: fn_res.function_name,
