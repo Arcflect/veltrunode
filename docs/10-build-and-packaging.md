@@ -71,3 +71,61 @@ end
 
 > **免責事項（スキャンの限界について）**
 > 本スキャナーは静的ヒューリスティックおよびエントロピー計算に基づく事前検知を行うものであり、あらゆる機密情報の完全な検出を保証するものではありません。アプリケーション内で機密情報を利用する場合は、ソースコードや設定ファイルに直接埋め込まず、AWS Secrets Manager や AWS Systems Manager Parameter Store 等の安全なシークレット管理サービスの利用を推奨します。
+
+## OCI コンテナイメージパッケージング (`PackageType: Image`)
+
+ZIP アーカイブのサイズ上限（展開時 250 MB）を超える大規模な機械学習モデルやネイティブ依存ライブラリを含む Lambda 関数を、OCI コンテナイメージ（最大 10 GB）としてビルド・プッシュ・デプロイできます。
+
+### DSL 設定例 (`Veltrunodefile`)
+
+`function` のキーワード引数、`image` メソッド、または `image do ... end` ブロック構文で `Dockerfile` や既存 ECR イメージ URI を指定できます。
+
+```ruby
+Veltrunode.application "ml-inference-service" do
+  aws region: "ap-northeast-1", account: "123456789012"
+
+  # 1. Dockerfile からビルドして ECR に自動プッシュする構成
+  function :ml_inference, image: { dockerfile: "./Dockerfile", tag: "v1.2.0" } do
+    architecture :arm64
+    memory 4096
+    timeout 120
+  end
+
+  # 2. ブロック構文による詳細設定（ビルド引数・ターゲット・ImageConfig オーバーライド）
+  function :vision_classifier do
+    architecture :x86_64
+    image do
+      dockerfile "./docker/Dockerfile.vision"
+      context "."
+      repository "ml/vision-classifier"
+      tag "2026.11"
+      target "production"
+      build_args MODEL_BUCKET: "my-models"
+      command ["app.handler"]
+      working_directory "/var/task"
+    end
+  end
+
+  # 3. 既存の ECR コンテナイメージ URI または CloudFormation パラメータ参照
+  function :prebuilt_scorer do
+    image uri: "123456789012.dkr.ecr.ap-northeast-1.amazonaws.com/scorer:v1.0.0"
+  end
+end
+```
+
+### Docker ビルドと ECR 自動プッシュ
+
+- **Docker ビルド (`Veltrunode::Build::ImageBuilder`)**:
+  - 関数の `architecture`（`:x86_64` -> `linux/amd64`, `:arm64` -> `linux/arm64`）に合わせて `--platform` を自動指定し、`docker build`（または `podman build`）を実行します。
+  - `Dockerfile` の内容・アーキテクチャ・ビルド引数・ターゲットステージから決定論的な SHA-256 コンテンツハッシュを算出し、`build/manifest.json` に記録します。
+- **ECR 自動プッシュ (`Veltrunode::AWS::EcrPusher`)**:
+  - デプロイ時に ECR リポジトリの存在を確認し、未作成の場合はスキャン有効化（`scan_on_push: true`）および暗号化（`AES256`）付きで自動作成します。
+  - `ecr:GetAuthorizationToken` で取得したトークンを用いてレジストリ認証を行い、イメージのタグ付けとプッシュを自動実行します。
+
+### CloudFormation コンパイル (`PackageType: Image`)
+
+コンテナイメージ関数は `AWS::Lambda::Function` リソースにおいて以下のようにコンパイルされます。
+
+- `PackageType: Image` が設定され、コンテナイメージ関数では不要（かつ CloudFormation 仕様上禁止）な `Handler`, `Runtime`, `Layers` プロパティは自動的に省略されます。
+- `Code.ImageUri` に ECR イメージ URI（または `Fn::Sub` / `Ref`）が出力されます。
+- `command`, `entry_point`, `working_directory` を指定した場合は `ImageConfig` プロパティに出力されます。
