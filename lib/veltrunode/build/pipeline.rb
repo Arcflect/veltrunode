@@ -293,10 +293,17 @@ module Veltrunode
         end
         fn_archs = ref_fns.map { |fn| fn.respond_to?(:architecture) ? fn.architecture : nil }.compact.uniq
 
-        return fn_archs.first if fn_archs.size == 1
-        return application.architecture if application.respond_to?(:architecture) && application.architecture
+        candidate = if fn_archs.size == 1
+                      fn_archs.first
+                    elsif application.respond_to?(:architecture) && application.architecture
+                      application.architecture
+                    end
+        return nil if candidate.nil?
 
-        nil
+        current_archs = layer.respond_to?(:architectures) ? Array(layer.architectures).map(&:to_sym) : [:x86_64]
+        return nil if current_archs == [candidate.to_sym]
+
+        candidate
       end
     end
   end
