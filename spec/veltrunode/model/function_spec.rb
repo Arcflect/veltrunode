@@ -423,5 +423,18 @@ RSpec.describe Veltrunode::Model::Function do
         end.to raise_error(Veltrunode::ValidationError, /requires either 'dockerfile' or 'uri'/)
       end
     end
+
+    describe 'architecture normalization (arm64 / x86_64)' do
+      it 'normalizes :arm64 and :aarch64 to :arm64 and exposes arm64? predicate' do
+        fn_arm = described_class.new(logical_name: 'arm_fn', architecture: :arm64)
+        expect(fn_arm.architecture).to eq(:arm64)
+        expect(fn_arm.arm64?).to be(true)
+        expect(fn_arm.x86_64?).to be(false)
+
+        fn_aarch = described_class.new(logical_name: 'aarch_fn', architecture: 'aarch64')
+        expect(fn_aarch.architecture).to eq(:arm64)
+        expect(fn_aarch.arm64?).to be(true)
+      end
+    end
   end
 end

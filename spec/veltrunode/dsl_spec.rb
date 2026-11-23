@@ -906,5 +906,39 @@ RSpec.describe Veltrunode::DSL do
       expect(f3.image?).to be(true)
       expect(f3.image_uri).to eq(ecr_uri)
     end
+
+    it 'propagates architecture: :arm64 from application/function to attached layers automatically' do
+      code = <<~RUBY
+        Veltrunode.application "graviton-app" do
+          runtime ruby: "3.3"
+
+          layer :shared_gems do
+            bundle
+            build_on :amazon_linux_2023
+          end
+
+          layer :explicit_arm_gems, architecture: :arm64 do
+            bundle
+          end
+
+          function :arm_worker, architecture: :arm64 do
+            handler "worker.handler"
+            attach_layer :shared_gems
+            attach_layer :explicit_arm_gems
+          end
+        end
+      RUBY
+
+      app = Veltrunode.parse(code)
+      fn = app.functions.first
+      expect(fn.architecture).to eq(:arm64)
+
+      shared_layer = app.layers.find { |l| l.name == 'shared_gems' }
+      expect(shared_layer.architectures).to eq([:arm64])
+      expect(shared_layer.arm64?).to be(true)
+
+      explicit_layer = app.layers.find { |l| l.name == 'explicit_arm_gems' }
+      expect(explicit_layer.architectures).to eq([:arm64])
+    end
   end
 end

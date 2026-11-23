@@ -148,6 +148,18 @@ RSpec.describe Veltrunode::Model::Layer do
           described_class.new(name: 'ruby_layer', compatible_runtimes: ['ruby3.3', 'ruby3.2'])
         end.not_to raise_error
       end
+
+      it 'supports singular architecture: :arm64 keyword argument and arm64? predicate' do
+        layer = described_class.new(
+          name: 'graviton_layer',
+          compatible_runtimes: ['ruby3.3'],
+          architecture: :arm64
+        )
+        expect(layer.architectures).to eq([:arm64])
+        expect(layer.architecture).to eq(:arm64)
+        expect(layer.arm64?).to be(true)
+        expect(layer.default_architecture?).to be(false)
+      end
     end
   end
 end

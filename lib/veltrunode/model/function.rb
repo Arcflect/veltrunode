@@ -174,6 +174,14 @@ module Veltrunode
         image? ? 'Image' : 'Zip'
       end
 
+      def arm64?
+        @architecture == :arm64
+      end
+
+      def x86_64?
+        @architecture == :x86_64
+      end
+
       def image_dockerfile
         @image&.fetch('dockerfile', nil)
       end
@@ -323,7 +331,14 @@ module Veltrunode
       def normalize_architecture(arch)
         return :x86_64 if arch.nil?
 
-        arch.to_s.to_sym.freeze
+        case arch.to_s.strip.downcase
+        when 'arm64', 'aarch64'
+          :arm64
+        when 'x86_64', 'amd64'
+          :x86_64
+        else
+          arch.to_s.to_sym.freeze
+        end
       end
 
       def freeze_value(val)

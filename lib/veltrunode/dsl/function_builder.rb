@@ -66,14 +66,15 @@ module Veltrunode
 
       attr_reader :inline_mounts
 
-      def initialize(logical_name, runtime_default: nil, architecture_default: :x86_64, tracing_default: nil,
-                     insights_default: nil, async_invoke_default: nil, alarms_default: nil, event_sources_default: nil,
-                     function_url_default: nil, mounts_default: nil, image_default: nil)
+      def initialize(logical_name, runtime_default: nil, architecture_default: :x86_64, architecture_explicit: false,
+                     tracing_default: nil, insights_default: nil, async_invoke_default: nil, alarms_default: nil,
+                     event_sources_default: nil, function_url_default: nil, mounts_default: nil, image_default: nil)
         super()
         @logical_name = logical_name.to_s
         @handler = nil
         @runtime = runtime_default
         @architecture = architecture_default
+        @explicit_architecture = architecture_explicit ? true : false
         @memory = 128
         @timeout = 3
         @ephemeral_storage = 512
@@ -129,7 +130,7 @@ module Veltrunode
         @handler = h.to_s
       end
 
-      def runtime(r = nil, ruby: nil, python: nil, nodejs: nil, node: nil)
+      def runtime(r = nil, ruby: nil, python: nil, nodejs: nil, node: nil, architecture: nil)
         if r
           str = r.to_s
           @runtime = str.start_with?('node') ? "nodejs#{str.sub(/^node(js)?/, '')}" : str
@@ -143,10 +144,22 @@ module Veltrunode
           ruby_str = ruby.to_s
           @runtime = "ruby#{ruby_str.sub(/^ruby/, '')}"
         end
+        architecture(architecture) if architecture
       end
 
       def architecture(a)
+        @explicit_architecture = true
         @architecture = a.to_sym
+      end
+
+      def explicit_architecture?
+        @explicit_architecture
+      end
+
+      def apply_inferred_architecture(arch)
+        return if @explicit_architecture || arch.nil?
+
+        @architecture = arch.to_sym
       end
 
       def memory(m)

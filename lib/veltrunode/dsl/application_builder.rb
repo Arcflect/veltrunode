@@ -65,7 +65,11 @@ module Veltrunode
         @runtime_defaults[:python] = normalize_version(python, 'python') if python
         node_val = nodejs || node
         @runtime_defaults[:nodejs] = normalize_version(node_val, 'node') if node_val
-        @runtime_defaults[:architecture] = architecture.to_sym if architecture
+        self.architecture(architecture) if architecture
+      end
+
+      def architecture(arch)
+        @runtime_defaults[:architecture] = normalize_architecture_symbol(arch) if arch
       end
 
       def defaults(&)
@@ -73,6 +77,7 @@ module Veltrunode
 
         defaults_builder = DefaultsBuilder.new
         defaults_builder.instance_eval(&)
+        architecture(defaults_builder.architecture_config) if defaults_builder.architecture_config
         @runtime_defaults[:logs] = defaults_builder.logs_config if defaults_builder.logs_config
         @runtime_defaults[:tracing] = defaults_builder.tracing_config if defaults_builder.tracing_config
         @runtime_defaults[:insights] = defaults_builder.insights_config if defaults_builder.insights_config
@@ -85,8 +90,14 @@ module Veltrunode
         @tags.merge!(defaults_builder.tags_config)
       end
 
-      def layer(name, &)
-        builder = LayerBuilder.new(name, runtime_default: resolve_default_runtime || 'ruby3.3')
+      def layer(name, architecture: nil, architectures: nil, compatible_architectures: nil, &)
+        builder = LayerBuilder.new(
+          name,
+          runtime_default: resolve_default_runtime || 'ruby3.3',
+          architecture_default: @runtime_defaults[:architecture] || :x86_64
+        )
+        explicit_arch = architecture || architectures || compatible_architectures
+        builder.architectures(explicit_arch) if explicit_arch
         builder.instance_eval(&) if block_given?
         @layer_builders << builder
       end
@@ -143,7 +154,7 @@ module Veltrunode
       end
       alias efs_alarm_helper efs_alarms
 
-      def function(name, tracing: nil, insights: nil, async_invoke: nil, alarms: nil,
+      def function(name, architecture: nil, tracing: nil, insights: nil, async_invoke: nil, alarms: nil,
                    event_source: nil, event_sources: nil, rule: nil, rules: nil,
                    kinesis_stream: nil, msk: nil, mq: nil, function_url: nil,
                    mounts: nil, efs_mounts: nil, efs_mount: nil, mount: nil,
@@ -151,6 +162,12 @@ module Veltrunode
         alarms_cfg = alarms.nil? ? @runtime_defaults[:alarms] : alarms
         fn_url_cfg = function_url.nil? ? @runtime_defaults[:function_url] : function_url
         img_cfg = image.nil? ? container_image : image
+        arch_explicit = !architecture.nil?
+        arch_cfg = if arch_explicit
+                     normalize_architecture_symbol(architecture)
+                   else
+                     @runtime_defaults[:architecture] || :x86_64
+                   end
         mounts_cfg = combine_mounts_defaults(mounts, efs_mounts, efs_mount, mount)
         es_cfg = combine_event_source_defaults(
           event_source || event_sources || @runtime_defaults[:event_sources],
@@ -162,7 +179,8 @@ module Veltrunode
         builder = FunctionBuilder.new(
           name,
           runtime_default: resolve_default_runtime,
-          architecture_default: @runtime_defaults[:architecture] || :x86_64,
+          architecture_default: arch_cfg,
+          architecture_explicit: arch_explicit,
           tracing_default: tracing || @runtime_defaults[:tracing],
           insights_default: insights || @runtime_defaults[:insights],
           async_invoke_default: async_invoke || @runtime_defaults[:async_invoke],
@@ -278,9 +296,31 @@ module Veltrunode
       end
 
       def build
+        app_arch = @runtime_defaults[:architecture]
+        if app_arch
+          @function_builders.each do |fb|
+            fb.apply_inferred_architecture(app_arch) if fb.respond_to?(:apply_inferred_architecture)
+          end
+        end
+
+        functions = @function_builders.map(&:build)
+
+        @layer_builders.each do |lb|
+          next if lb.respond_to?(:explicit_architectures?) && lb.explicit_architectures?
+
+          referencing_archs = functions.select do |fn|
+            Array(fn.layers).map(&:to_s).include?(lb.name.to_s)
+          end.map(&:architecture).compact.uniq
+
+          if referencing_archs.any?
+            lb.apply_inferred_architectures(referencing_archs)
+          elsif app_arch
+            lb.apply_inferred_architectures([app_arch])
+          end
+        end
+
         layers = @layer_builders.map(&:build)
         top_mounts = @efs_mount_builders.map(&:build)
-        functions = @function_builders.map(&:build)
         inline_mounts = @function_builders.flat_map(&:inline_mounts)
         mounts = (top_mounts + inline_mounts).uniq(&:symbolic_name)
         schedules = @schedule_builders.map(&:build)
@@ -384,6 +424,17 @@ module Veltrunode
           "ruby#{@runtime_defaults[:ruby]}"
         end
       end
+
+      def normalize_architecture_symbol(arch)
+        case arch.to_s.strip.downcase
+        when 'arm64', 'aarch64'
+          :arm64
+        when 'x86_64', 'amd64'
+          :x86_64
+        else
+          arch.to_s.to_sym
+        end
+      end
     end
 
     class StagePolicyBuilder < BaseBuilder
@@ -440,7 +491,7 @@ module Veltrunode
 
     class DefaultsBuilder < BaseBuilder
       attr_reader :logs_config, :tags_config, :tracing_config, :insights_config, :async_invoke_config, :alarms_config,
-                  :event_sources_config, :function_url_config
+                  :event_sources_config, :function_url_config, :architecture_config
 
       def initialize
         super
@@ -452,6 +503,11 @@ module Veltrunode
         @alarms_config = nil
         @event_sources_config = nil
         @function_url_config = nil
+        @architecture_config = nil
+      end
+
+      def architecture(arch)
+        @architecture_config = arch.to_sym if arch
       end
 
       def alarms(arg = nil, **kwargs, &block)
