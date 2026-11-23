@@ -17,6 +17,10 @@ module Veltrunode
       attr_reader :image, :command, :environment, :volume_mounts, :architecture, :workdir, :executable
 
       class << self
+        def platform_for(architecture)
+          PLATFORM_MAP[architecture.to_s.strip.downcase] || 'linux/amd64'
+        end
+
         def detect_executable
           %w[docker podman].find { |cmd| executable_in_path?(cmd) }
         end
@@ -83,10 +87,13 @@ module Veltrunode
         freeze
       end
 
+      def platform
+        self.class.platform_for(@architecture)
+      end
+
       def build_cli_command
         cmd = [@executable, 'run', '--rm']
 
-        platform = PLATFORM_MAP[@architecture] || 'linux/amd64'
         cmd << '--platform' << platform
 
         cmd << '-w' << @workdir if @workdir
@@ -127,6 +134,7 @@ module Veltrunode
         {
           executable: @executable,
           command: cli_cmd,
+          platform: platform,
           stdout: stdout_str,
           stderr: stderr_str,
           status: status.exitstatus

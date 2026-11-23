@@ -17,7 +17,8 @@ module Veltrunode
         name:,
         compatible_runtimes:,
         source_spec: nil,
-        architectures: [:x86_64],
+        architectures: nil,
+        architecture: nil,
         build_environment: {},
         retention_policy: { latest: 5 },
         description: nil,
@@ -26,10 +27,13 @@ module Veltrunode
       )
         validate!(name:, compatible_runtimes:, retention_policy:)
 
+        @default_architecture = architectures.nil? && architecture.nil?
+        resolved_architectures = architectures || (architecture ? Array(architecture) : [:x86_64])
+
         @name = name.to_s.freeze
         @source_spec = freeze_value(source_spec)
         @compatible_runtimes = normalize_runtimes(compatible_runtimes)
-        @architectures = normalize_architectures(architectures)
+        @architectures = normalize_architectures(resolved_architectures)
         @build_environment = freeze_hash(build_environment)
         @retention_policy = normalize_retention_policy(retention_policy)
         @description = description&.to_s&.freeze
@@ -37,6 +41,18 @@ module Veltrunode
         @content_hash = content_hash&.to_s&.freeze
 
         freeze
+      end
+
+      def architecture
+        @architectures.first
+      end
+
+      def arm64?
+        @architectures.include?(:arm64)
+      end
+
+      def default_architecture?
+        @default_architecture
       end
 
       private
@@ -100,7 +116,17 @@ module Veltrunode
       end
 
       def normalize_architectures(archs)
-        Array(archs).map { |a| a.to_s.to_sym }.freeze
+        list = Array(archs).map do |a|
+          case a.to_s.strip.downcase
+          when 'arm64', 'aarch64'
+            :arm64
+          when 'x86_64', 'amd64'
+            :x86_64
+          else
+            a.to_s.to_sym
+          end
+        end.uniq
+        (list.empty? ? [:x86_64] : list).freeze
       end
 
       def normalize_retention_policy(policy)

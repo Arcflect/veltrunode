@@ -6,17 +6,33 @@ require_relative '../model/layer'
 module Veltrunode
   module DSL
     class LayerBuilder < BaseBuilder
-      def initialize(name, runtime_default: 'ruby3.3')
+      attr_reader :name
+
+      def initialize(name, runtime_default: 'ruby3.3', architecture_default: :x86_64)
         super()
         @name = name.to_s
         @compatible_runtimes = [runtime_default]
         @source_spec = nil
-        @architectures = [:x86_64]
+        @architectures = [normalize_architecture_symbol(architecture_default)]
+        @explicit_architectures = false
         @build_environment = {}
         @retention_policy = { latest: 5 }
         @description = nil
         @license_metadata = nil
         @content_hash = nil
+      end
+
+      def explicit_architectures?
+        @explicit_architectures
+      end
+
+      def apply_inferred_architectures(archs)
+        return if @explicit_architectures
+
+        flat = Array(archs).flatten.compact
+        return if flat.empty?
+
+        @architectures = flat.map { |a| normalize_architecture_symbol(a) }.uniq
       end
 
       def bundle(lockfile: 'Gemfile.lock', without: %i[development test])
@@ -50,8 +66,23 @@ module Veltrunode
         @compatible_runtimes = Array(runtimes).map(&:to_s)
       end
 
-      def architectures(archs)
-        @architectures = Array(archs).map(&:to_sym)
+      def architectures(*archs)
+        flat = archs.flatten.compact
+        return if flat.empty?
+
+        @explicit_architectures = true
+        @architectures = flat.map { |a| normalize_architecture_symbol(a) }.uniq
+      end
+      alias architecture architectures
+      alias compatible_architectures architectures
+
+      def add_architecture(*archs)
+        flat = archs.flatten.compact
+        return if flat.empty?
+
+        @explicit_architectures = true
+        added = flat.map { |a| normalize_architecture_symbol(a) }
+        @architectures = (@architectures + added).uniq
       end
 
       def description(desc)
@@ -78,6 +109,19 @@ module Veltrunode
           license_metadata: @license_metadata,
           content_hash: @content_hash
         )
+      end
+
+      private
+
+      def normalize_architecture_symbol(arch)
+        case arch.to_s.strip.downcase
+        when 'arm64', 'aarch64'
+          :arm64
+        when 'x86_64', 'amd64', ''
+          :x86_64
+        else
+          arch.to_s.to_sym
+        end
       end
     end
   end

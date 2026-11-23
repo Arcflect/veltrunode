@@ -129,3 +129,37 @@ end
 - `PackageType: Image` が設定され、コンテナイメージ関数では不要（かつ CloudFormation 仕様上禁止）な `Handler`, `Runtime`, `Layers` プロパティは自動的に省略されます。
 - `Code.ImageUri` に ECR イメージ URI（または `Fn::Sub` / `Ref`）が出力されます。
 - `command`, `entry_point`, `working_directory` を指定した場合は `ImageConfig` プロパティに出力されます。
+
+## arm64 (AWS Graviton) アーキテクチャビルド
+
+`architecture: :arm64` を指定することで、AWS Graviton プロセッサ（`arm64`）向けのネイティブ拡張コンパイルおよび CloudFormation 出力（関数・Layer）を自動化できます。
+
+### DSL 設定例 (`Veltrunodefile`)
+
+アプリケーション全体のデフォルト（`runtime ..., architecture: :arm64` または `architecture :arm64`）、または個別の `function` / `layer` で `architecture: :arm64` を指定できます。`layer` 側で `architectures` を明示指定していない場合、アタッチ先の関数やアプリケーションの `architecture: :arm64` が自動的に伝搬されます。
+
+```ruby
+Veltrunode.application "graviton-service" do
+  aws region: "ap-northeast-1", account: "123456789012"
+  runtime ruby: "3.3", architecture: :arm64
+
+  layer :runtime_gems do
+    bundle lockfile: "Gemfile.lock"
+    build_on :amazon_linux_2023
+  end
+
+  function :worker do
+    handler "functions/worker.handler"
+    attach_layer :runtime_gems
+  end
+end
+```
+
+### 自動化される動作
+
+1. **Docker コンテナによる arm64 ネイティブ拡張ビルド (`NativeBuilder` / `ContainerRunner`)**:
+   - `build_on :amazon_linux_2023` が設定された Layer のビルド時、`--platform linux/arm64` および `arm64` 向けビルドイメージダイジェストを自動選択してネイティブ Gem（または Python / Node.js パッケージ）をコンパイルします。
+2. **Lambda 関数のアーキテクチャ設定 (`AWS::Lambda::Function`)**:
+   - CloudFormation テンプレートの `Properties.Architectures` に `['arm64']` が出力されます。
+3. **Layer の互換性アーキテクチャ設定 (`AWS::Lambda::LayerVersion`)**:
+   - CloudFormation テンプレートの `Properties.CompatibleArchitectures` に `'arm64'` が出力されます。

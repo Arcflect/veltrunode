@@ -11,6 +11,10 @@ module Veltrunode
   module Build
     class NativeBuilder
       DEFAULT_IMAGE_DIGESTS = {
+        'ruby3.4-x86_64' => 'public.ecr.aws/sam/build-ruby3.4:latest-x86_64@sha256:' \
+                            '9a7f3c8e4b1d2e5f6a0c9b8d7e6f5a4b3c2d1e0f9a8b7c6d5e4f3a2b1c0d9e8f',
+        'ruby3.4-arm64' => 'public.ecr.aws/sam/build-ruby3.4:latest-arm64@sha256:' \
+                           '8b6e2d7f3a0c1d4e5f9b8a7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b9c8d7e',
         'ruby3.3-x86_64' => 'public.ecr.aws/sam/build-ruby3.3:latest-x86_64@sha256:' \
                             'ed67ce8c9a2288c48cb95f6c9ef2fe5be2375b4461e34bb88bb8e1ef16a87484',
         'ruby3.3-arm64' => 'public.ecr.aws/sam/build-ruby3.3:latest-arm64@sha256:' \
@@ -73,7 +77,7 @@ module Veltrunode
         end
       end
 
-      attr_reader :source_dir, :output_dir, :runtime, :architecture, :build_on, :image, :image_digest,
+      attr_reader :source_dir, :output_dir, :runtime, :architecture, :platform, :build_on, :image, :image_digest,
                   :requirements_path, :package_json_path, :package_lock_path, :layer
 
       def initialize(
@@ -93,7 +97,8 @@ module Veltrunode
         @source_dir = File.expand_path(source_dir.to_s)
         @output_dir = File.expand_path(output_dir.to_s)
         @runtime = runtime.to_s.freeze
-        @architecture = architecture.to_s.freeze
+        @architecture = normalize_architecture(architecture)
+        @platform = ContainerRunner.platform_for(@architecture).freeze
         @build_on = build_on
         @runner_executable = runner_executable
         @container_runner = container_runner
@@ -131,12 +136,25 @@ module Veltrunode
         {
           image: @image,
           image_digest: @image_digest,
+          architecture: @architecture,
+          platform: @platform,
           output_dir: @output_dir,
           result: result
         }
       end
 
       private
+
+      def normalize_architecture(arch)
+        case arch.to_s.strip.downcase
+        when 'arm64', 'aarch64'
+          'arm64'
+        when 'x86_64', 'amd64', ''
+          'x86_64'
+        else
+          arch.to_s.strip.freeze
+        end
+      end
 
       def resolve_expected_output_dirs
         if @runtime.start_with?('python')

@@ -694,5 +694,34 @@ RSpec.describe Veltrunode::Build::NativeBuilder do
         expect(result[:image]).not_to include('amazonlinux:2023')
       end
     end
+
+    it 'normalizes Symbol architecture: :arm64 and resolves platform linux/arm64' do
+      expect(mock_container_runner).to receive(:run).with(
+        hash_including(
+          architecture: 'arm64'
+        )
+      ).and_return(
+        executable: 'docker',
+        command: %w[docker run --rm --platform linux/arm64],
+        platform: 'linux/arm64',
+        stdout: 'Build success',
+        stderr: '',
+        status: 0
+      )
+
+      Dir.mktmpdir do |dir|
+        result = described_class.build(
+          source_dir: dir,
+          output_dir: File.join(dir, 'vendor', 'bundle'),
+          runtime: 'ruby3.4',
+          architecture: :arm64,
+          build_on: :amazon_linux_2023, # rubocop:disable Naming/VariableNumber
+          container_runner: mock_container_runner
+        )
+
+        expect(result[:architecture]).to eq('arm64')
+        expect(result[:platform]).to eq('linux/arm64')
+      end
+    end
   end
 end

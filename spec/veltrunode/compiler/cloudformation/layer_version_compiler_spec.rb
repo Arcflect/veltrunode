@@ -127,5 +127,17 @@ RSpec.describe Veltrunode::Compiler::CloudFormation::LayerVersionCompiler do
                                     'S3Key' => 'veltrunode/app/prod/layerhash/shared_gems.zip'
                                   })
     end
+
+    it 'compiles CompatibleArchitectures with arm64 when layer specifies architecture: :arm64' do
+      arm_layer = Veltrunode::Model::Layer.new(
+        name: 'graviton_gems',
+        compatible_runtimes: ['ruby3.3'],
+        architecture: :arm64
+      )
+
+      result = described_class.compile(arm_layer)
+      props = result['GravitonGemsLayerVersion']['Properties']
+      expect(props['CompatibleArchitectures']).to eq(['arm64'])
+    end
   end
 end
