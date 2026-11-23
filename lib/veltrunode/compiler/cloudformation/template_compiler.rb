@@ -369,11 +369,13 @@ module Veltrunode
 
           # 1. Compile Layers
           layer_nodes = extract_collection(:layers)
+          fn_nodes = extract_collection(:functions)
           layer_nodes.each do |layer|
             layer_name = extract_name(layer).to_s
             next if reused_layers_map.key?(layer_name)
 
-            layer_res = LayerVersionCompiler.compile(layer, context: context)
+            layer_ctx = resolve_layer_compilation_context(layer, layer_name, fn_nodes)
+            layer_res = LayerVersionCompiler.compile(layer, context: layer_ctx)
             resources.merge!(layer_res)
           end
 
@@ -956,6 +958,24 @@ module Veltrunode
           map.each_with_object({}) do |(k, v), memo|
             memo[k.to_s] = v.to_s
           end
+        end
+
+        def resolve_layer_compilation_context(layer, layer_name, fn_nodes)
+          return context unless layer.respond_to?(:default_architecture?) && layer.default_architecture?
+
+          ref_fns = fn_nodes.select do |fn|
+            fn.respond_to?(:layers) && Array(fn.layers).map(&:to_s).include?(layer_name)
+          end
+          ref_archs = ref_fns.map { |fn| fn.respond_to?(:architecture) ? fn.architecture : nil }.compact.uniq
+
+          inferred = if ref_archs.any?
+                       ref_archs
+                     elsif application.respond_to?(:architecture) && application.architecture
+                       [application.architecture]
+                     end
+          return context unless inferred && !inferred.empty?
+
+          context.merge(compatible_architectures: inferred)
         end
 
         def freeze_hash(hash)

@@ -151,6 +151,8 @@ module Veltrunode
               output_dir: layer_output_dir,
               no_cache: no_cache
             }
+            inferred_arch = resolve_layer_target_architecture(layer, layer_name)
+            pkg_opts[:architecture] = inferred_arch if inferred_arch
             pkg_opts[:allow_missing_gems] = true if resolve_allow_missing_gems(layer)
             pkg_opts[:cache_config] = @cache_config if @cache_config && !@cache_config.empty?
             pkg_opts[:s3_client] = @s3_client if @s3_client
@@ -281,6 +283,20 @@ module Veltrunode
         return false unless layer.respond_to?(:build_environment) && layer.build_environment.is_a?(Hash)
 
         layer.build_environment[:allow_missing_gems] || layer.build_environment['allow_missing_gems'] || false
+      end
+
+      def resolve_layer_target_architecture(layer, layer_name)
+        return nil unless layer.respond_to?(:default_architecture?) && layer.default_architecture?
+
+        ref_fns = extract_collection(:functions).select do |fn|
+          fn.respond_to?(:layers) && Array(fn.layers).map(&:to_s).include?(layer_name.to_s)
+        end
+        fn_archs = ref_fns.map { |fn| fn.respond_to?(:architecture) ? fn.architecture : nil }.compact.uniq
+
+        return fn_archs.first if fn_archs.size == 1
+        return application.architecture if application.respond_to?(:architecture) && application.architecture
+
+        nil
       end
     end
   end

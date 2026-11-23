@@ -2234,4 +2234,35 @@ RSpec.describe Veltrunode::Compiler::CloudFormation::TemplateCompiler do
       expect(params['ExternalModelImageUri']['Type']).to eq('String')
     end
   end
+
+  describe 'AWS Graviton (arm64) Architecture Compilation' do
+    it 'compiles Function Architectures: ["arm64"] and Layer CompatibleArchitectures: ["arm64"]' do
+      dsl_code = <<~RUBY
+        Veltrunode.application "graviton-service" do
+          aws region: "ap-northeast-1", account: "123456789012"
+          runtime ruby: "3.3"
+
+          layer :native_gems do
+            bundle lockfile: "Gemfile.lock"
+            build_on :amazon_linux_2023
+          end
+
+          function :graviton_worker, architecture: :arm64 do
+            handler "worker.handler"
+            attach_layer :native_gems
+          end
+        end
+      RUBY
+
+      app = Veltrunode.parse(dsl_code)
+      result = described_class.compile(app)
+      resources = result['Resources']
+
+      fn_props = resources['GravitonWorkerFunction']['Properties']
+      expect(fn_props['Architectures']).to eq(['arm64'])
+
+      layer_props = resources['NativeGemsLayerVersion']['Properties']
+      expect(layer_props['CompatibleArchitectures']).to eq(['arm64'])
+    end
+  end
 end

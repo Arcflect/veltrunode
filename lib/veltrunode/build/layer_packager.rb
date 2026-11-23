@@ -45,6 +45,7 @@ module Veltrunode
           allow_missing_gems: false,
           allow_missing_packages: nil,
           build_on: nil,
+          architecture: nil,
           native_builder: NativeBuilder,
           container_runner: ContainerRunner,
           includes: nil,
@@ -69,6 +70,7 @@ module Veltrunode
             allow_missing_gems: allow_missing_gems,
             allow_missing_packages: allow_missing_packages,
             build_on: build_on,
+            architecture: architecture,
             native_builder: native_builder,
             container_runner: container_runner,
             includes: includes,
@@ -95,6 +97,7 @@ module Veltrunode
           allow_missing_gems: false,
           allow_missing_packages: nil,
           build_on: nil,
+          architecture: nil,
           native_builder: NativeBuilder,
           container_runner: ContainerRunner,
           includes: nil,
@@ -116,6 +119,7 @@ module Veltrunode
             allow_missing_gems: allow_missing_gems,
             allow_missing_packages: allow_missing_packages,
             build_on: build_on,
+            architecture: architecture,
             native_builder: native_builder,
             container_runner: container_runner,
             includes: includes,
@@ -139,6 +143,7 @@ module Veltrunode
         allow_missing_gems: false,
         allow_missing_packages: nil,
         build_on: nil,
+        architecture: nil,
         native_builder: NativeBuilder,
         container_runner: ContainerRunner,
         includes: nil,
@@ -162,6 +167,7 @@ module Veltrunode
         @allow_missing_gems = allow_missing_gems
         @allow_missing_packages = allow_missing_packages.nil? ? allow_missing_gems : allow_missing_packages
         @build_on = build_on
+        @architecture = architecture ? normalize_architecture_str(architecture) : nil
         @native_builder = native_builder
         @container_runner = container_runner
         @user_includes = includes ? Array(includes).map(&:to_s) : []
@@ -811,10 +817,25 @@ module Veltrunode
       end
 
       def extract_architectures
+        return [@architecture] if @architecture
+
         if @layer.respond_to?(:architectures) && @layer.architectures
-          Array(@layer.architectures).map(&:to_s)
+          Array(@layer.architectures).map { |a| normalize_architecture_str(a) }
+        elsif @layer.respond_to?(:architecture) && @layer.architecture
+          [normalize_architecture_str(@layer.architecture)]
         else
           ['x86_64']
+        end
+      end
+
+      def normalize_architecture_str(arch)
+        case arch.to_s.strip.downcase
+        when 'arm64', 'aarch64'
+          'arm64'
+        when 'x86_64', 'amd64', ''
+          'x86_64'
+        else
+          arch.to_s.strip
         end
       end
 

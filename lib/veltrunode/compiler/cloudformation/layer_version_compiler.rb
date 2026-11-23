@@ -136,14 +136,28 @@ module Veltrunode
         end
 
         def format_compatible_architectures
-          archs = if layer.respond_to?(:architectures)
-                    layer.architectures
-                  elsif layer.is_a?(Hash)
-                    layer[:architectures] || layer['architectures']
-                  end
+          archs = context[:compatible_architectures] || context['compatible_architectures']
+          archs ||= if layer.respond_to?(:architectures) && layer.architectures
+                      layer.architectures
+                    elsif layer.respond_to?(:architecture) && layer.architecture
+                      layer.architecture
+                    elsif layer.is_a?(Hash)
+                      layer[:architectures] || layer['architectures'] ||
+                        layer[:architecture] || layer['architecture'] ||
+                        layer[:compatible_architectures] || layer['compatible_architectures']
+                    end
           return nil unless archs
 
-          Array(archs).map(&:to_s).sort
+          Array(archs).map do |a|
+            case a.to_s.strip.downcase
+            when 'arm64', 'aarch64'
+              'arm64'
+            when 'x86_64', 'amd64'
+              'x86_64'
+            else
+              a.to_s
+            end
+          end.uniq.sort
         end
 
         def format_description

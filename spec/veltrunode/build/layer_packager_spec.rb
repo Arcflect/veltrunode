@@ -1294,5 +1294,42 @@ RSpec.describe Veltrunode::Build::LayerPackager do
         expect(hash1).not_to eq(hash2)
       end
     end
+
+    it 'compiles native extensions for arm64 with NativeBuilder when architecture: :arm64 is specified' do
+      with_tmpdir do |tmpdir|
+        lockfile_path = File.join(tmpdir, 'Gemfile.lock')
+        File.write(lockfile_path, sample_lockfile_content)
+
+        arm_layer = Veltrunode::Model::Layer.new(
+          name: 'arm_gems',
+          compatible_runtimes: ['ruby3.3'],
+          architecture: :arm64
+        )
+
+        mock_native_builder = class_double(Veltrunode::Build::NativeBuilder)
+        expect(mock_native_builder).to receive(:build).with(
+          hash_including(
+            runtime: 'ruby3.3',
+            architecture: 'arm64',
+            build_on: :amazon_linux_2023 # rubocop:disable Naming/VariableNumber
+          )
+        ).and_return(
+          image_digest: 'sha256:574a1ca288afe7e0b58f05fbeedc71fd57d78551ea2059129db7ecf692b8bd6a',
+          architecture: 'arm64',
+          platform: 'linux/arm64'
+        )
+
+        hash = described_class.calculate_hash(
+          layer: arm_layer,
+          gemfile_lock_path: lockfile_path,
+          source_dir: tmpdir,
+          build_on: :amazon_linux_2023, # rubocop:disable Naming/VariableNumber
+          native_builder: mock_native_builder,
+          skip_container_build: false
+        )
+
+        expect(hash).to match(/\A[0-9a-f]{64}\z/)
+      end
+    end
   end
 end
