@@ -59,12 +59,19 @@ module Veltrunode
         @stage = st.to_s
       end
 
-      def runtime(arg = nil, ruby: nil, python: nil, nodejs: nil, node: nil, architecture: nil)
+      def runtime(arg = nil, ruby: nil, python: nil, nodejs: nil, node: nil, provided: nil, rust: nil, go: nil,
+                  architecture: nil)
         apply_positional_runtime(arg.to_s) if arg
         @runtime_defaults[:ruby] = normalize_version(ruby, 'ruby') if ruby
         @runtime_defaults[:python] = normalize_version(python, 'python') if python
         node_val = nodejs || node
         @runtime_defaults[:nodejs] = normalize_version(node_val, 'node') if node_val
+        if provided
+          p_str = provided.to_s
+          @runtime_defaults[:provided] = p_str.start_with?('provided.') ? p_str : "provided.#{p_str}"
+        elsif rust || go
+          @runtime_defaults[:provided] = 'provided.al2023'
+        end
         self.architecture(architecture) if architecture
       end
 
@@ -154,14 +161,22 @@ module Veltrunode
       end
       alias efs_alarm_helper efs_alarms
 
-      def function(name, architecture: nil, tracing: nil, insights: nil, async_invoke: nil, alarms: nil,
+      def function(name, runtime: nil, architecture: nil, tracing: nil, insights: nil, async_invoke: nil, alarms: nil,
                    event_source: nil, event_sources: nil, rule: nil, rules: nil,
                    kinesis_stream: nil, msk: nil, mq: nil, function_url: nil,
                    mounts: nil, efs_mounts: nil, efs_mount: nil, mount: nil,
-                   image: nil, container_image: nil, **, &)
+                   image: nil, container_image: nil,
+                   custom_runtime: nil, cargo: nil, rust: nil, go: nil, binary: nil, bootstrap: nil, **, &)
         alarms_cfg = alarms.nil? ? @runtime_defaults[:alarms] : alarms
         fn_url_cfg = function_url.nil? ? @runtime_defaults[:function_url] : function_url
         img_cfg = image.nil? ? container_image : image
+        custom_rt_cfg = resolve_custom_runtime_arg(
+          custom_runtime: custom_runtime,
+          cargo: cargo || rust,
+          go: go,
+          binary: binary,
+          bootstrap: bootstrap
+        )
         arch_explicit = !architecture.nil?
         arch_cfg = if arch_explicit
                      normalize_architecture_symbol(architecture)
@@ -178,7 +193,7 @@ module Veltrunode
         )
         builder = FunctionBuilder.new(
           name,
-          runtime_default: resolve_default_runtime,
+          runtime_default: runtime ? runtime.to_s : resolve_default_runtime,
           architecture_default: arch_cfg,
           architecture_explicit: arch_explicit,
           tracing_default: tracing || @runtime_defaults[:tracing],
@@ -188,7 +203,8 @@ module Veltrunode
           event_sources_default: es_cfg,
           function_url_default: fn_url_cfg,
           mounts_default: mounts_cfg,
-          image_default: img_cfg
+          image_default: img_cfg,
+          custom_runtime_default: custom_rt_cfg
         )
         builder.instance_eval(&) if block_given?
         @function_builders << builder
@@ -397,7 +413,9 @@ module Veltrunode
       end
 
       def apply_positional_runtime(str)
-        if str.start_with?('python')
+        if str.start_with?('provided') || %w[al2023 al2 custom rust go].include?(str.downcase)
+          @runtime_defaults[:provided] = str.start_with?('provided.') ? str : 'provided.al2023'
+        elsif str.start_with?('python')
           @runtime_defaults[:python] = normalize_version(str.sub('python', ''), 'python')
         elsif str.start_with?('nodejs') || str.start_with?('node')
           @runtime_defaults[:nodejs] = normalize_version(str.sub(/^node(js)?/, ''), 'node')
@@ -416,12 +434,38 @@ module Veltrunode
       end
 
       def resolve_default_runtime
-        if @runtime_defaults[:python]
+        if @runtime_defaults[:provided]
+          @runtime_defaults[:provided]
+        elsif @runtime_defaults[:python]
           "python#{@runtime_defaults[:python]}"
         elsif @runtime_defaults[:nodejs]
           "nodejs#{@runtime_defaults[:nodejs]}"
         elsif @runtime_defaults[:ruby]
           "ruby#{@runtime_defaults[:ruby]}"
+        end
+      end
+
+      def resolve_custom_runtime_arg(custom_runtime:, cargo:, go:, binary:, bootstrap:)
+        return custom_runtime unless custom_runtime.nil?
+
+        if !cargo.nil? && cargo != false
+          return cargo.merge(toolchain: 'cargo') if cargo.is_a?(Hash)
+
+          bin_val = cargo == true ? nil : cargo
+          { toolchain: 'cargo', bin: bin_val }.compact
+        elsif !go.nil? && go != false
+          return go.merge(toolchain: 'go') if go.is_a?(Hash)
+
+          pkg_val = go == true ? nil : go
+          { toolchain: 'go', package: pkg_val }.compact
+        elsif !binary.nil? && binary != false
+          return binary.merge(toolchain: 'prebuilt') if binary.is_a?(Hash)
+
+          { toolchain: 'prebuilt', bootstrap_path: binary.to_s }
+        elsif !bootstrap.nil? && bootstrap != false
+          return bootstrap.merge(toolchain: 'prebuilt') if bootstrap.is_a?(Hash)
+
+          { toolchain: 'prebuilt', bootstrap_path: bootstrap.to_s }
         end
       end
 

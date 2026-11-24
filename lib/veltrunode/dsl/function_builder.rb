@@ -64,11 +64,91 @@ module Veltrunode
         alias workdir working_directory
       end
 
+      # cargo { ... } / go { ... } / custom_runtime { ... } ブロック用ビルダ
+      class CustomRuntimeBlockBuilder < BaseBuilder
+        attr_reader :config
+
+        def initialize(initial = {})
+          super()
+          @config = initial.dup
+        end
+
+        def toolchain(val)
+          @config[:toolchain] = val
+        end
+
+        def manifest_path(val)
+          @config[:manifest_path] = val
+        end
+        alias manifest manifest_path
+
+        def package(val)
+          @config[:package] = val
+        end
+        alias main package
+
+        def bin(val)
+          @config[:bin] = val
+        end
+        alias binary bin
+
+        def bootstrap_path(val)
+          @config[:bootstrap_path] = val
+        end
+        alias bootstrap bootstrap_path
+
+        def target(val)
+          @config[:target] = val
+        end
+
+        def docker(val = true) # rubocop:disable Style/OptionalBooleanParameter
+          @config[:docker] = val ? true : false
+        end
+        alias container docker
+
+        def image(val)
+          @config[:image] = val
+        end
+        alias build_image image
+
+        def release(val = true) # rubocop:disable Style/OptionalBooleanParameter
+          @config[:release] = val ? true : false
+        end
+
+        def locked(val = true) # rubocop:disable Style/OptionalBooleanParameter
+          @config[:locked] = val ? true : false
+        end
+
+        def cgo(val = false) # rubocop:disable Style/OptionalBooleanParameter
+          @config[:cgo_enabled] = val ? true : false
+        end
+        alias cgo_enabled cgo
+
+        def ldflags(val)
+          @config[:ldflags] = val
+        end
+
+        def tags(*vals)
+          @config[:tags] = vals.flatten.compact
+        end
+
+        def build_flags(*vals)
+          @config[:build_flags] = vals.flatten.compact
+        end
+        alias flags build_flags
+
+        def env(hash)
+          @config[:env] = (@config[:env] || {}).merge(hash) if hash.is_a?(Hash)
+        end
+        alias environment env
+      end
+
       attr_reader :inline_mounts
 
       def initialize(logical_name, runtime_default: nil, architecture_default: :x86_64, architecture_explicit: false,
                      tracing_default: nil, insights_default: nil, async_invoke_default: nil, alarms_default: nil,
-                     event_sources_default: nil, function_url_default: nil, mounts_default: nil, image_default: nil)
+                     event_sources_default: nil, function_url_default: nil, mounts_default: nil, image_default: nil,
+                     custom_runtime_default: nil)
         super()
         @logical_name = logical_name.to_s
         @handler = nil
@@ -97,7 +177,9 @@ module Veltrunode
         @event_sources = []
         @function_url = function_url_default
         @image = nil
+        @custom_runtime = nil
         image(image_default) unless image_default.nil?
+        custom_runtime(custom_runtime_default) unless custom_runtime_default.nil?
         apply_event_sources_default(event_sources_default) if event_sources_default
         add_mount_entries(mounts_default) if mounts_default
       end
@@ -130,10 +212,20 @@ module Veltrunode
         @handler = h.to_s
       end
 
-      def runtime(r = nil, ruby: nil, python: nil, nodejs: nil, node: nil, architecture: nil)
+      def runtime(r = nil, ruby: nil, python: nil, nodejs: nil, node: nil, provided: nil, rust: nil, go: nil,
+                  architecture: nil)
         if r
           str = r.to_s
           @runtime = str.start_with?('node') ? "nodejs#{str.sub(/^node(js)?/, '')}" : str
+        elsif provided
+          p_str = provided.to_s
+          @runtime = p_str.start_with?('provided.') ? p_str : "provided.#{p_str}"
+        elsif rust
+          @runtime = 'provided.al2023'
+          cargo(rust.is_a?(Hash) ? rust : {}) if @custom_runtime.nil?
+        elsif go
+          @runtime = 'provided.al2023'
+          self.go(go.is_a?(Hash) ? go : {}) if @custom_runtime.nil?
         elsif python
           py_str = python.to_s
           @runtime = "python#{py_str.sub(/^python/, '')}"
@@ -146,6 +238,73 @@ module Veltrunode
         end
         architecture(architecture) if architecture
       end
+
+      def custom_runtime(val_or_opts = nil, **kwargs, &)
+        if val_or_opts == false
+          @custom_runtime = nil
+          return
+        end
+
+        base = @custom_runtime.is_a?(Hash) ? @custom_runtime.dup : {}
+        case val_or_opts
+        when Hash
+          base.merge!(val_or_opts)
+        when Symbol
+          base[:toolchain] = val_or_opts.to_s
+        when String
+          if val_or_opts.end_with?('Cargo.toml')
+            base[:toolchain] ||= 'cargo'
+            base[:manifest_path] = val_or_opts
+          elsif val_or_opts.end_with?('.go')
+            base[:toolchain] ||= 'go'
+            base[:package] = val_or_opts
+          else
+            base[:bootstrap_path] = val_or_opts
+          end
+        end
+        base.merge!(kwargs) unless kwargs.empty?
+
+        if block_given?
+          block_builder = CustomRuntimeBlockBuilder.new(base)
+          block_builder.instance_eval(&)
+          base = block_builder.config
+        end
+
+        @custom_runtime = base
+      end
+      alias binary custom_runtime
+      alias bootstrap custom_runtime
+
+      def cargo(val_or_opts = nil, **kwargs, &)
+        opts = kwargs.dup
+        case val_or_opts
+        when Hash
+          opts = val_or_opts.merge(opts)
+        when String
+          if val_or_opts.end_with?('Cargo.toml')
+            opts[:manifest_path] ||= val_or_opts
+          else
+            opts[:bin] ||= val_or_opts
+          end
+        when Symbol
+          opts[:bin] ||= val_or_opts.to_s
+        end
+        opts[:toolchain] = 'cargo'
+        custom_runtime(opts, &)
+      end
+      alias rust cargo
+
+      def go(val_or_opts = nil, **kwargs, &)
+        opts = kwargs.dup
+        if val_or_opts.is_a?(Hash)
+          opts = val_or_opts.merge(opts)
+        elsif val_or_opts.is_a?(String) || val_or_opts.is_a?(Symbol)
+          opts[:package] ||= val_or_opts.to_s
+        end
+        opts[:toolchain] = 'go'
+        custom_runtime(opts, &)
+      end
+      alias golang go
 
       def architecture(a)
         @explicit_architecture = true
@@ -528,7 +687,8 @@ module Veltrunode
           async_invoke: @async_invoke,
           event_sources: @event_sources,
           function_url: @function_url,
-          image: @image
+          image: @image,
+          custom_runtime: @custom_runtime
         )
       end
 

@@ -12,7 +12,7 @@ module Veltrunode
       attr_reader :handler, :runtime, :logical_name, :architecture, :memory, :timeout, :ephemeral_storage,
                   :environment, :vpc_reference, :layers, :mounts, :iam_capabilities, :concurrency, :logging,
                   :alarms, :subscription_filters, :tracing, :insights, :async_invoke, :event_sources, :function_url,
-                  :image
+                  :image, :custom_runtime
 
       alias efs_mounts mounts
       alias container_image image
@@ -46,14 +46,31 @@ module Veltrunode
         rules: [],
         function_url: nil,
         image: nil,
-        container_image: nil
+        container_image: nil,
+        custom_runtime: nil,
+        cargo: nil,
+        rust: nil,
+        go: nil,
+        binary: nil,
+        bootstrap: nil
       )
         name_val = positional_logical_name || logical_name
         validate_logical_name!(name_val)
 
         @logical_name = name_val.to_s.freeze
-        @handler = handler&.to_s&.freeze
-        @runtime = runtime&.to_s&.freeze
+        @custom_runtime = normalize_custom_runtime(
+          custom_runtime,
+          cargo: cargo || rust,
+          go: go,
+          binary: binary,
+          bootstrap: bootstrap
+        )
+        resolved_runtime = normalize_runtime(runtime)
+        resolved_runtime ||= 'provided.al2023' if @custom_runtime
+        @runtime = resolved_runtime&.freeze
+        resolved_handler = handler&.to_s
+        resolved_handler = 'bootstrap' if (resolved_handler.nil? || resolved_handler.strip.empty?) && custom_runtime?
+        @handler = resolved_handler&.freeze
         @architecture = normalize_architecture(architecture)
         @memory = memory.to_i
         @timeout = timeout.to_i
@@ -74,7 +91,7 @@ module Veltrunode
         @function_url = normalize_function_url(function_url)
         @image = normalize_image(image.nil? ? container_image : image)
 
-        freeze if @handler || @runtime || @image
+        freeze if @handler || @runtime || @image || @custom_runtime
       end
 
       def handler=(h)
@@ -182,6 +199,39 @@ module Veltrunode
         @architecture == :x86_64
       end
 
+      def custom_runtime?
+        @runtime.to_s.start_with?('provided') || (!@custom_runtime.nil? && !@custom_runtime.empty?)
+      end
+
+      def cargo?
+        @custom_runtime&.fetch('toolchain', nil) == 'cargo'
+      end
+      alias rust_runtime? cargo?
+
+      def go?
+        @custom_runtime&.fetch('toolchain', nil) == 'go'
+      end
+      alias go_runtime? go?
+
+      def custom_runtime_toolchain
+        @custom_runtime&.fetch('toolchain', nil)
+      end
+
+      def custom_runtime_target
+        explicit = @custom_runtime&.fetch('target', nil)
+        return explicit if explicit && !explicit.to_s.strip.empty?
+
+        if cargo?
+          arm64? ? 'aarch64-unknown-linux-musl' : 'x86_64-unknown-linux-musl'
+        elsif go?
+          arm64? ? 'linux/arm64' : 'linux/amd64'
+        end
+      end
+
+      def go_arch
+        arm64? ? 'arm64' : 'amd64'
+      end
+
       def image_dockerfile
         @image&.fetch('dockerfile', nil)
       end
@@ -266,6 +316,175 @@ module Veltrunode
 
       def validate_logical_name!(name)
         raise ValidationError, 'Function logical_name is required' if name.nil? || name.to_s.strip.empty?
+      end
+
+      def normalize_runtime(raw_runtime)
+        return nil if raw_runtime.nil?
+
+        str = raw_runtime.to_s.strip
+        return nil if str.empty?
+
+        case str.downcase
+        when 'provided_al2023', 'provided.al2023', 'al2023', 'custom'
+          'provided.al2023'
+        when 'provided_al2', 'provided.al2', 'al2'
+          'provided.al2'
+        else
+          str
+        end
+      end
+
+      def normalize_custom_runtime(raw_custom, cargo: nil, go: nil, binary: nil, bootstrap: nil)
+        source_val = raw_custom
+        default_toolchain = nil
+
+        if source_val.nil?
+          if !cargo.nil? && cargo != false
+            source_val = cargo
+            default_toolchain = 'cargo'
+          elsif !go.nil? && go != false
+            source_val = go
+            default_toolchain = 'go'
+          elsif !binary.nil? && binary != false
+            source_val = binary
+            default_toolchain = 'prebuilt'
+          elsif !bootstrap.nil? && bootstrap != false
+            source_val = bootstrap
+            default_toolchain = 'prebuilt'
+          end
+        end
+
+        return nil if source_val.nil? || source_val == false
+
+        cfg = case source_val
+              when true
+                { 'toolchain' => default_toolchain || 'cargo' }
+              when Symbol
+                normalize_custom_runtime_symbol(source_val, default_toolchain)
+              when String
+                normalize_custom_runtime_string(source_val, default_toolchain)
+              when Hash
+                normalize_custom_runtime_hash(source_val, default_toolchain)
+              else
+                raise ValidationError, "Invalid custom_runtime configuration: #{source_val.class}"
+              end
+
+        freeze_hash(cfg)
+      end
+
+      def normalize_custom_runtime_symbol(sym, default_toolchain)
+        case sym.to_s.downcase
+        when 'cargo', 'rust'
+          { 'toolchain' => 'cargo' }
+        when 'go', 'golang'
+          { 'toolchain' => 'go' }
+        else
+          { 'toolchain' => default_toolchain || 'prebuilt', 'bin' => sym.to_s }
+        end
+      end
+
+      def normalize_custom_runtime_string(str, default_toolchain)
+        s = str.strip
+        raise ValidationError, 'Custom runtime configuration string cannot be empty' if s.empty?
+
+        case default_toolchain
+        when 'cargo'
+          if s.end_with?('Cargo.toml')
+            { 'toolchain' => 'cargo', 'manifest_path' => s }
+          else
+            { 'toolchain' => 'cargo', 'bin' => s }
+          end
+        when 'go'
+          { 'toolchain' => 'go', 'package' => s }
+        else
+          if s.end_with?('Cargo.toml') || %w[cargo rust].include?(s.downcase)
+            res = { 'toolchain' => 'cargo' }
+            res['manifest_path'] = s if s.end_with?('Cargo.toml')
+            res
+          elsif s.end_with?('.go') || %w[go golang].include?(s.downcase)
+            res = { 'toolchain' => 'go' }
+            res['package'] = s if s.end_with?('.go')
+            res
+          else
+            { 'toolchain' => 'prebuilt', 'bootstrap_path' => s }
+          end
+        end
+      end
+
+      def normalize_custom_runtime_hash(raw, default_toolchain)
+        tc_raw = raw[:toolchain] || raw['toolchain'] || default_toolchain
+        tc = case tc_raw.to_s.strip.downcase
+             when 'cargo', 'rust'
+               'cargo'
+             when 'go', 'golang'
+               'go'
+             when 'prebuilt', 'binary', 'bootstrap'
+               'prebuilt'
+             else
+               infer_toolchain_from_hash(raw)
+             end
+
+        res = { 'toolchain' => tc }
+        manifest = raw[:manifest_path] || raw['manifest_path'] || raw[:manifest] || raw['manifest']
+        res['manifest_path'] = manifest.to_s.strip if manifest && !manifest.to_s.strip.empty?
+
+        pkg = raw[:package] || raw['package'] || raw[:main] || raw['main']
+        res['package'] = pkg.to_s.strip if pkg && !pkg.to_s.strip.empty?
+
+        bin = raw[:bin] || raw['bin'] || raw[:binary] || raw['binary']
+        res['bin'] = bin.to_s.strip if bin && !bin.to_s.strip.empty?
+
+        bs_path = raw[:bootstrap_path] || raw['bootstrap_path'] || raw[:bootstrap] || raw['bootstrap'] ||
+                  raw[:path] || raw['path']
+        res['bootstrap_path'] = bs_path.to_s.strip if bs_path && !bs_path.to_s.strip.empty?
+
+        target = raw[:target] || raw['target']
+        res['target'] = target.to_s.strip if target && !target.to_s.strip.empty?
+
+        docker_val = raw.key?(:docker) ? raw[:docker] : raw['docker']
+        docker_val = raw[:container] if docker_val.nil? && raw.key?(:container)
+        docker_val = raw['container'] if docker_val.nil? && raw.key?('container')
+        res['docker'] = docker_val ? true : false unless docker_val.nil?
+
+        img = raw[:image] || raw['image'] || raw[:build_image] || raw['build_image']
+        res['image'] = img.to_s.strip if img && !img.to_s.strip.empty?
+
+        rel_val = raw.key?(:release) ? raw[:release] : raw['release']
+        res['release'] = rel_val.nil? || (rel_val ? true : false)
+
+        locked_val = raw.key?(:locked) ? raw[:locked] : raw['locked']
+        res['locked'] = locked_val ? true : false unless locked_val.nil?
+
+        cgo_val = raw.key?(:cgo) ? raw[:cgo] : raw['cgo']
+        cgo_val = raw[:cgo_enabled] if cgo_val.nil? && raw.key?(:cgo_enabled)
+        cgo_val = raw['cgo_enabled'] if cgo_val.nil? && raw.key?('cgo_enabled')
+        res['cgo_enabled'] = cgo_val ? true : false unless cgo_val.nil?
+
+        ldflags = raw[:ldflags] || raw['ldflags']
+        res['ldflags'] = ldflags.to_s.strip if ldflags && !ldflags.to_s.strip.empty?
+
+        tags = raw[:tags] || raw['tags']
+        res['tags'] = Array(tags).flatten.map(&:to_s) if tags
+
+        flags = raw[:build_flags] || raw['build_flags'] || raw[:flags] || raw['flags']
+        res['build_flags'] = Array(flags).flatten.map(&:to_s) if flags
+
+        env = raw[:env] || raw['env'] || raw[:environment] || raw['environment']
+        res['env'] = env.transform_keys(&:to_s).transform_values(&:to_s) if env.is_a?(Hash) && !env.empty?
+
+        res
+      end
+
+      def infer_toolchain_from_hash(raw)
+        if raw.key?(:manifest_path) || raw.key?('manifest_path') || raw.key?(:manifest) || raw.key?('manifest') ||
+           raw.key?(:bin) || raw.key?('bin') || raw.key?(:locked) || raw.key?('locked')
+          'cargo'
+        elsif raw.key?(:package) || raw.key?('package') || raw.key?(:ldflags) || raw.key?('ldflags') ||
+              raw.key?(:cgo) || raw.key?('cgo') || raw.key?(:cgo_enabled) || raw.key?('cgo_enabled')
+          'go'
+        else
+          'prebuilt'
+        end
       end
 
       def normalize_image(raw_image)

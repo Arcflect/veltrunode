@@ -515,4 +515,21 @@ RSpec.describe Veltrunode::Compiler::CloudFormation::FunctionCompiler do
       )
     end
   end
+
+  describe 'Custom Runtime (provided.al2023)' do
+    it 'compiles Runtime: provided.al2023 and Handler: bootstrap for Rust / Go functions' do
+      fn = Veltrunode::Model::Function.new(
+        logical_name: 'fast_rust_api',
+        architecture: :arm64,
+        cargo: { manifest_path: './Cargo.toml', bin: 'fast_api' }
+      )
+
+      result = described_class.compile(fn)
+      props = result['FastRustApiFunction']['Properties']
+
+      expect(props['Runtime']).to eq('provided.al2023')
+      expect(props['Handler']).to eq('bootstrap')
+      expect(props['Architectures']).to eq(['arm64'])
+    end
+  end
 end

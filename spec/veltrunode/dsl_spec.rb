@@ -940,5 +940,48 @@ RSpec.describe Veltrunode::DSL do
       explicit_layer = app.layers.find { |l| l.name == 'explicit_arm_gems' }
       expect(explicit_layer.architectures).to eq([:arm64])
     end
+
+    it 'supports runtime: "provided.al2023" with cargo and go custom runtime DSL' do
+      code = <<~RUBY
+        Veltrunode.application "custom-runtime-app" do
+          runtime "provided.al2023", architecture: :arm64
+
+          function :rust_processor do
+            cargo do
+              manifest "./Cargo.toml"
+              bin "processor"
+              docker true
+              locked true
+            end
+          end
+
+          function :go_ingestor, architecture: :x86_64, go: { package: "./cmd/ingestor", cgo: false } do
+            memory 256
+          end
+        end
+      RUBY
+
+      app = Veltrunode.parse(code)
+      expect(app.functions.size).to eq(2)
+
+      rust_fn = app.functions.find { |f| f.logical_name == 'rust_processor' }
+      expect(rust_fn.runtime).to eq('provided.al2023')
+      expect(rust_fn.handler).to eq('bootstrap')
+      expect(rust_fn.architecture).to eq(:arm64)
+      expect(rust_fn.cargo?).to be(true)
+      expect(rust_fn.custom_runtime['manifest_path']).to eq('./Cargo.toml')
+      expect(rust_fn.custom_runtime['bin']).to eq('processor')
+      expect(rust_fn.custom_runtime['docker']).to be(true)
+      expect(rust_fn.custom_runtime_target).to eq('aarch64-unknown-linux-musl')
+
+      go_fn = app.functions.find { |f| f.logical_name == 'go_ingestor' }
+      expect(go_fn.runtime).to eq('provided.al2023')
+      expect(go_fn.handler).to eq('bootstrap')
+      expect(go_fn.architecture).to eq(:x86_64)
+      expect(go_fn.go?).to be(true)
+      expect(go_fn.custom_runtime['package']).to eq('./cmd/ingestor')
+      expect(go_fn.custom_runtime['cgo_enabled']).to be(false)
+      expect(go_fn.go_arch).to eq('amd64')
+    end
   end
 end
