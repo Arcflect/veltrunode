@@ -436,5 +436,35 @@ RSpec.describe Veltrunode::Model::Function do
         expect(fn_aarch.arm64?).to be(true)
       end
     end
+
+    describe 'custom runtime (provided.al2023) with Cargo and Go' do
+      it 'defaults runtime to provided.al2023 and handler to bootstrap when cargo or go is configured' do
+        rust_fn = described_class.new(
+          logical_name: 'rust_worker',
+          architecture: :arm64,
+          cargo: { manifest_path: './Cargo.toml', bin: 'worker', docker: true }
+        )
+
+        expect(rust_fn.custom_runtime?).to be(true)
+        expect(rust_fn.cargo?).to be(true)
+        expect(rust_fn.rust_runtime?).to be(true)
+        expect(rust_fn.runtime).to eq('provided.al2023')
+        expect(rust_fn.handler).to eq('bootstrap')
+        expect(rust_fn.custom_runtime_target).to eq('aarch64-unknown-linux-musl')
+
+        go_fn = described_class.new(
+          logical_name: 'go_worker',
+          runtime: 'provided.al2023',
+          architecture: :x86_64,
+          go: { package: './cmd/worker', ldflags: '-s -w' }
+        )
+
+        expect(go_fn.custom_runtime?).to be(true)
+        expect(go_fn.go?).to be(true)
+        expect(go_fn.runtime).to eq('provided.al2023')
+        expect(go_fn.handler).to eq('bootstrap')
+        expect(go_fn.go_arch).to eq('amd64')
+      end
+    end
   end
 end

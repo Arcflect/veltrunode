@@ -453,6 +453,8 @@ module Veltrunode
             next
           end
 
+          next if fn.respond_to?(:custom_runtime?) && fn.custom_runtime?
+
           handler_str = fn.respond_to?(:handler) ? fn.handler.to_s.strip : ''
           next if handler_str.empty?
 

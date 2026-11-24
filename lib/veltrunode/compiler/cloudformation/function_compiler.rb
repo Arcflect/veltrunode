@@ -57,8 +57,12 @@ module Veltrunode
               props['ImageConfig'] = function.image_config
             end
           else
-            props['Handler'] = function.handler if present?(function.handler)
-            props['Runtime'] = function.runtime if present?(function.runtime)
+            handler_val = function.handler
+            handler_val = 'bootstrap' if !present?(handler_val) && custom_runtime_function?
+            runtime_val = function.runtime
+            runtime_val = 'provided.al2023' if !present?(runtime_val) && custom_runtime_function?
+            props['Handler'] = handler_val if present?(handler_val)
+            props['Runtime'] = runtime_val if present?(runtime_val)
           end
 
           props['Architectures'] = [function.architecture.to_s] if present?(function.architecture)
@@ -487,6 +491,10 @@ module Veltrunode
 
         def image_function?
           function.respond_to?(:image?) && function.image?
+        end
+
+        def custom_runtime_function?
+          function.respond_to?(:custom_runtime?) && function.custom_runtime?
         end
 
         def format_code

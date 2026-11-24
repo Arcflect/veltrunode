@@ -5,6 +5,7 @@ require 'find'
 require_relative 'deterministic_archiver'
 require_relative 'package_result'
 require_relative 'image_builder'
+require_relative 'custom_runtime_builder'
 require_relative 'secret_scanner'
 require_relative 'cache'
 require_relative '../validation'
@@ -54,6 +55,18 @@ module Veltrunode
       def package
         if @function.respond_to?(:image?) && @function.image?
           return ImageBuilder.package(function: @function, source_dir: @source_dir)
+        end
+
+        if custom_runtime_build?
+          return CustomRuntimeBuilder.package(
+            function: @function,
+            source_dir: @source_dir,
+            output_dir: @output_dir,
+            no_cache: @no_cache,
+            cache_dir: @cache_dir,
+            cache_config: @cache_config,
+            s3_client: @s3_client
+          )
         end
 
         fn_name = extract_function_name
@@ -165,6 +178,14 @@ module Veltrunode
         return nil unless @function.respond_to?(:handler)
 
         @function.handler
+      end
+
+      def custom_runtime_build?
+        if @function.respond_to?(:custom_runtime) && @function.custom_runtime && !@function.custom_runtime.empty?
+          return true
+        end
+
+        @function.respond_to?(:custom_runtime?) && @function.custom_runtime?
       end
 
       def validate_handler_file!(fn_name, handler_str)

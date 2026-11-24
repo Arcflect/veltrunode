@@ -164,6 +164,10 @@ module Veltrunode
             fn_info['image'] = img if present?(img)
           end
 
+          if fn.respond_to?(:custom_runtime) && present?(fn.custom_runtime)
+            fn_info['custom_runtime'] = extract_val(fn, :custom_runtime)
+          end
+
           if res
             ch = extract_val(res, :content_hash) || extract_val(res, :sha256)
             sha = extract_val(res, :sha256)
