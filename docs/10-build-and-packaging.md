@@ -163,3 +163,41 @@ end
    - CloudFormation テンプレートの `Properties.Architectures` に `['arm64']` が出力されます。
 3. **Layer の互換性アーキテクチャ設定 (`AWS::Lambda::LayerVersion`)**:
    - CloudFormation テンプレートの `Properties.CompatibleArchitectures` に `'arm64'` が出力されます。
+
+## Rust / Go カスタムランタイム (`runtime: 'provided.al2023'`)
+
+超低レイテンシ・高スループットが求められるワークロード向けに、`runtime: 'provided.al2023'` と Cargo (Rust) / Go ビルドパイプラインを統合し、単一実行可能バイナリ（`bootstrap`）を決定論的にビルド・パッケージングできます。
+
+### DSL 設定例 (`Veltrunodefile`)
+
+```ruby
+Veltrunode.application "low-latency-service" do
+  aws region: "ap-northeast-1", account: "123456789012"
+  runtime "provided.al2023", architecture: :arm64
+
+  # 1. Rust (Cargo) による musl 静的リンクビルド
+  function :rust_processor do
+    cargo do
+      manifest "./Cargo.toml"
+      bin "processor"
+      docker true
+      locked true
+    end
+  end
+
+  # 2. Go による CGO_ENABLED=0 静的リンクビルド
+  function :go_ingestor, architecture: :x86_64 do
+    go package: "./cmd/ingestor", ldflags: "-s -w", docker: true
+  end
+end
+```
+
+### 自動化される動作 (`Veltrunode::Build::CustomRuntimeBuilder`)
+
+1. **`bootstrap` 実行可能ファイルの決定論的ビルド**:
+   - **Cargo (Rust)**: `CARGO_INCREMENTAL=0`, `SOURCE_DATE_EPOCH=1704067200`, `RUSTFLAGS="-C target-feature=+crt-static -C link-arg=-s --remap-path-prefix=..."` を設定し、`cargo build --release --locked` で再現可能なバイナリを生成します。
+   - **Go**: `CGO_ENABLED=0`, `GOOS=linux`, `GOARCH=amd64|arm64`, `SOURCE_DATE_EPOCH=1704067200` を設定し、`go build -trimpath -buildvcs=false -ldflags="-s -w -buildid=" -tags netgo,osusergo -o bootstrap` で決定論的バイナリを生成します。
+2. **Docker コンテナ内での静的リンク（musl 等）クロスコンパイル**:
+   - 関数の `architecture`（`:x86_64` -> `x86_64-unknown-linux-musl` / `GOARCH=amd64`、`:arm64` -> `aarch64-unknown-linux-musl` / `GOARCH=arm64`）に応じて `--platform linux/amd64` または `linux/arm64` のコンテナ内でクロスコンパイルを実行します。
+3. **ZIP アーカイブ内ルートへの `bootstrap` 配置**:
+   - コンパイルされたバイナリを実行権限（`0755`）付きの `bootstrap` として ZIP アーカイブのルート直下に配置し、CloudFormation の `AWS::Lambda::Function` に `Runtime: provided.al2023` および `Handler: bootstrap` を出力します。
