@@ -168,6 +168,10 @@ module Veltrunode
             fn_info['custom_runtime'] = extract_val(fn, :custom_runtime)
           end
 
+          if fn.respond_to?(:node_bundle) && present?(fn.node_bundle)
+            fn_info['node_bundle'] = extract_val(fn, :node_bundle)
+          end
+
           if res
             ch = extract_val(res, :content_hash) || extract_val(res, :sha256)
             sha = extract_val(res, :sha256)

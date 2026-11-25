@@ -201,3 +201,48 @@ end
    - 関数の `architecture`（`:x86_64` -> `x86_64-unknown-linux-musl` / `GOARCH=amd64`、`:arm64` -> `aarch64-unknown-linux-musl` / `GOARCH=arm64`）に応じて `--platform linux/amd64` または `linux/arm64` のコンテナ内でクロスコンパイルを実行します。
 3. **ZIP アーカイブ内ルートへの `bootstrap` 配置**:
    - コンパイルされたバイナリを実行権限（`0755`）付きの `bootstrap` として ZIP アーカイブのルート直下に配置し、CloudFormation の `AWS::Lambda::Function` に `Runtime: provided.al2023` および `Handler: bootstrap` を出力します。
+
+## Node.js / TypeScript バンドルビルド (`esbuild` / `Bun`)
+
+Node.js / TypeScript 製の Lambda 関数において、`entry: 'src/handler.ts'` を指定することで `esbuild` または `Bun` による高速トランスパイル・Tree-shaking・バンドルを実行し、最小化された ZIP パッケージを直接生成できます。
+
+### DSL 設定例 (`Veltrunodefile`)
+
+```ruby
+Veltrunode.application "ts-microservice" do
+  aws region: "ap-northeast-1", account: "123456789012"
+
+  # 1. キーワード引数でのシンプルな TypeScript エントリ・Source Map 指定
+  function :api_handler, runtime: "nodejs20.x", entry: "src/handler.ts", sourcemap: true do
+    memory 512
+  end
+
+  # 2. esbuild ブロックによる詳細設定（Tree-shaking・Minify・外部モジュール除外）
+  function :order_worker do
+    runtime "nodejs20.x"
+    esbuild do
+      entry "src/worker.ts"
+      sourcemap :external # true, :inline, :external, :linked, :both
+      minify true
+      tree_shaking true
+      external "@aws-sdk/*"
+      target "node20"
+    end
+  end
+
+  # 3. Bun バンドラーの利用
+  function :fast_webhook do
+    runtime "nodejs20.x"
+    bun entry: "src/webhook.ts", sourcemap: :inline, minify: true
+  end
+end
+```
+
+### 自動化される動作 (`Veltrunode::Build::NodeBundleBuilder`)
+
+1. **`esbuild` / `Bun` による高速トランスパイル・Tree-shaking・バンドル**:
+   - `esbuild <entry> --bundle --platform=node --target=node20 --format=cjs --tree-shaking=true`（または `bun build <entry> --target=node`）を実行し、不要なコードを除去した単一バンドルを生成します。
+   - `handler` 未指定時はエントリファイル名から自動的に CloudFormation の `Handler`（例: `src/handler.ts` -> `handler.handler`）を導出します。
+2. **Source Map 出力オプション (`sourcemap`)**:
+   - `sourcemap: true`（または `:external` / `:linked`）を指定すると、`--sourcemap` オプションを付与して `<outfile>.map`（例: `handler.js.map`）を生成し、バンドル済み JS ファイルとともに ZIP アーカイブへ同梱します。
+   - `sourcemap: :inline` を指定すると、`--sourcemap=inline` によりインライン Source Map を JS ファイル内に埋め込みます。

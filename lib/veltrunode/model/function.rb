@@ -12,10 +12,11 @@ module Veltrunode
       attr_reader :handler, :runtime, :logical_name, :architecture, :memory, :timeout, :ephemeral_storage,
                   :environment, :vpc_reference, :layers, :mounts, :iam_capabilities, :concurrency, :logging,
                   :alarms, :subscription_filters, :tracing, :insights, :async_invoke, :event_sources, :function_url,
-                  :image, :custom_runtime
+                  :image, :custom_runtime, :node_bundle
 
       alias efs_mounts mounts
       alias container_image image
+      alias bundle_config node_bundle
 
       def initialize(
         positional_logical_name = nil,
@@ -52,7 +53,15 @@ module Veltrunode
         rust: nil,
         go: nil,
         binary: nil,
-        bootstrap: nil
+        bootstrap: nil,
+        entry: nil,
+        bundle: nil,
+        esbuild: nil,
+        bun: nil,
+        sourcemap: nil,
+        source_map: nil,
+        minify: nil,
+        external: nil
       )
         name_val = positional_logical_name || logical_name
         validate_logical_name!(name_val)
@@ -65,11 +74,27 @@ module Veltrunode
           binary: binary,
           bootstrap: bootstrap
         )
+        @node_bundle = normalize_node_bundle(
+          bundle,
+          entry: entry,
+          esbuild: esbuild,
+          bun: bun,
+          sourcemap: sourcemap.nil? ? source_map : sourcemap,
+          minify: minify,
+          external: external
+        )
         resolved_runtime = normalize_runtime(runtime)
         resolved_runtime ||= 'provided.al2023' if @custom_runtime
+        resolved_runtime ||= 'nodejs20.x' if @node_bundle
         @runtime = resolved_runtime&.freeze
         resolved_handler = handler&.to_s
-        resolved_handler = 'bootstrap' if (resolved_handler.nil? || resolved_handler.strip.empty?) && custom_runtime?
+        if resolved_handler.nil? || resolved_handler.strip.empty?
+          if custom_runtime?
+            resolved_handler = 'bootstrap'
+          elsif node_bundle?
+            resolved_handler = derive_default_node_bundle_handler
+          end
+        end
         @handler = resolved_handler&.freeze
         @architecture = normalize_architecture(architecture)
         @memory = memory.to_i
@@ -91,7 +116,7 @@ module Veltrunode
         @function_url = normalize_function_url(function_url)
         @image = normalize_image(image.nil? ? container_image : image)
 
-        freeze if @handler || @runtime || @image || @custom_runtime
+        freeze if @handler || @runtime || @image || @custom_runtime || @node_bundle
       end
 
       def handler=(h)
@@ -230,6 +255,67 @@ module Veltrunode
 
       def go_arch
         arm64? ? 'arm64' : 'amd64'
+      end
+
+      def node_bundle?
+        !@node_bundle.nil? && !@node_bundle.empty?
+      end
+      alias bundled_nodejs? node_bundle?
+
+      def entry
+        @node_bundle&.fetch('entry', nil)
+      end
+
+      def bundler
+        @node_bundle&.fetch('bundler', nil)
+      end
+
+      def esbuild?
+        node_bundle? && bundler == 'esbuild'
+      end
+
+      def bun?
+        node_bundle? && bundler == 'bun'
+      end
+
+      def sourcemap
+        @node_bundle&.fetch('sourcemap', nil)
+      end
+      alias source_map sourcemap
+
+      def sourcemap?
+        ![nil, false, 'false', 'none'].include?(sourcemap)
+      end
+      alias source_map? sourcemap?
+
+      def bundle_outfile
+        return nil unless node_bundle?
+
+        explicit_out = @node_bundle['outfile']
+        return explicit_out if explicit_out && !explicit_out.strip.empty?
+
+        ext = @node_bundle['format'] == 'esm' ? '.mjs' : '.js'
+        if @handler&.include?('.')
+          mod_part = @handler.rpartition('.').first
+          return "#{File.basename(mod_part)}#{ext}" unless mod_part.empty?
+        end
+
+        base = File.basename(entry.to_s).sub(/\.(?:[cm]?ts|tsx|[cm]?js|jsx)\z/i, '')
+        base = 'index' if base.empty?
+        "#{base}#{ext}"
+      end
+
+      def bundle_target
+        return nil unless node_bundle?
+
+        explicit_target = @node_bundle['target']
+        return explicit_target if explicit_target && !explicit_target.strip.empty?
+
+        if @runtime.to_s =~ /\Anode(?:js)?(\d+)/i
+          "node#{Regexp.last_match(1)}"
+        else
+          'node20'
+        end
       end
 
       def image_dockerfile
@@ -484,6 +570,144 @@ module Veltrunode
           'go'
         else
           'prebuilt'
+        end
+      end
+
+      def derive_default_node_bundle_handler
+        out = @node_bundle['outfile']
+        mod = if out && !out.strip.empty?
+                out.sub(/\.(?:[cm]?js)\z/i, '')
+              else
+                base = File.basename(@node_bundle['entry'].to_s).sub(/\.(?:[cm]?ts|tsx|[cm]?js|jsx)\z/i, '')
+                base.empty? ? 'index' : base
+              end
+        export_name = @node_bundle['export_name'] || 'handler'
+        "#{mod}.#{export_name}"
+      end
+
+      def normalize_node_bundle(raw_bundle, entry: nil, esbuild: nil, bun: nil, sourcemap: nil, minify: nil,
+                                external: nil)
+        has_any = !raw_bundle.nil? || !entry.nil? || !esbuild.nil? || !bun.nil? ||
+                  !sourcemap.nil? || !minify.nil? || !external.nil?
+        return nil unless has_any
+        return nil if raw_bundle == false && entry.nil? && esbuild.nil? && bun.nil?
+
+        base = {}
+        if esbuild.is_a?(Hash)
+          base.merge!(esbuild.transform_keys(&:to_sym))
+          base[:bundler] ||= 'esbuild'
+        elsif esbuild.is_a?(String)
+          base[:entry] = esbuild
+          base[:bundler] ||= 'esbuild'
+        elsif esbuild
+          base[:bundler] ||= 'esbuild'
+        end
+
+        if bun.is_a?(Hash)
+          base.merge!(bun.transform_keys(&:to_sym))
+          base[:bundler] = 'bun'
+        elsif bun.is_a?(String)
+          base[:entry] = bun
+          base[:bundler] = 'bun'
+        elsif bun
+          base[:bundler] = 'bun'
+        end
+
+        case raw_bundle
+        when Hash
+          base.merge!(raw_bundle.transform_keys(&:to_sym))
+        when String
+          base[:entry] ||= raw_bundle
+        when Symbol
+          base[:bundler] = raw_bundle.to_s
+        end
+
+        base[:entry] = entry if entry
+        base[:sourcemap] = sourcemap unless sourcemap.nil?
+        base[:minify] = minify unless minify.nil?
+        base[:external] = external unless external.nil?
+
+        normalize_node_bundle_hash(base)
+      end
+
+      def normalize_node_bundle_hash(raw)
+        entry_raw = (raw[:entry] || raw[:entry_point] || raw[:entrypoint]).to_s.strip
+        if entry_raw.empty?
+          raise ValidationError, "Function Node.js/TypeScript bundle configuration requires an 'entry' file path"
+        end
+
+        entry_file, export_name = split_entry_and_export(entry_raw)
+        bundler_raw = (raw[:bundler] || 'esbuild').to_s.strip.downcase
+        unless %w[esbuild bun].include?(bundler_raw)
+          raise ValidationError, "Unsupported Node.js bundler '#{bundler_raw}'. Valid bundlers are :esbuild, :bun"
+        end
+
+        tree_shake = raw[:tree_shaking].nil? || (raw[:tree_shaking] ? true : false)
+        res = {
+          'entry' => entry_file,
+          'bundler' => bundler_raw,
+          'sourcemap' => normalize_sourcemap_option(raw.key?(:sourcemap) ? raw[:sourcemap] : raw[:source_map]),
+          'minify' => raw[:minify] ? true : false,
+          'tree_shaking' => tree_shake,
+          'format' => normalize_bundle_format(raw[:format])
+        }
+        res['export_name'] = export_name if export_name
+        res['target'] = raw[:target].to_s.strip if raw[:target] && !raw[:target].to_s.strip.empty?
+        res['outfile'] = raw[:outfile].to_s.strip if raw[:outfile] && !raw[:outfile].to_s.strip.empty?
+        res['tsconfig'] = raw[:tsconfig].to_s.strip if raw[:tsconfig] && !raw[:tsconfig].to_s.strip.empty?
+        res['banner'] = raw[:banner].to_s if raw[:banner] && !raw[:banner].to_s.empty?
+
+        ext_list = Array(raw[:external]).flatten.compact.map(&:to_s).reject(&:empty?)
+        res['external'] = ext_list unless ext_list.empty?
+
+        if raw[:define].is_a?(Hash) && !raw[:define].empty?
+          res['define'] = raw[:define].transform_keys(&:to_s).transform_values(&:to_s)
+        end
+
+        flags = Array(raw[:build_flags] || raw[:flags]).flatten.compact.map(&:to_s)
+        res['build_flags'] = flags unless flags.empty?
+
+        freeze_hash(res)
+      end
+
+      def split_entry_and_export(entry_str)
+        if entry_str.include?(':') && !entry_str.match?(%r{\A[a-zA-Z]:[\\/]})
+          file_part, exp_part = entry_str.split(':', 2)
+          [file_part.strip, exp_part.strip.empty? ? nil : exp_part.strip]
+        else
+          [entry_str, nil]
+        end
+      end
+
+      def normalize_sourcemap_option(val)
+        return false if val.nil? || val == false
+
+        return true if val == true
+
+        str = val.to_s.strip.downcase
+        case str
+        when 'true', 'yes', 'enabled'
+          true
+        when 'false', 'no', 'none', 'disabled', ''
+          false
+        when 'inline', 'external', 'linked', 'both'
+          str
+        else
+          raise ValidationError,
+                "Invalid sourcemap option '#{val}'. Valid options are true, false, :inline, :external, :linked, :both"
+        end
+      end
+
+      def normalize_bundle_format(fmt)
+        return 'cjs' if fmt.nil? || fmt.to_s.strip.empty?
+
+        case fmt.to_s.strip.downcase
+        when 'cjs', 'commonjs'
+          'cjs'
+        when 'esm', 'module'
+          'esm'
+        else
+          raise ValidationError, "Unsupported bundle format '#{fmt}'. Valid formats are :cjs, :esm"
         end
       end
 
