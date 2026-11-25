@@ -983,5 +983,55 @@ RSpec.describe Veltrunode::DSL do
       expect(go_fn.custom_runtime['cgo_enabled']).to be(false)
       expect(go_fn.go_arch).to eq('amd64')
     end
+
+    it 'supports runtime: "nodejs20.x", entry: "src/handler.ts" and esbuild / bun DSL blocks with sourcemap' do
+      code = <<~RUBY
+        Veltrunode.application "ts-bundle-app" do
+          function :ts_api, runtime: "nodejs20.x", entry: "src/handler.ts", sourcemap: true do
+            memory 512
+          end
+
+          function :esbuild_worker do
+            runtime "nodejs20.x"
+            esbuild do
+              entry "src/worker.ts"
+              sourcemap :external
+              minify true
+              tree_shaking true
+              external "@aws-sdk/*"
+              target "node20"
+            end
+          end
+
+          function :bun_processor do
+            runtime "nodejs20.x"
+            bun entry: "src/processor.ts", sourcemap: :inline, minify: true
+          end
+        end
+      RUBY
+
+      app = Veltrunode.parse(code)
+      expect(app.functions.size).to eq(3)
+
+      f1 = app.functions.find { |f| f.logical_name == 'ts_api' }
+      expect(f1.runtime).to eq('nodejs20.x')
+      expect(f1.entry).to eq('src/handler.ts')
+      expect(f1.handler).to eq('handler.handler')
+      expect(f1.esbuild?).to be(true)
+      expect(f1.sourcemap).to be(true)
+      expect(f1.sourcemap?).to be(true)
+
+      f2 = app.functions.find { |f| f.logical_name == 'esbuild_worker' }
+      expect(f2.esbuild?).to be(true)
+      expect(f2.entry).to eq('src/worker.ts')
+      expect(f2.sourcemap).to eq('external')
+      expect(f2.node_bundle['minify']).to be(true)
+      expect(f2.node_bundle['external']).to eq(['@aws-sdk/*'])
+
+      f3 = app.functions.find { |f| f.logical_name == 'bun_processor' }
+      expect(f3.bun?).to be(true)
+      expect(f3.entry).to eq('src/processor.ts')
+      expect(f3.sourcemap).to eq('inline')
+    end
   end
 end

@@ -166,7 +166,9 @@ module Veltrunode
                    kinesis_stream: nil, msk: nil, mq: nil, function_url: nil,
                    mounts: nil, efs_mounts: nil, efs_mount: nil, mount: nil,
                    image: nil, container_image: nil,
-                   custom_runtime: nil, cargo: nil, rust: nil, go: nil, binary: nil, bootstrap: nil, **, &)
+                   custom_runtime: nil, cargo: nil, rust: nil, go: nil, binary: nil, bootstrap: nil,
+                   entry: nil, bundle: nil, esbuild: nil, bun: nil, sourcemap: nil, source_map: nil,
+                   minify: nil, external: nil, **, &)
         alarms_cfg = alarms.nil? ? @runtime_defaults[:alarms] : alarms
         fn_url_cfg = function_url.nil? ? @runtime_defaults[:function_url] : function_url
         img_cfg = image.nil? ? container_image : image
@@ -176,6 +178,15 @@ module Veltrunode
           go: go,
           binary: binary,
           bootstrap: bootstrap
+        )
+        node_bundle_cfg = resolve_node_bundle_arg(
+          bundle: bundle,
+          entry: entry,
+          esbuild: esbuild,
+          bun: bun,
+          sourcemap: sourcemap.nil? ? source_map : sourcemap,
+          minify: minify,
+          external: external
         )
         arch_explicit = !architecture.nil?
         arch_cfg = if arch_explicit
@@ -204,7 +215,8 @@ module Veltrunode
           function_url_default: fn_url_cfg,
           mounts_default: mounts_cfg,
           image_default: img_cfg,
-          custom_runtime_default: custom_rt_cfg
+          custom_runtime_default: custom_rt_cfg,
+          node_bundle_default: node_bundle_cfg
         )
         builder.instance_eval(&) if block_given?
         @function_builders << builder
@@ -467,6 +479,31 @@ module Veltrunode
 
           { toolchain: 'prebuilt', bootstrap_path: bootstrap.to_s }
         end
+      end
+
+      def resolve_node_bundle_arg(bundle:, entry:, esbuild:, bun:, sourcemap:, minify:, external:)
+        has_any = !bundle.nil? || !entry.nil? || !esbuild.nil? || !bun.nil? ||
+                  !sourcemap.nil? || !minify.nil? || !external.nil?
+        return nil unless has_any
+
+        cfg = {}
+        cfg.merge!(esbuild.transform_keys(&:to_sym)) if esbuild.is_a?(Hash)
+        cfg[:entry] = esbuild if esbuild.is_a?(String)
+        cfg[:bundler] = 'esbuild' if esbuild
+
+        cfg.merge!(bun.transform_keys(&:to_sym)) if bun.is_a?(Hash)
+        cfg[:entry] = bun if bun.is_a?(String)
+        cfg[:bundler] = 'bun' if bun
+
+        cfg.merge!(bundle.transform_keys(&:to_sym)) if bundle.is_a?(Hash)
+        cfg[:entry] ||= bundle if bundle.is_a?(String)
+        cfg[:bundler] = bundle.to_s if bundle.is_a?(Symbol)
+
+        cfg[:entry] = entry if entry
+        cfg[:sourcemap] = sourcemap unless sourcemap.nil?
+        cfg[:minify] = minify unless minify.nil?
+        cfg[:external] = external unless external.nil?
+        cfg
       end
 
       def normalize_architecture_symbol(arch)

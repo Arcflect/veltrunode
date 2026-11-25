@@ -466,5 +466,45 @@ RSpec.describe Veltrunode::Model::Function do
         expect(go_fn.go_arch).to eq('amd64')
       end
     end
+
+    describe 'Node.js / TypeScript esbuild & Bun bundling configuration' do
+      it 'supports runtime: "nodejs20.x", entry: "src/handler.ts", sourcemap, and bundler options' do
+        fn = described_class.new(
+          logical_name: 'ts_api',
+          runtime: 'nodejs20.x',
+          entry: 'src/handler.ts',
+          sourcemap: true,
+          minify: true,
+          external: ['@aws-sdk/*']
+        )
+
+        expect(fn.node_bundle?).to be(true)
+        expect(fn.esbuild?).to be(true)
+        expect(fn.bun?).to be(false)
+        expect(fn.entry).to eq('src/handler.ts')
+        expect(fn.runtime).to eq('nodejs20.x')
+        expect(fn.handler).to eq('handler.handler')
+        expect(fn.bundle_outfile).to eq('handler.js')
+        expect(fn.bundle_target).to eq('node20')
+        expect(fn.sourcemap).to be(true)
+        expect(fn.sourcemap?).to be(true)
+        expect(fn.node_bundle['minify']).to be(true)
+        expect(fn.node_bundle['tree_shaking']).to be(true)
+        expect(fn.node_bundle['external']).to eq(['@aws-sdk/*'])
+
+        bun_fn = described_class.new(
+          logical_name: 'bun_worker',
+          bun: { entry: 'src/worker.ts:run', sourcemap: :inline, format: :esm }
+        )
+
+        expect(bun_fn.node_bundle?).to be(true)
+        expect(bun_fn.bun?).to be(true)
+        expect(bun_fn.runtime).to eq('nodejs20.x')
+        expect(bun_fn.entry).to eq('src/worker.ts')
+        expect(bun_fn.handler).to eq('worker.run')
+        expect(bun_fn.bundle_outfile).to eq('worker.mjs')
+        expect(bun_fn.sourcemap).to eq('inline')
+      end
+    end
   end
 end

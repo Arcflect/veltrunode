@@ -143,12 +143,78 @@ module Veltrunode
         alias environment env
       end
 
+      # esbuild { ... } / bun { ... } / bundle { ... } ブロック用ビルダ
+      class NodeBundleBlockBuilder < BaseBuilder
+        attr_reader :config
+
+        def initialize(initial = {})
+          super()
+          @config = initial.dup
+        end
+
+        def entry(val)
+          @config[:entry] = val
+        end
+        alias entry_point entry
+        alias entrypoint entry
+
+        def bundler(val)
+          @config[:bundler] = val
+        end
+
+        def sourcemap(val = true) # rubocop:disable Style/OptionalBooleanParameter
+          @config[:sourcemap] = val
+        end
+        alias source_map sourcemap
+
+        def minify(val = true) # rubocop:disable Style/OptionalBooleanParameter
+          @config[:minify] = val ? true : false
+        end
+
+        def tree_shaking(val = true) # rubocop:disable Style/OptionalBooleanParameter
+          @config[:tree_shaking] = val ? true : false
+        end
+
+        def format(val)
+          @config[:format] = val
+        end
+
+        def target(val)
+          @config[:target] = val
+        end
+
+        def outfile(val)
+          @config[:outfile] = val
+        end
+
+        def tsconfig(val)
+          @config[:tsconfig] = val
+        end
+
+        def banner(val)
+          @config[:banner] = val
+        end
+
+        def external(*vals)
+          @config[:external] = ((@config[:external] || []) + vals.flatten.compact).uniq
+        end
+
+        def define(hash)
+          @config[:define] = (@config[:define] || {}).merge(hash) if hash.is_a?(Hash)
+        end
+
+        def build_flags(*vals)
+          @config[:build_flags] = vals.flatten.compact
+        end
+        alias flags build_flags
+      end
+
       attr_reader :inline_mounts
 
       def initialize(logical_name, runtime_default: nil, architecture_default: :x86_64, architecture_explicit: false,
                      tracing_default: nil, insights_default: nil, async_invoke_default: nil, alarms_default: nil,
                      event_sources_default: nil, function_url_default: nil, mounts_default: nil, image_default: nil,
-                     custom_runtime_default: nil)
+                     custom_runtime_default: nil, node_bundle_default: nil)
         super()
         @logical_name = logical_name.to_s
         @handler = nil
@@ -178,8 +244,10 @@ module Veltrunode
         @function_url = function_url_default
         @image = nil
         @custom_runtime = nil
+        @node_bundle = nil
         image(image_default) unless image_default.nil?
         custom_runtime(custom_runtime_default) unless custom_runtime_default.nil?
+        bundle(node_bundle_default) unless node_bundle_default.nil?
         apply_event_sources_default(event_sources_default) if event_sources_default
         add_mount_entries(mounts_default) if mounts_default
       end
@@ -305,6 +373,70 @@ module Veltrunode
         custom_runtime(opts, &)
       end
       alias golang go
+
+      def bundle(val_or_opts = nil, **kwargs, &)
+        if val_or_opts == false
+          @node_bundle = nil
+          return
+        end
+
+        base = @node_bundle.is_a?(Hash) ? @node_bundle.dup : {}
+        case val_or_opts
+        when Hash
+          base.merge!(val_or_opts.transform_keys(&:to_sym))
+        when String
+          base[:entry] = val_or_opts
+        when Symbol
+          base[:bundler] = val_or_opts.to_s
+        end
+        base.merge!(kwargs) unless kwargs.empty?
+
+        if block_given?
+          block_builder = NodeBundleBlockBuilder.new(base)
+          block_builder.instance_eval(&)
+          base = block_builder.config
+        end
+
+        @node_bundle = base
+      end
+      alias node_bundle bundle
+
+      def entry(path_or_opts = nil, **kwargs, &)
+        if path_or_opts.is_a?(Hash)
+          bundle(path_or_opts.merge(kwargs), &)
+        else
+          bundle(kwargs.merge(entry: path_or_opts), &)
+        end
+      end
+      alias entry_point entry
+      alias entrypoint entry
+
+      def esbuild(path_or_opts = nil, **kwargs, &)
+        opts = kwargs.dup
+        if path_or_opts.is_a?(Hash)
+          opts = path_or_opts.merge(opts)
+        elsif path_or_opts.is_a?(String)
+          opts[:entry] ||= path_or_opts
+        end
+        opts[:bundler] = 'esbuild'
+        bundle(opts, &)
+      end
+
+      def bun(path_or_opts = nil, **kwargs, &)
+        opts = kwargs.dup
+        if path_or_opts.is_a?(Hash)
+          opts = path_or_opts.merge(opts)
+        elsif path_or_opts.is_a?(String)
+          opts[:entry] ||= path_or_opts
+        end
+        opts[:bundler] = 'bun'
+        bundle(opts, &)
+      end
+
+      def sourcemap(val = true) # rubocop:disable Style/OptionalBooleanParameter
+        bundle(sourcemap: val)
+      end
+      alias source_map sourcemap
 
       def architecture(a)
         @explicit_architecture = true
@@ -688,7 +820,8 @@ module Veltrunode
           event_sources: @event_sources,
           function_url: @function_url,
           image: @image,
-          custom_runtime: @custom_runtime
+          custom_runtime: @custom_runtime,
+          bundle: @node_bundle
         )
       end
 
