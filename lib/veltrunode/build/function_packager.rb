@@ -6,6 +6,7 @@ require_relative 'deterministic_archiver'
 require_relative 'package_result'
 require_relative 'image_builder'
 require_relative 'custom_runtime_builder'
+require_relative 'node_bundle_builder'
 require_relative 'secret_scanner'
 require_relative 'cache'
 require_relative '../validation'
@@ -59,6 +60,18 @@ module Veltrunode
 
         if custom_runtime_build?
           return CustomRuntimeBuilder.package(
+            function: @function,
+            source_dir: @source_dir,
+            output_dir: @output_dir,
+            no_cache: @no_cache,
+            cache_dir: @cache_dir,
+            cache_config: @cache_config,
+            s3_client: @s3_client
+          )
+        end
+
+        if node_bundle_build?
+          return NodeBundleBuilder.package(
             function: @function,
             source_dir: @source_dir,
             output_dir: @output_dir,
@@ -188,6 +201,10 @@ module Veltrunode
         @function.respond_to?(:custom_runtime?) && @function.custom_runtime?
       end
 
+      def node_bundle_build?
+        @function.respond_to?(:node_bundle?) && @function.node_bundle?
+      end
+
       def validate_handler_file!(fn_name, handler_str)
         return if handler_str.nil? || handler_str.to_s.strip.empty?
 
@@ -197,7 +214,7 @@ module Veltrunode
 
         real_source_dir = File.exist?(@source_dir) ? File.realpath(@source_dir) : @source_dir
         base_prefix = real_source_dir.end_with?(File::SEPARATOR) ? real_source_dir : "#{real_source_dir}#{File::SEPARATOR}"
-        candidate_extensions = ['', '.rb', '.py', '.js', '.mjs', '.cjs']
+        candidate_extensions = ['', '.rb', '.py', '.js', '.mjs', '.cjs', '.ts', '.tsx', '.mts', '.cts']
         found = candidate_extensions.any? do |ext|
           rel = "#{mod_path}#{ext}"
           abs = File.expand_path(rel, real_source_dir)

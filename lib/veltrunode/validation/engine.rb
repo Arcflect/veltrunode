@@ -455,6 +455,24 @@ module Veltrunode
 
           next if fn.respond_to?(:custom_runtime?) && fn.custom_runtime?
 
+          if fn.respond_to?(:node_bundle?) && fn.node_bundle?
+            entry_rel = fn.respond_to?(:entry) ? fn.entry.to_s.strip : ''
+            abs_entry = File.expand_path(entry_rel, real_source_dir)
+            next if !entry_rel.empty? && File.file?(abs_entry)
+
+            diagnostics << Diagnostics::Diagnostic.new(
+              code: 'VLT-BUILD-ENTRY-NOT-FOUND',
+              severity: :error,
+              summary: "Entry file not found for function '#{fn.logical_name}': '#{entry_rel}'.",
+              suggested_action: "Ensure entry file '#{entry_rel}' exists in source directory '#{source_dir}'.",
+              evidence: {
+                'function' => fn.logical_name,
+                'entry' => entry_rel
+              }
+            )
+            next
+          end
+
           handler_str = fn.respond_to?(:handler) ? fn.handler.to_s.strip : ''
           next if handler_str.empty?
 
