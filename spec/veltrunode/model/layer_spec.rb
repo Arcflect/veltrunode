@@ -160,6 +160,18 @@ RSpec.describe Veltrunode::Model::Layer do
         expect(layer.arm64?).to be(true)
         expect(layer.default_architecture?).to be(false)
       end
+
+      it 'exposes uv?, poetry?, python_package_manager, and pyproject_path helpers' do
+        uv_layer = described_class.new(
+          name: 'py_uv_deps',
+          compatible_runtimes: ['python3.12'],
+          build_environment: { 'package_manager' => 'uv', 'pyproject' => 'pyproject.toml' }
+        )
+        expect(uv_layer.uv?).to be(true)
+        expect(uv_layer.poetry?).to be(false)
+        expect(uv_layer.python_package_manager).to eq('uv')
+        expect(uv_layer.pyproject_path).to eq('pyproject.toml')
+      end
     end
   end
 end

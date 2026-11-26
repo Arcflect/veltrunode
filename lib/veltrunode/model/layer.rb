@@ -55,6 +55,22 @@ module Veltrunode
         @default_architecture
       end
 
+      def python_package_manager
+        @build_environment['package_manager'] || @build_environment[:package_manager]
+      end
+
+      def uv?
+        python_package_manager.to_s == 'uv'
+      end
+
+      def poetry?
+        python_package_manager.to_s == 'poetry'
+      end
+
+      def pyproject_path
+        @build_environment['pyproject'] || @build_environment[:pyproject]
+      end
+
       private
 
       def validate!(name:, compatible_runtimes:, retention_policy:)
