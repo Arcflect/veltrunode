@@ -9,6 +9,7 @@ require_relative 'deterministic_archiver'
 require_relative 'layer_package_result'
 require_relative 'container_runner'
 require_relative 'native_builder'
+require_relative 'python_uv_layer_builder'
 require_relative 'cache'
 require_relative '../validation'
 
@@ -249,6 +250,21 @@ module Veltrunode
       end
 
       def package_python_layer(layer_name)
+        if uv_or_poetry_layer?
+          return PythonUvLayerBuilder.package(
+            layer: @layer,
+            source_dir: @source_dir,
+            output_dir: @output_dir,
+            requirements_path: @requirements_path,
+            architecture: @architecture,
+            allow_missing_packages: @allow_missing_packages,
+            no_cache: @no_cache,
+            cache_dir: @cache_dir,
+            cache_config: @cache_config,
+            s3_client: @s3_client
+          )
+        end
+
         req_content = read_requirements_file
         image_digest = resolve_container_build_if_needed
         content_hash = calculate_python_content_hash(req_content, image_digest: image_digest)
@@ -408,6 +424,19 @@ module Veltrunode
 
       def resolve_python_version
         resolve_python_versions.first
+      end
+
+      def uv_or_poetry_layer?
+        return true if @layer.respond_to?(:uv?) && (@layer.uv? || @layer.poetry?)
+        return true if @layer.respond_to?(:pyproject_path) && @layer.pyproject_path
+
+        if @layer.respond_to?(:build_environment) && @layer.build_environment.is_a?(Hash)
+          env = @layer.build_environment
+          pm = (env['package_manager'] || env[:package_manager]).to_s
+          return true if %w[uv poetry].include?(pm) || env['pyproject'] || env[:pyproject]
+        end
+
+        false
       end
 
       def python_abi_specific_files_present?(dir)
