@@ -246,3 +246,40 @@ end
 2. **Source Map 出力オプション (`sourcemap`)**:
    - `sourcemap: true`（または `:external` / `:linked`）を指定すると、`--sourcemap` オプションを付与して `<outfile>.map`（例: `handler.js.map`）を生成し、バンドル済み JS ファイルとともに ZIP アーカイブへ同梱します。
    - `sourcemap: :inline` を指定すると、`--sourcemap=inline` によりインライン Source Map を JS ファイル内に埋め込みます。
+
+## Python `uv` / `Poetry` 高速レイヤービルド
+
+Python プロジェクトにおいて、`pyproject.toml`（PEP 621 / Poetry）または `requirements.txt` から `uv` を用いて高速な依存解決と Linux 向けバイナリホイール取得を行い、Lambda 互換の `python/lib/python3.x/site-packages` 構造レイヤー ZIP を自動生成できます。
+
+### DSL 設定例 (`Veltrunodefile`)
+
+```ruby
+Veltrunode.application "python-ai-service" do
+  aws region: "ap-northeast-1", account: "123456789012"
+  runtime python: "3.12", architecture: :arm64
+
+  # 1. uv による pyproject.toml / uv.lock からのレイヤー生成
+  layer :ai_deps do
+    uv pyproject: "pyproject.toml", lockfile: "uv.lock", extras: [:aws], only_binary: true
+  end
+
+  # 2. Poetry プロジェクト (pyproject.toml / poetry.lock) からのレイヤー生成
+  layer :poetry_deps, architecture: :x86_64 do
+    poetry pyproject: "pyproject.toml", lockfile: "poetry.lock", without: %i[dev test]
+  end
+
+  function :inference do
+    handler "app.handler"
+    attach_layer :ai_deps
+  end
+end
+```
+
+### 自動化される動作 (`Veltrunode::Build::PythonUvLayerBuilder`)
+
+1. **`uv` を利用した高速な依存解決とホイールダウンロード**:
+   - `uv pip install --requirement <pyproject.toml|requirements.txt> --target <site-packages> --only-binary :all: --no-cache` を実行し、高速な依存解決とホイール展開を行います。
+2. **`python/lib/python3.x/site-packages` 構造のレイヤー ZIP 自動生成**:
+   - Layer の `compatible_runtimes`（例: `python3.12`）に合わせて `python/lib/python3.12/site-packages/` ディレクトリ構造を自動構築し、決定論的なレイヤー ZIP を出力します。
+3. **Linux `x86_64` / `arm64` 向けバイナリホイールの自動取得**:
+   - Layer のターゲットアーキテクチャ（`:x86_64` -> `--python-platform x86_64-unknown-linux-gnu` / `manylinux2014_x86_64`、`:arm64` -> `--python-platform aarch64-unknown-linux-gnu` / `manylinux2014_aarch64`）を指定し、macOS 等の異なるホスト OS 上からでも Lambda 実行環境向けの Linux バイナリホイールを自動取得します。

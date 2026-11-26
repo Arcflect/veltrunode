@@ -1033,5 +1033,39 @@ RSpec.describe Veltrunode::DSL do
       expect(f3.entry).to eq('src/processor.ts')
       expect(f3.sourcemap).to eq('inline')
     end
+
+    it 'supports uv and poetry DSL methods in layer definitions' do
+      code = <<~RUBY
+        Veltrunode.application "python-uv-app" do
+          runtime python: "3.12", architecture: :arm64
+
+          layer :uv_deps do
+            uv pyproject: "pyproject.toml", lockfile: "uv.lock", extras: [:aws], only_binary: true
+          end
+
+          layer :poetry_deps do
+            poetry pyproject: "pyproject.toml", lockfile: "poetry.lock", without: %i[dev test]
+          end
+        end
+      RUBY
+
+      app = Veltrunode.parse(code)
+      expect(app.layers.size).to eq(2)
+
+      uv_layer = app.layers.find { |l| l.name == 'uv_deps' }
+      expect(uv_layer.uv?).to be(true)
+      expect(uv_layer.compatible_runtimes).to eq(['python3.12'])
+      expect(uv_layer.architectures).to eq([:arm64])
+      expect(uv_layer.pyproject_path).to eq('pyproject.toml')
+      expect(uv_layer.build_environment['lockfile']).to eq('uv.lock')
+      expect(uv_layer.build_environment['extras']).to eq(['aws'])
+      expect(uv_layer.build_environment['only_binary']).to be(true)
+
+      poetry_layer = app.layers.find { |l| l.name == 'poetry_deps' }
+      expect(poetry_layer.poetry?).to be(true)
+      expect(poetry_layer.pyproject_path).to eq('pyproject.toml')
+      expect(poetry_layer.build_environment['lockfile']).to eq('poetry.lock')
+      expect(poetry_layer.build_environment['without']).to eq(%w[dev test])
+    end
   end
 end
