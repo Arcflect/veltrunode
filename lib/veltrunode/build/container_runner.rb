@@ -14,6 +14,8 @@ module Veltrunode
         'aarch64' => 'linux/arm64'
       }.freeze
 
+      ROOTLESS_EXECUTABLES = %w[podman nerdctl finch].freeze
+
       attr_reader :image, :command, :environment, :volume_mounts, :architecture, :workdir, :executable
 
       class << self
@@ -23,6 +25,20 @@ module Veltrunode
 
         def detect_executable
           %w[docker podman].find { |cmd| executable_in_path?(cmd) }
+        end
+
+        def detect_rootless_executable
+          ROOTLESS_EXECUTABLES.find { |cmd| executable_in_path?(cmd) }
+        end
+
+        def daemon_available?(executable = nil)
+          exe = executable || detect_executable
+          return false unless exe
+          return true if ROOTLESS_EXECUTABLES.include?(File.basename(exe.to_s))
+
+          sock = ENV['DOCKER_HOST'] || '/var/run/docker.sock'
+          sock_path = sock.sub(%r{\Aunix://}, '')
+          File.exist?(sock_path)
         end
 
         def executable_in_path?(cmd)

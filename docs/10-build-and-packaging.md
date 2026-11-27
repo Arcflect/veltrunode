@@ -283,3 +283,45 @@ end
    - Layer の `compatible_runtimes`（例: `python3.12`）に合わせて `python/lib/python3.12/site-packages/` ディレクトリ構造を自動構築し、決定論的なレイヤー ZIP を出力します。
 3. **Linux `x86_64` / `arm64` 向けバイナリホイールの自動取得**:
    - Layer のターゲットアーキテクチャ（`:x86_64` -> `--python-platform x86_64-unknown-linux-gnu` / `manylinux2014_x86_64`、`:arm64` -> `--python-platform aarch64-unknown-linux-gnu` / `manylinux2014_aarch64`）を指定し、macOS 等の異なるホスト OS 上からでも Lambda 実行環境向けの Linux バイナリホイールを自動取得します。
+
+## Docker レスビルドモード（Rootless CI / `--no-docker` 対応）
+
+Kubernetes 上の CI Pod やセキュリティ制約により Docker デーモン（Docker-in-Docker）が利用できない環境向けに、Docker デーモン不要でネイティブ拡張をビルド・パッケージングする代替手段（`Veltrunode::Build::DockerlessBuilder`）を提供します。
+
+### CLI オプション (`--no-docker`)
+
+`veltrunode build --no-docker`、`veltrunode plan --no-docker`、`veltrunode deploy --no-docker` を指定することで、Docker コンテナの起動をスキップし、外部ビルド済みバイナリの取り込みまたはホスト環境でのパッケージングへ切り替えます。
+
+### DSL 設定例 (`Veltrunodefile`)
+
+```ruby
+Veltrunode.application "k8s-ci-service" do
+  aws region: "ap-northeast-1", account: "123456789012"
+  runtime ruby: "3.3"
+
+  # 1. 外部ビルド済みバイナリ (vendor/prebuilt) の取り込みと Docker レス指定
+  layer :prebuilt_gems do
+    bundle lockfile: "Gemfile.lock"
+    prebuilt "vendor/prebuilt/ruby"
+    no_docker true
+  end
+
+  # 2. Docker デーモン非存在時の自動フォールバック許可
+  layer :resilient_gems do
+    bundle lockfile: "Gemfile.lock"
+    build_on :amazon_linux_2023
+    fallback_to_host true
+  end
+end
+```
+
+### フォールバック優先順位と診断警告 (`VLT-BUILD-DOCKER-FALLBACK`)
+
+Docker デーモンが利用できない場合、または `--no-docker` が指定された場合、警告診断 `VLT-BUILD-DOCKER-FALLBACK`（重要度: `warning`）を出力した上で以下の優先順位で代替ビルダーを起動します。
+
+1. **外部ビルドバイナリの取り込み (`prebuilt_path` / `vendor/prebuilt`)**:
+   - 事前コンパイル済みのネイティブ拡張やライブラリツリーを直接ステージングします。
+2. **Rootless コンテナランタイム (`podman` / `nerdctl` / `finch`)**:
+   - Docker デーモンが非存在で `--no-docker` が指定されていない場合、デーモン不要な Rootless ランタイムを自動検出してビルドを実行します。
+3. **ホスト環境での Bundler Packaging / ローカルキャッシュビルド (`vendor/cache`)**:
+   - `vendor/cache/*.gem` が存在する場合は `bundle install --local`、それ以外はホスト環境のツールチェーンを用いて依存関係をパッケージングします。
