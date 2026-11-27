@@ -1067,5 +1067,26 @@ RSpec.describe Veltrunode::DSL do
       expect(poetry_layer.build_environment['lockfile']).to eq('poetry.lock')
       expect(poetry_layer.build_environment['without']).to eq(%w[dev test])
     end
+
+    it 'supports dockerless build DSL (no_docker, prebuilt, fallback_to_host) in layer definitions' do
+      code = <<~RUBY
+        Veltrunode.application "dockerless-ci-app" do
+          runtime ruby: "3.3"
+
+          layer :host_gems do
+            bundle lockfile: "Gemfile.lock"
+            no_docker true
+            fallback_to_host true
+            prebuilt "vendor/prebuilt/ruby"
+          end
+        end
+      RUBY
+
+      app = Veltrunode.parse(code)
+      layer = app.layers.first
+      expect(layer.no_docker?).to be(true)
+      expect(layer.fallback_to_host?).to be(true)
+      expect(layer.prebuilt_path).to eq('vendor/prebuilt/ruby')
+    end
   end
 end

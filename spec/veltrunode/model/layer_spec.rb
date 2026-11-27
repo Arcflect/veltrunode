@@ -172,6 +172,21 @@ RSpec.describe Veltrunode::Model::Layer do
         expect(uv_layer.python_package_manager).to eq('uv')
         expect(uv_layer.pyproject_path).to eq('pyproject.toml')
       end
+
+      it 'exposes prebuilt_path, no_docker?, and fallback_to_host? helpers for dockerless build mode' do
+        layer = described_class.new(
+          name: 'dockerless_gems',
+          compatible_runtimes: ['ruby3.3'],
+          build_environment: {
+            'prebuilt_path' => 'vendor/prebuilt',
+            'no_docker' => true,
+            'fallback_to_host' => true
+          }
+        )
+        expect(layer.prebuilt_path).to eq('vendor/prebuilt')
+        expect(layer.no_docker?).to be(true)
+        expect(layer.fallback_to_host?).to be(true)
+      end
     end
   end
 end

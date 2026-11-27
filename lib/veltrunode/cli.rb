@@ -132,6 +132,12 @@ module Veltrunode
           @argv.delete('--no-cache')
         end
 
+        # --no-docker フラグの抽出
+        if @argv.include?('--no-docker')
+          @options[:no_docker] = true
+          @argv.delete('--no-docker')
+        end
+
         # --aws フラグの抽出
         if @argv.include?('--aws')
           @options[:aws] = true
@@ -392,10 +398,14 @@ module Veltrunode
         source_dir = Dir.pwd if source_dir.empty? || source_dir == '.'
 
         begin
-          result = Veltrunode::Build::Pipeline.execute(
-            application,
+          build_opts = {
             source_dir: source_dir,
             no_cache: no_cache
+          }
+          build_opts[:no_docker] = true if @options[:no_docker]
+          result = Veltrunode::Build::Pipeline.execute(
+            application,
+            **build_opts
           )
         rescue Veltrunode::ValidationError => e
           return handle_validation_error(e.diagnostics)
@@ -452,6 +462,11 @@ module Veltrunode
         if @options[:format] == :json
           output_json_success(result.to_h)
         else
+          if result.respond_to?(:diagnostics)
+            Array(result.diagnostics).select { |d| d.severity == :warning }.each do |diag|
+              $stdout.puts "[WARN] [#{diag.code}] #{diag.summary}"
+            end
+          end
           $stdout.puts 'Build successful.'
           $stdout.puts 'Generated artifacts:'
 
@@ -499,10 +514,14 @@ module Veltrunode
 
         no_cache = @options[:no_cache] || false
         begin
-          build_result = Veltrunode::Build::Pipeline.execute(
-            application,
+          build_opts = {
             source_dir: source_dir,
             no_cache: no_cache
+          }
+          build_opts[:no_docker] = true if @options[:no_docker]
+          build_result = Veltrunode::Build::Pipeline.execute(
+            application,
+            **build_opts
           )
         rescue Veltrunode::ValidationError => e
           return handle_validation_error(e.diagnostics)
