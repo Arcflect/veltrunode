@@ -52,6 +52,8 @@ module Veltrunode
           includes: nil,
           excludes: nil,
           no_cache: false,
+          no_docker: false,
+          prebuilt_path: nil,
           cache_dir: nil,
           cache_config: nil,
           s3_client: nil
@@ -77,6 +79,8 @@ module Veltrunode
             includes: includes,
             excludes: excludes,
             no_cache: no_cache,
+            no_docker: no_docker,
+            prebuilt_path: prebuilt_path,
             cache_dir: cache_dir,
             cache_config: cache_config,
             s3_client: s3_client
@@ -103,6 +107,8 @@ module Veltrunode
           container_runner: ContainerRunner,
           includes: nil,
           excludes: nil,
+          no_docker: false,
+          prebuilt_path: nil,
           skip_container_build: true
         )
           new(
@@ -124,7 +130,9 @@ module Veltrunode
             native_builder: native_builder,
             container_runner: container_runner,
             includes: includes,
-            excludes: excludes
+            excludes: excludes,
+            no_docker: no_docker,
+            prebuilt_path: prebuilt_path
           ).calculate_hash(skip_container_build: skip_container_build)
         end
       end
@@ -150,6 +158,8 @@ module Veltrunode
         includes: nil,
         excludes: nil,
         no_cache: false,
+        no_docker: false,
+        prebuilt_path: nil,
         cache_dir: nil,
         cache_config: nil,
         s3_client: nil
@@ -174,6 +184,9 @@ module Veltrunode
         @user_includes = includes ? Array(includes).map(&:to_s) : []
         @user_excludes = excludes ? Array(excludes).map(&:to_s) : []
         @no_cache = no_cache
+        @no_docker = no_docker ? true : false
+        @prebuilt_path = prebuilt_path
+        @diagnostics = []
         @cache_dir = cache_dir ? File.expand_path(cache_dir.to_s) : File.join(@source_dir, '.veltrunode', 'cache')
         @cache_config = cache_config
         @s3_client = s3_client
@@ -369,7 +382,7 @@ module Veltrunode
           uncompressed_size: size_diag[:uncompressed_size],
           size_diagnostics: size_diag,
           entries: archive_result.entries,
-          diagnostics: [],
+          diagnostics: @diagnostics,
           cached: false
         )
       end
@@ -904,7 +917,10 @@ module Veltrunode
       end
 
       def resolve_container_build_if_needed
+        layer_no_docker = @no_docker || (@layer.respond_to?(:no_docker?) && @layer.no_docker?)
+        layer_prebuilt = @prebuilt_path || (@layer.respond_to?(:prebuilt_path) ? @layer.prebuilt_path : nil)
         build_on_setting = @build_on || extract_build_on_from_layer
+        build_on_setting ||= :host if layer_no_docker || layer_prebuilt
         return nil unless build_on_setting
 
         archs = extract_architectures
@@ -920,7 +936,7 @@ module Veltrunode
         runtime = runtimes.first
 
         output_dir = resolve_container_output_dir(runtime)
-        builder_result = @native_builder.build(
+        build_kwargs = {
           source_dir: @source_dir,
           output_dir: output_dir,
           runtime: runtime,
@@ -932,7 +948,13 @@ module Veltrunode
           package_json_path: @package_json_path,
           package_lock_path: @package_lock_path,
           layer: @layer
-        )
+        }
+        if @native_builder == NativeBuilder
+          build_kwargs[:no_docker] = true if layer_no_docker
+          build_kwargs[:prebuilt_path] = layer_prebuilt if layer_prebuilt
+        end
+        builder_result = @native_builder.build(**build_kwargs)
+        @diagnostics.concat(Array(builder_result[:diagnostics])) if builder_result.is_a?(Hash)
 
         builder_result[:image_digest]
       end

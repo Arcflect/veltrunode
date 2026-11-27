@@ -5,6 +5,7 @@ require 'fileutils'
 require 'pathname'
 require 'shellwords'
 require_relative 'container_runner'
+require_relative 'dockerless_builder'
 require_relative '../validation'
 
 module Veltrunode
@@ -58,7 +59,11 @@ module Veltrunode
           requirements_path: nil,
           package_json_path: nil,
           package_lock_path: nil,
-          layer: nil
+          layer: nil,
+          no_docker: false,
+          prebuilt_path: nil,
+          fallback_on_missing_docker: false,
+          command_runner: nil
         )
           new(
             source_dir: source_dir,
@@ -72,13 +77,17 @@ module Veltrunode
             requirements_path: requirements_path,
             package_json_path: package_json_path,
             package_lock_path: package_lock_path,
-            layer: layer
+            layer: layer,
+            no_docker: no_docker,
+            prebuilt_path: prebuilt_path,
+            fallback_on_missing_docker: fallback_on_missing_docker,
+            command_runner: command_runner
           ).build
         end
       end
 
       attr_reader :source_dir, :output_dir, :runtime, :architecture, :platform, :build_on, :image, :image_digest,
-                  :requirements_path, :package_json_path, :package_lock_path, :layer
+                  :requirements_path, :package_json_path, :package_lock_path, :layer, :no_docker, :prebuilt_path
 
       def initialize(
         source_dir:,
@@ -92,7 +101,11 @@ module Veltrunode
         requirements_path: nil,
         package_json_path: nil,
         package_lock_path: nil,
-        layer: nil
+        layer: nil,
+        no_docker: false,
+        prebuilt_path: nil,
+        fallback_on_missing_docker: false,
+        command_runner: nil
       )
         @source_dir = File.expand_path(source_dir.to_s)
         @output_dir = File.expand_path(output_dir.to_s)
@@ -108,6 +121,10 @@ module Veltrunode
         @requirements_path = resolve_requirements_path(requirements_path)
         @package_json_path = resolve_package_json_path(package_json_path)
         @package_lock_path = resolve_package_lock_path(package_lock_path)
+        @no_docker = no_docker_enabled?(no_docker)
+        @prebuilt_path = prebuilt_path
+        @fallback_on_missing_docker = fallback_on_missing_docker_enabled?(fallback_on_missing_docker)
+        @command_runner = command_runner
 
         validate_output_dir!
 
@@ -117,21 +134,32 @@ module Veltrunode
       def build
         FileUtils.mkdir_p(@output_dir)
 
+        if @no_docker || @prebuilt_path || (@layer.respond_to?(:prebuilt_path) && @layer.prebuilt_path)
+          reason = @no_docker ? 'Docker disabled (--no-docker)' : 'Prebuilt path configured'
+          return run_dockerless_fallback(reason: reason)
+        end
+
         container_command = resolve_container_command
         volume_mounts = {
           @source_dir => '/var/task'
         }
         environment = resolve_environment
 
-        result = @container_runner.run(
-          image: @image,
-          command: container_command,
-          environment: environment,
-          volume_mounts: volume_mounts,
-          architecture: @architecture,
-          workdir: '/var/task',
-          runner_executable: @runner_executable
-        )
+        begin
+          result = @container_runner.run(
+            image: @image,
+            command: container_command,
+            environment: environment,
+            volume_mounts: volume_mounts,
+            architecture: @architecture,
+            workdir: '/var/task',
+            runner_executable: @runner_executable
+          )
+        rescue ValidationError => e
+          raise unless @fallback_on_missing_docker && docker_unavailable_error?(e)
+
+          return run_dockerless_fallback(reason: e.message, prefer_rootless: true)
+        end
 
         {
           image: @image,
@@ -139,7 +167,8 @@ module Veltrunode
           architecture: @architecture,
           platform: @platform,
           output_dir: @output_dir,
-          result: result
+          result: result,
+          diagnostics: []
         }
       end
 
@@ -154,6 +183,47 @@ module Veltrunode
         else
           arch.to_s.strip.freeze
         end
+      end
+
+      def no_docker_enabled?(explicit_flag)
+        return true if explicit_flag
+        return true if @layer.respond_to?(:no_docker?) && @layer.no_docker?
+
+        %w[host local dockerless no_docker prebuilt].include?(@build_on.to_s.downcase)
+      end
+
+      def fallback_on_missing_docker_enabled?(explicit_flag)
+        return true if explicit_flag
+        return true if @layer.respond_to?(:fallback_to_host?) && @layer.fallback_to_host?
+
+        false
+      end
+
+      def docker_unavailable_error?(err)
+        codes = Array(err.diagnostics).map(&:code)
+        return true if codes.include?('VLT-BUILD-DOCKER-NOT-FOUND')
+
+        msg = err.message.to_s
+        msg.include?('Cannot connect to the Docker daemon') || msg.include?('not found in PATH')
+      end
+
+      def run_dockerless_fallback(reason:, prefer_rootless: false)
+        DockerlessBuilder.build(
+          source_dir: @source_dir,
+          output_dir: @output_dir,
+          runtime: @runtime,
+          architecture: @architecture,
+          prebuilt_path: @prebuilt_path,
+          no_docker: @no_docker,
+          prefer_rootless: prefer_rootless,
+          image: @image,
+          layer: @layer,
+          requirements_path: @requirements_path,
+          package_json_path: @package_json_path,
+          container_runner: @container_runner,
+          command_runner: @command_runner,
+          fallback_reason: reason
+        )
       end
 
       def resolve_expected_output_dirs

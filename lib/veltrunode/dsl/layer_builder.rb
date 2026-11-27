@@ -96,6 +96,21 @@ module Veltrunode
         @build_environment['build_on'] = platform.to_s
       end
 
+      def prebuilt(path)
+        @build_environment['prebuilt_path'] = path.to_s
+      end
+      alias prebuilt_path prebuilt
+      alias external_binaries prebuilt
+
+      def no_docker(val = true) # rubocop:disable Style/OptionalBooleanParameter
+        @build_environment['no_docker'] = val ? true : false
+      end
+      alias dockerless no_docker
+
+      def fallback_to_host(val = true) # rubocop:disable Style/OptionalBooleanParameter
+        @build_environment['fallback_to_host'] = val ? true : false
+      end
+
       def retain(policy = { latest: 5 })
         @retention_policy = policy
       end

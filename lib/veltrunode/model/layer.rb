@@ -71,6 +71,27 @@ module Veltrunode
         @build_environment['pyproject'] || @build_environment[:pyproject]
       end
 
+      def prebuilt_path
+        @build_environment['prebuilt_path'] || @build_environment[:prebuilt_path]
+      end
+
+      def no_docker?
+        val = @build_environment.key?('no_docker') ? @build_environment['no_docker'] : @build_environment[:no_docker]
+        return true if val == true
+
+        build_on_val = (@build_environment['build_on'] || @build_environment[:build_on]).to_s.downcase
+        %w[host local dockerless no_docker prebuilt].include?(build_on_val)
+      end
+
+      def fallback_to_host?
+        val = if @build_environment.key?('fallback_to_host')
+                @build_environment['fallback_to_host']
+              else
+                @build_environment[:fallback_to_host]
+              end
+        val == true
+      end
+
       private
 
       def validate!(name:, compatible_runtimes:, retention_policy:)

@@ -219,7 +219,9 @@ module Veltrunode
 
       def step_build!
         no_cache = options[:no_cache] || false
-        Veltrunode::Build::Pipeline.execute(application, source_dir: source_dir, no_cache: no_cache)
+        build_opts = { source_dir: source_dir, no_cache: no_cache }
+        build_opts[:no_docker] = true if options[:no_docker]
+        Veltrunode::Build::Pipeline.execute(application, **build_opts)
       rescue Veltrunode::ValidationError => e
         is_policy_violation = Array(e.diagnostics).any? do |d|
           d.code == 'VLT-IAM-001' || (d.evidence.is_a?(Hash) && d.evidence['policy_violation'])

@@ -31,6 +31,7 @@ module Veltrunode
           source_dir: Dir.pwd,
           output_dir: nil,
           no_cache: false,
+          no_docker: false,
           skip_validation: false,
           aws_client: nil,
           check_aws: true,
@@ -44,6 +45,7 @@ module Veltrunode
             source_dir: source_dir,
             output_dir: output_dir,
             no_cache: no_cache,
+            no_docker: no_docker,
             skip_validation: skip_validation,
             aws_client: aws_client,
             check_aws: check_aws,
@@ -59,6 +61,7 @@ module Veltrunode
                   :source_dir,
                   :output_dir,
                   :no_cache,
+                  :no_docker,
                   :skip_validation,
                   :aws_client,
                   :check_aws,
@@ -73,6 +76,7 @@ module Veltrunode
         source_dir: Dir.pwd,
         output_dir: nil,
         no_cache: false,
+        no_docker: false,
         skip_validation: false,
         aws_client: nil,
         check_aws: true,
@@ -85,6 +89,7 @@ module Veltrunode
         @source_dir = File.expand_path(source_dir.to_s.empty? ? Dir.pwd : source_dir.to_s)
         @output_dir = output_dir ? File.expand_path(output_dir.to_s) : File.join(@source_dir, 'build')
         @no_cache = no_cache ? true : false
+        @no_docker = no_docker ? true : false
         @skip_validation = skip_validation ? true : false
         @aws_client = aws_client
         @check_aws = check_aws ? true : false
@@ -153,6 +158,7 @@ module Veltrunode
             }
             inferred_arch = resolve_layer_target_architecture(layer, layer_name)
             pkg_opts[:architecture] = inferred_arch if inferred_arch
+            pkg_opts[:no_docker] = true if @no_docker
             pkg_opts[:allow_missing_gems] = true if resolve_allow_missing_gems(layer)
             pkg_opts[:cache_config] = @cache_config if @cache_config && !@cache_config.empty?
             pkg_opts[:s3_client] = @s3_client if @s3_client
