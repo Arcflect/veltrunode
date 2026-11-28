@@ -82,6 +82,8 @@ module Veltrunode
           execute_efs_bench
         elsif match_command?('layer inspect')
           execute_layer_inspect
+        elsif match_command?('layer tree')
+          execute_layer_tree
         elsif match_command?('layer prune') || match_command?('layer cleanup')
           execute_layer_prune
         elsif match_command?('schedule preview')
@@ -1306,6 +1308,40 @@ module Veltrunode
         $stdout.puts '=' * 80
       end
 
+      def execute_layer_tree
+        @current_command = 'layer tree'
+        target_name = @argv.first
+        application = load_application!
+
+        source_dir = @options[:file] ? File.dirname(File.expand_path(@options[:file])) : Dir.pwd
+        source_dir = Dir.pwd if source_dir.empty? || source_dir == '.'
+
+        require_relative 'aws/inspectors'
+
+        begin
+          report = Veltrunode::AWS::Inspectors::LayerTreeInspector.inspect(
+            application,
+            target_name: target_name,
+            source_dir: source_dir
+          )
+        rescue StandardError => e
+          return handle_error(e.message, EXIT_INVALID_INPUT)
+        end
+
+        if @options[:format] == :json
+          output_json(
+            command: 'layer tree',
+            status: 'success',
+            diagnostics: report.diagnostics,
+            data: report.to_h
+          )
+        else
+          $stdout.puts report.render_ascii_tree
+        end
+
+        EXIT_SUCCESS
+      end
+
       def execute_layer_prune
         @current_command = 'layer prune'
         name = @argv.first
@@ -1734,6 +1770,7 @@ module Veltrunode
             efs quota [NAME]           # Display EFS storage breakdown (Standard / IA) and regional quotas
             efs bench NAME             # Run EFS 4KB random and 1MB sequential I/O benchmark via Lambda
             layer inspect NAME         # Inspect Lambda Layer version
+            layer tree [NAME]          # Display ASCII dependency tree of functions, layers, and gems
             layer prune NAME           # Prune old Lambda Layer versions
             schedule preview NAME      # Preview future run times for schedule
             tail NAME [NAME2...]       # Stream CloudWatch Logs for Lambda functions in real time
@@ -1755,6 +1792,8 @@ module Veltrunode
             { name: 'efs bench NAME',
               description: 'Run EFS 4KB random and 1MB sequential I/O benchmark via Lambda' },
             { name: 'layer inspect NAME', description: 'Inspect Lambda Layer version' },
+            { name: 'layer tree [NAME]',
+              description: 'Display ASCII dependency tree of functions, layers, and gems' },
             { name: 'layer prune NAME', description: 'Prune old Lambda Layer versions' },
             { name: 'schedule preview NAME', description: 'Preview future run times for schedule' },
             { name: 'tail NAME [NAME2...]', description: 'Stream CloudWatch Logs for Lambda functions in real time' },
