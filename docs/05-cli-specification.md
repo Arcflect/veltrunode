@@ -72,6 +72,18 @@ EFS API（`DescribeFileSystems` / `DescribeAccessPoints`）を呼び出し、フ
 ### `veltrunode layer inspect NAME`
 ソースのハッシュ値、生成されたサイズ、互換性のあるランタイムおよびアーキテクチャ、発行履歴、および再利用の判定結果を表示します。
 
+### `veltrunode layer tree [NAME]`
+各 Lambda 関数にアタッチされた Layer と、各 Layer から提供される Gem / ライブラリの依存関係ツリーをアスキーアート（`├──`, `└──`）形式でターミナルに描画します。
+
+- **引数**:
+  - `NAME`（任意）: 特定の関数名または Layer 名を指定すると、対象に関連するツリーのみをフィルタ表示します（省略時はアプリケーション全体の関数・Layer ツリーを表示）。
+- **オプション**:
+  - `--format <text|json>`: 出力形式（デフォルト: `text`）
+  - `--file <path>`: カスタム `Veltrunodefile` のパス
+- **表示項目**:
+  - 各 Gem のバージョン、サイズ（`KB` / `MB`）、ライセンス（`MIT`, `BSD-2-Clause` 等）および依存階層
+  - 複数 Layer 間で重複またはバージョン不一致となっている競合ライブラリのハイライト表示（`⚠️ [CONFLICT: duplicate / version mismatch]`）と診断警告（`VLT-LAYER-CONFLICT-001`）
+
 ### `veltrunode schedule preview NAME --count 10`
 設定されたタイムゾーンにおける、将来の実行予定時刻の一覧を表示します。
 
